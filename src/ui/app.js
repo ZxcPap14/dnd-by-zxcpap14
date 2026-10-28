@@ -1,10 +1,18 @@
-// app.js — склейка всего: экраны, игровой цикл, ввод, смерть, зал славы, экспорт.
+// app.js — склейка всего: экраны, игровой цикл, ввод, кооп (хост/клиент), смерть, зал славы, экспорт.
 
-import { newGame, parseCommand, applyIntent, applyDmEffects, visibleMonsters } from '../engine/game.js';
+import { newGame, parseCommand, applyIntent, applyDmEffects } from '../engine/game.js';
 import { createClient, extractJson } from '../ai/client.js';
 import { buildContext, introMessages, classMessages } from '../ai/dm.js';
 import { stubDmTurn, resetStub } from '../ai/stub.js';
-import { createTyper, renderMap, renderStats, renderQuests } from './terminal.js';
+import { createHostSession } from '../net/host.js';
+import { createClientSession } from '../net/client.js';
+import { makeRoomCode } from '../net/loopback.js';
+import { createPeerHostNet, createPeerClientLink } from '../net/peer.js';
+import { PROTOCOL_VER } from '../net/protocol.js';
+import {
+  createTyper, renderMap, renderStats, renderQuests,
+  renderSnapshotMap, renderStatsSnap
+} from './terminal.js';
 import { initAudio, rollSound, hitSound, lootSound, levelUpSound, deathSound, blip } from './sound.js';
 
 const $ = (id) => document.getElementById(id);
@@ -16,13 +24,18 @@ const STUB_CLASSES = [
 ];
 
 let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini' };
-let client = null;
-let state = null;
+let client = null;          // AI-клиент (хост/соло)
+let state = null;           // соло-состояние
 let typer = null;
 let chronicle = [];
 let inputHistory = [];
 let historyIdx = -1;
-let busy = false;
+
+let sessionMode = 'solo';   // 'solo' | 'host' | 'client'
+let hostSession = null;
+let clientSession = null;
+let mySnapshot = null;
+let roomCode = null;
 
 // ---------- хранилище ----------
 
@@ -111,42 +124,75 @@ function addSetupNote(text) {
   n.style.display = 'block';
 }
 
-// ---------- игра ----------
+function readCommonConfig() {
+  return {
+    world: $('set-world').value.trim() || 'Классическое тёмное фэнтези',
+    mode: $('set-mode').value,
+    name: $('set-name').value.trim() || 'Безымянный'
+  };
+}
 
-function startGame() {
+function selectedClasses() {
+  try { return JSON.parse($('class-list').dataset.payload || 'null') || STUB_CLASSES; }
+  catch { return STUB_CLASSES; }
+}
+
+/** Асинхронный ДМ: ИИ хоста или заглушка. */
+function makeDmResolver() {
+  return {
+    resolveFree: async (game, text) => {
+      if (client) {
+        try {
+          const raw = await client.chat(buildContext(game, text), { maxTokens: 600 });
+          const eff = extractJson(raw);
+          return eff || { narrative: raw.slice(0, 800) };
+        } catch (e) {
+          return { narrative: `ИИ замолк (${e.message}), поэтому придётся импровизировать.` };
+        }
+      }
+      return stubDmTurn(game, text);
+    }
+  };
+}
+
+// ---------- СОЛО ----------
+
+function startSolo() {
   saveCfg();
   initAudio();
-  const c = currentClient();
-  const world = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
-  const mode = $('set-mode').value;
-  const name = $('set-name').value.trim() || 'Безымянный';
-  let classes = STUB_CLASSES;
-  try { classes = JSON.parse($('class-list').dataset.payload || 'null') || STUB_CLASSES; } catch { /*ignore*/ }
+  currentClient();
+  const { world, mode, name } = readCommonConfig();
+  const classes = selectedClasses();
   const cls = classes[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
 
   resetStub();
-  state = newGame({ seed: (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0, mode, worldDesc: world, className: cls.name, name, stats: cls.stats });
+  sessionMode = 'solo';
+  state = newGame({
+    seed: (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
+    mode, worldDesc: world,
+    players: [{ name, className: cls.name, stats: cls.stats }]
+  });
   chronicle = [`МИР: ${world}`, `РЕЖИМ: ${mode === 'sandbox' ? 'песочница' : 'сюжет'}`, `ГЕРОЙ: ${name}, ${cls.name}`];
   typer = createTyper($('log'));
   showScreen('screen-game');
-  refreshPanels();
+  refreshPanelsSolo();
+  $('turn-banner').textContent = 'СОЛО · твой ход всегда';
 
-  // вступление от ДМа
-  if (c) {
-    c.chat(introMessages(state), { maxTokens: 500 })
+  if (client) {
+    client.chat(introMessages(state), { maxTokens: 500 })
       .then(raw => {
         const eff = extractJson(raw);
-        handleEvents(applyDmEffects(state, eff || { narrative: raw.slice(0, 600) }));
+        handleEventsSolo(applyDmEffects(state, eff || { narrative: raw.slice(0, 600) }));
       })
-      .catch(e => handleEvents(applyDmEffects(state, { narrative: `ДМ не отвечает (${e.message}), поэтому придётся импровизировать. Ты очнулся в темноте. Как обычно.` })));
+      .catch(e => handleEventsSolo(applyDmEffects(state, { narrative: `ДМ не отвечает (${e.message}), поэтому придётся импровизировать. Ты очнулся в темноте. Как обычно.` })));
   } else {
-    handleEvents(applyDmEffects(state, stubDmTurn(state, 'начало')));
-    handleEvents(applyDmEffects(state, { narrative: 'Режим без ИИ: заглушка-ДМ издевается по шаблонам. Введи ключ в настройках, чтобы разбудить настоящего тролля.' }));
+    handleEventsSolo(applyDmEffects(state, stubDmTurn(state, 'начало')));
+    handleEventsSolo(applyDmEffects(state, { narrative: 'Режим без ИИ: заглушка-ДМ издевается по шаблонам. Введи ключ в настройках, чтобы разбудить настоящего тролля.' }));
   }
   $('input').focus();
 }
 
-function refreshPanels() {
+function refreshPanelsSolo() {
   renderMap($('map'), state);
   renderStats($('stats'), state);
   renderQuests($('quest-list'), state);
@@ -161,69 +207,185 @@ function logEvent(kind, text) {
     case 'combat': hitSound(); break;
     case 'loot': lootSound(); break;
     case 'death': deathSound(); break;
-    case 'levelup': levelUpSound(); break;
     default: break;
   }
 }
 
-function handleEvents(events) {
+function handleEventsSolo(events) {
   for (const e of events) {
-    if (e.kind === 'dm' && e.text.startsWith('__FREE__')) {
-      const freeText = e.text.slice('__FREE__'.length);
-      processFree(freeText);
-      continue;
-    }
     if (e.kind === 'loot' && /УРОВЕНЬ/.test(e.text)) levelUpSound();
     logEvent(e.kind, e.text);
   }
-  refreshPanels();
-  if (state.over) {
-    typer.onFinish(showDeath);
-  }
+  refreshPanelsSolo();
+  if (state.over) typer.onFinish(showDeathSolo);
 }
 
-async function processFree(text) {
-  logEvent('system', `… мир обдумывает «${text}» …`);
-  if (client) {
-    try {
-      const msgs = buildContext(state, text);
-      const raw = await client.chat(msgs, { maxTokens: 600 });
-      const eff = extractJson(raw);
-      if (eff) {
-        handleEvents(applyDmEffects(state, eff));
-      } else {
-        // модель ответила болтовнёй — покажем как нарратив, без эффектов
-        handleEvents(applyDmEffects(state, { narrative: raw.slice(0, 800) }));
-      }
-      return;
-    } catch (e) {
-      logEvent('system', `ИИ замолк: ${e.message}. Переходим на заглушку.`);
-    }
-  }
-  handleEvents(applyDmEffects(state, stubDmTurn(state, text)));
-}
+// ---------- КОП: ХОСТ ----------
 
-function submitInput() {
-  if (!state || state.over || busy) return;
-  const text = $('input').value.trim();
-  if (!text) return;
-  $('input').value = '';
-  inputHistory.push(text);
-  historyIdx = inputHistory.length;
-  blip(520);
-  logEvent('player', `> ${text}`);
-  const intent = parseCommand(text);
-  busy = true;
+async function startHostRoom() {
+  saveCfg();
+  initAudio();
+  currentClient();
+  const { name } = readCommonConfig();
+  roomCode = makeRoomCode();
+  $('lobby-panel').style.display = 'block';
+  $('room-code').textContent = '····';
+  $('lobby-list').innerHTML = '<div class="class-loading">Создаём комнату…</div>';
+  $('btn-start').disabled = true;
+
+  let net;
   try {
-    handleEvents(applyIntent(state, intent));
-  } finally {
-    busy = false;
+    net = await createPeerHostNet(roomCode);
+  } catch (e) {
+    $('btn-start').disabled = false;
+    $('lobby-panel').style.display = 'none';
+    addSetupNote(`Не удалось создать комнату: ${e.message}`);
+    return;
   }
+
+  sessionMode = 'host';
+  hostSession = createHostSession({
+    net,
+    hostName: name,
+    dm: makeDmResolver(),
+    turnMs: 60000
+  });
+  hostSession.onLobby(renderLobby);
+  hostSession.onEvents(evs => { if (typer) evs.forEach(e => logEvent(e.kind, e.text)); });
+  hostSession.onSnapshot(snap => applySnapshot(snap));
+
+  $('room-code').textContent = roomCode;
+  $('btn-start').disabled = false;
+  $('btn-start').textContent = '▶ ЖДАТЬ ИГРОКОВ…';
+  $('btn-start').disabled = true;
+  $('btn-launch').style.display = 'inline-block';
+  renderLobby(hostSession.getLobby());
+}
+
+function renderLobby(players) {
+  $('lobby-list').innerHTML = players.map(p =>
+    `<div class="quest">◆ ${esc(p.name)}${p.host ? ' <span class="hof-meta">(хост, оплачивает ИИ)</span>' : ''}</div>`
+  ).join('');
+  if (sessionMode === 'host') {
+    $('btn-launch').disabled = players.length < 1;
+    $('btn-launch').textContent = players.length < 2
+      ? '▶ НАЧАТЬ (можно и одному)'
+      : `▶ НАЧАТЬ СПУСК (${players.length} героев)`;
+  }
+}
+
+async function hostLaunch() {
+  const { world, mode, name } = readCommonConfig();
+  const classes = selectedClasses();
+  const lobby = hostSession.getLobby();
+  const classAssignments = lobby.map((p, i) => ({
+    name: p.name,
+    className: classes[i % classes.length].name,
+    stats: classes[i % classes.length].stats
+  }));
+  chronicle = [`МИР: ${world}`, `РЕЖИМ: ${mode === 'sandbox' ? 'песочница' : 'сюжет'} · КО-ОП`, `ПАРТИЯ: ${classAssignments.map(c => c.name).join(', ')}`];
+  typer = createTyper($('log'));
+  showScreen('screen-game');
+  $('turn-banner').textContent = 'ЖДЁМ ХОДА…';
+  const intro = client
+    ? async (game) => {
+      try {
+        const raw = await client.chat(introMessages(game), { maxTokens: 500 });
+        return extractJson(raw) || { narrative: raw.slice(0, 600) };
+      } catch (e) {
+        return { narrative: `ДМ не отвечает (${e.message}). Партия очнулась в темноте. Как обычно.` };
+      }
+    }
+  : async () => ({ narrative: `Вы все очнулись в темноте. ${name} претендует на роль лидера — подземелью это смешно.` });
+  hostSession.startGame({ worldDesc: world, mode, classAssignments, intro });
+}
+
+// ---------- КОП: КЛИЕНТ ----------
+
+async function joinRoom() {
+  saveCfg();
+  initAudio();
+  const code = ($('set-room').value || '').trim().toUpperCase();
+  const name = $('set-name').value.trim() || 'Безымянный';
+  if (code.length !== 4) { addSetupNote('Код комнаты — 4 символа'); return; }
+
+  $('lobby-panel').style.display = 'block';
+  $('room-code').textContent = code;
+  $('lobby-list').innerHTML = '<div class="class-loading">Подключаемся…</div>';
+  $('btn-start').disabled = true;
+
+  let link;
+  try {
+    link = await createPeerClientLink(code);
+  } catch (e) {
+    $('btn-start').disabled = false;
+    $('lobby-panel').style.display = 'none';
+    addSetupNote(`Не удалось подключиться: ${e.message}`);
+    return;
+  }
+
+  sessionMode = 'client';
+  clientSession = createClientSession({ link, name });
+  clientSession.onLobby(renderLobby);
+  clientSession.onEvents(evs => { if (typer) evs.forEach(e => logEvent(e.kind, e.text)); });
+  clientSession.onSnapshot(snap => applySnapshot(snap));
+  clientSession.onStart(() => {
+    chronicle = [`КО-ОП · комната ${code}`];
+    typer = createTyper($('log'));
+    showScreen('screen-game');
+    $('turn-banner').textContent = 'ЖДЁМ ХОДА…';
+  });
+  clientSession.onReject(r => backToSetup(`Отказ: ${r.reason}`));
+  clientSession.onKicked(r => backToSetup(`Тебя выгнали: ${r.reason}`));
+  clientSession.onClose(() => {
+    if (sessionMode === 'client') backToSetup('Соединение с хостом потеряно. Забег погиб вместе с ним.');
+  });
+  clientSession.hello();
+}
+
+function backToSetup(note) {
+  sessionMode = 'solo';
+  hostSession = null;
+  clientSession = null;
+  mySnapshot = null;
+  showScreen('screen-setup');
+  $('lobby-panel').style.display = 'none';
+  $('btn-start').disabled = false;
+  $('btn-start').textContent = '▶ НАЧАТЬ ЗАБЕГ';
+  $('btn-launch').style.display = 'none';
+  renderHof();
+  if (note) addSetupNote(note);
+}
+
+// ---------- общий рендер из снапшота (хост+клиент в копе) ----------
+
+function applySnapshot(snap) {
+  mySnapshot = snap;
+  renderSnapshotMap($('map'), snap);
+  renderStatsSnap($('stats'), snap);
+  renderQuests($('quest-list'), snap);
+  $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`;
+  const hero = snap.heroes[snap.you];
+  if (snap.over) {
+    $('turn-banner').textContent = '☠ ПАРТИЯ УНИЧТОЖЕНА';
+    typer.onFinish(() => showDeathSnap(snap));
+  } else if (!hero.alive) {
+    $('turn-banner').textContent = '☠ ТЫ МЁРТВ — наблюдаешь за партией';
+  } else if (snap.turnOf === snap.you) {
+    $('turn-banner').textContent = `▶ ТВОЙ ХОД (${hero.name})`;
+  } else {
+    $('turn-banner').textContent = `Ход: ${snap.heroes[snap.turnOf]?.name || '…'} — жди`;
+  }
+  // блокируем ввод чужого хода
+  $('input').disabled = !snap.over && hero.alive && snap.turnOf !== snap.you;
+  $('input').placeholder = $('input').disabled
+    ? 'жди своего хода…'
+    : 'что ты делаешь? (пиши свободно) · ↑ история';
 }
 
 // ---------- смерть ----------
 
-function showDeath() {
+function showDeathSolo() {
   saveHofEntry({
     name: state.player.name,
     className: state.player.className,
@@ -232,8 +394,28 @@ function showDeath() {
     epitaph: state.epitaph || 'умер от жизни',
     date: new Date().toLocaleDateString('ru-RU')
   });
-  $('death-epitaph').textContent = state.epitaph || '';
-  $('death-stats').textContent = `${state.player.name}, ${state.player.className}, ур.${state.player.level}. Дошёл до этажа ${state.depth}. Ходов: ${state.turn}.`;
+  showDeathCommon(state.epitaph || '', `${state.player.name}, ${state.player.className}, ур.${state.player.level}. Дошёл до этажа ${state.depth}. Ходов: ${state.turn}.`);
+}
+
+function showDeathSnap(snap) {
+  const me = snap.heroes[snap.you];
+  saveHofEntry({
+    name: me.name,
+    className: me.className,
+    world: snap.worldDesc,
+    depth: snap.depth,
+    epitaph: snap.epitaph || (me.alive ? 'пережил всех, но не подземелье' : 'погиб в подземелье'),
+    date: new Date().toLocaleDateString('ru-RU')
+  });
+  showDeathCommon(
+    snap.epitaph || '',
+    `${me.name}, ${me.className}, ур.${me.level}. Дошёл до этажа ${snap.depth}.`
+  );
+}
+
+function showDeathCommon(epitaph, stats) {
+  $('death-epitaph').textContent = epitaph;
+  $('death-stats').textContent = stats;
   $('screen-death').classList.add('active');
 }
 
@@ -246,13 +428,45 @@ function exportChronicle() {
     '═'.repeat(60),
     ''
   ].join('\n');
-  const body = chronicle.slice(3).map(l => l).join('\n');
-  const blob = new Blob([header + body + '\n\n' + '═'.repeat(60) + `\n${state?.epitaph ? 'ЭПИТАФИЯ: ' + state.epitaph : ''}\n`], { type: 'text/plain;charset=utf-8' });
+  const body = chronicle.slice(3).join('\n');
+  const tail = `\n\n${'═'.repeat(60)}\n${mySnapshot?.epitaph || state?.epitaph ? 'ЭПИТАФИЯ: ' + (mySnapshot?.epitaph || state?.epitaph) : ''}\n`;
+  const blob = new Blob([header + body + tail], { type: 'text/plain;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `dnd-chronicle-${Date.now()}.txt`;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+// ---------- ввод ----------
+
+function submitInput() {
+  const text = $('input').value.trim();
+  if (!text) return;
+  if (sessionMode === 'solo') {
+    if (!state || state.over) return;
+    $('input').value = '';
+    inputHistory.push(text);
+    historyIdx = inputHistory.length;
+    blip(520);
+    logEvent('player', `> ${text}`);
+    handleEventsSolo(applyIntent(state, parseCommand(text)));
+  } else if (sessionMode === 'host') {
+    if (!hostSession || !hostSession.isStarted()) return;
+    $('input').value = '';
+    inputHistory.push(text);
+    blip(520);
+    logEvent('player', `> ${text}`);
+    hostSession.localIntent(text);
+  } else if (sessionMode === 'client') {
+    if (!clientSession || !mySnapshot) return;
+    if (mySnapshot.turnOf !== mySnapshot.you) return;
+    $('input').value = '';
+    inputHistory.push(text);
+    blip(520);
+    logEvent('player', `> ${text}`);
+    clientSession.sendCommand(text);
+  }
 }
 
 // ---------- инициализация ----------
@@ -261,13 +475,25 @@ function wire() {
   loadCfg();
   renderHof();
 
+  $('set-mp').addEventListener('change', () => {
+    const mp = $('set-mp').value;
+    $('join-row').style.display = mp === 'join' ? 'flex' : 'none';
+    $('btn-start').textContent = mp === 'host' ? '▶ СОЗДАТЬ КОМНАТУ' : mp === 'join' ? '▶ ВОЙТИ В КОМНАТУ' : '▶ НАЧАТЬ ЗАБЕГ';
+  });
+
   $('btn-classes').addEventListener('click', renderClassList);
-  $('btn-start').addEventListener('click', startGame);
+  $('btn-start').addEventListener('click', () => {
+    const mp = $('set-mp').value;
+    if (mp === 'host') startHostRoom();
+    else if (mp === 'join') joinRoom();
+    else startSolo();
+  });
+  $('btn-launch').addEventListener('click', hostLaunch);
   $('btn-export').addEventListener('click', exportChronicle);
   $('btn-restart').addEventListener('click', () => {
     $('screen-death').classList.remove('active');
-    showScreen('screen-setup');
-    renderHof();
+    if (sessionMode === 'host' && hostSession) hostSession.stop();
+    backToSetup();
   });
   $('log').addEventListener('click', () => { typer && typer.skipAll(); });
 

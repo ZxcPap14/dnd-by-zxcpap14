@@ -41,6 +41,7 @@ export function buildContext(state, playerInput) {
       content: [
         `МИР: ${state.worldDesc}. Режим: ${state.mode}. ${state.floorName}.`,
         `ГЕРОЙ: ${p.name}, ${p.className}, ур.${p.level}, HP ${p.hp}/${p.maxHp}, AC ${playerAc(p)}, золото ${p.gold}.`,
+        `ПАРТИЯ: ${state.heroes.map(h => `${h.name} (${h.className}, HP ${h.hp}/${h.maxHp}${h.alive ? '' : ', МЁРТВ'})`).join('; ')}.`,
         `СТАТЫ: ${Object.entries(p.stats).map(([k, v]) => `${k} ${v}`).join(', ')}.`,
         `ИНВЕНТАРЬ: ${p.inventory.map(i => i.name).join(', ') || 'пуст'}; оружие: ${p.equipment.weapon?.name || 'кулаки'}; броня: ${p.equipment.armor?.name || 'нет'}.`,
         nearby.length ? `ВИДИТ ВРАГОВ: ${nearby.join(', ')}.` : 'ВРАГОВ НЕ ВИДИТ.',

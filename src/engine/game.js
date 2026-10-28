@@ -490,7 +490,7 @@ export function buildSnapshot(state, heroIdx = state.activeIdx) {
   return {
     t: 'snapshot',
     depth: state.depth, floorName: state.floorName, turnOf: state.activeIdx,
-    over: state.over, mode: state.mode, worldDesc: state.worldDesc, quests: [...state.quests],
+    over: state.over, epitaph: state.epitaph, mode: state.mode, worldDesc: state.worldDesc, quests: [...state.quests],
     you: heroIdx,
     heroes: state.heroes.map((h, i) => ({
       idx: i, name: h.name, className: h.className, alive: h.alive,

@@ -222,8 +222,32 @@
       </select>
     </div>
     <div class="field">
+      <label for="set-mp">Игра</label>
+      <select id="set-mp">
+        <option value="solo">Соло</option>
+        <option value="host">Кооп: создать комнату (2–4)</option>
+        <option value="join">Кооп: войти по коду</option>
+      </select>
+    </div>
+    <div class="field" id="join-row" style="display:none">
+      <label for="set-room">Код комнаты</label>
+      <input id="set-room" type="text" placeholder="ABCD" maxlength="4" style="text-transform:uppercase; letter-spacing:4px">
+    </div>
+    <div class="field">
       <label for="set-name">Имя героя</label>
       <input id="set-name" type="text" placeholder="Безымянный" maxlength="20">
+    </div>
+
+    <div id="lobby-panel" style="display:none; border:1px dashed var(--amber-dim); padding:12px; margin:10px 0">
+      <div class="field" style="justify-content:center">
+        <span class="stat-label">КОД КОМНАТЫ:</span>
+        <span id="room-code" style="font-size:22px; letter-spacing:8px; color:var(--amber-bright)">····</span>
+      </div>
+      <div class="hint" style="margin-left:0; text-align:center">Друзья открывают эту же страницу → «Кооп: войти по коду» → вводят код</div>
+      <div id="lobby-list" style="margin-top:8px"></div>
+      <div class="btn-row">
+        <button id="btn-launch" style="display:none">▶ НАЧАТЬ СПУСК</button>
+      </div>
     </div>
 
     <h2>КЛАСС <button id="btn-classes" style="font-size:11px; padding:3px 10px; margin-left:8px">перегенерировать под мир</button></h2>
@@ -258,6 +282,7 @@
 <div class="screen" id="screen-game">
   <header style="padding:0 0 4px">
     <div id="game-title">dnd by ZxcPap14 <span id="floor-label"></span></div>
+    <div id="turn-banner" style="font-size:11px; color:var(--amber-bright); letter-spacing:1px; margin-top:4px"></div>
   </header>
   <div class="game-grid">
     <div class="col">

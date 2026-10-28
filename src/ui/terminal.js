@@ -126,3 +126,43 @@ export function renderQuests(el, state) {
     ? state.quests.map(q => `<div class="quest">◆ ${q}</div>`).join('')
     : '<div class="quest quest-empty">Журнал пуст — судьба ещё не наградила тебя поручениями</div>';
 }
+
+// ---------- рендеры из сетевого снапшота (кооп) ----------
+
+const CELL_CLASS = {
+  '#': 'm-wall', '.': 'm-floor', 'м': 'm-mon', '!': 'm-item',
+  '†': 'm-item', '$': 'm-item', '>': 'm-stair', '@': 'm-pl'
+};
+
+/** Карта из персонального снапшота (символы уже вырезаны на хосте). */
+export function renderSnapshotMap(pre, snap) {
+  const parts = [];
+  for (const row of snap.map.cells) {
+    for (const ch of row) {
+      const cls = CELL_CLASS[ch];
+      parts.push(cls ? `<span class="${cls}">${ch === '>' ? '&gt;' : ch}</span>` : ' ');
+    }
+    parts.push('\n');
+  }
+  pre.innerHTML = parts.join('');
+}
+
+/** Статы + список партии из снапшота. */
+export function renderStatsSnap(el, snap) {
+  const s = snap.self;
+  const filled = Math.round((Math.max(0, s.hp) / s.maxHp) * 10);
+  const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
+  const party = snap.heroes.map(h => {
+    const dead = h.alive ? '' : ' <span class="hof-epitaph">☠</span>';
+    const you = h.idx === snap.you ? ' (ты)' : '';
+    return `<div class="stat-row"><span class="stat-label">${h.glyph} ${h.name}${you}</span><span>ур.${h.level} · ${h.hp}/${h.maxHp} HP${dead}</span></div>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="stat-row"><span class="stat-label">Уровень ${s.level}</span><span>XP ${s.xp}/${s.xpNext} · золото ${s.gold}</span></div>
+    <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${bar} ${s.hp}/${s.maxHp}</span></div>
+    <div class="stat-row"><span class="stat-label">Оружие</span><span>${s.equipment.weapon ? s.equipment.weapon.name : 'кулаки'}</span></div>
+    <div class="stat-row"><span class="stat-label">Броня</span><span>${s.equipment.armor ? s.equipment.armor.name : 'нет'} (AC ${s.ac})</span></div>
+    <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
+    ${party}
+  `;
+}

@@ -14,6 +14,11 @@ const ORDER = [
   'src/ai/client.js',
   'src/ai/dm.js',
   'src/ai/stub.js',
+  'src/net/protocol.js',
+  'src/net/loopback.js',
+  'src/net/host.js',
+  'src/net/client.js',
+  'src/net/peer.js',
   'src/ui/sound.js',
   'src/ui/terminal.js',
   'src/ui/app.js'
@@ -50,6 +55,9 @@ if (!template.includes('/*__BUNDLE__*/')) {
 const out = template.replace('/*__BUNDLE__*/', () => code);
 mkdirSync(join(process.cwd(), 'dist'), { recursive: true });
 writeFileSync(join(process.cwd(), 'dist/index.html'), out);
+// копия в docs/ для GitHub Pages (страница собирается с main:/docs)
+mkdirSync(join(process.cwd(), 'docs'), { recursive: true });
+writeFileSync(join(process.cwd(), 'docs/index.html'), out);
 
 const kb = (Buffer.byteLength(out) / 1024).toFixed(1);
-console.log(`OK: dist/index.html (${kb} KB)`);
+console.log(`OK: dist/index.html + docs/index.html (${kb} KB)`);

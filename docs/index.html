@@ -1,0 +1,2782 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dnd by ZxcPap14</title>
+<style>
+  :root {
+    --amber: #ffb000;
+    --amber-dim: #b87d00;
+    --amber-bright: #ffd166;
+    --red: #ff5555;
+    --bg: #0a0603;
+    --panel-bg: #120c05;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--amber);
+    font-family: 'Consolas', 'Courier New', monospace;
+    overflow: hidden;
+    text-shadow: 0 0 6px rgba(255, 176, 0, 0.45);
+  }
+
+  /* CRT: скан-линии + виньетка */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0 1px, transparent 1px 3px),
+      radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+    z-index: 99;
+  }
+
+  .screen { display: none; height: 100vh; padding: 18px; }
+  .screen.active { display: flex; flex-direction: column; }
+
+  /* ---------- шапка ---------- */
+  header { text-align: center; padding: 8px 0 12px; flex-shrink: 0; }
+  header h1 {
+    font-size: 18px; font-weight: normal; letter-spacing: 2px;
+    color: var(--amber-bright);
+  }
+  header .tagline { font-size: 11px; color: var(--amber-dim); margin-top: 4px; }
+
+  /* ---------- setup ---------- */
+  #screen-setup { align-items: center; justify-content: center; }
+  .setup-box {
+    width: min(640px, 94vw);
+    max-height: 92vh;
+    overflow-y: auto;
+    border: 1px solid var(--amber-dim);
+    padding: 24px;
+    background: var(--panel-bg);
+    box-shadow: 0 0 30px rgba(255, 176, 0, 0.12);
+  }
+  .setup-box h2 { font-size: 14px; font-weight: normal; color: var(--amber-bright); margin: 14px 0 8px; letter-spacing: 1px; }
+  .setup-box h2:first-child { margin-top: 0; }
+  .field { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .field label { width: 110px; flex-shrink: 0; font-size: 12px; color: var(--amber-dim); }
+  .field input, .field select {
+    flex: 1;
+    background: #000;
+    border: 1px solid var(--amber-dim);
+    color: var(--amber);
+    font-family: inherit;
+    font-size: 13px;
+    padding: 6px 8px;
+    outline: none;
+  }
+  .field input:focus { border-color: var(--amber-bright); }
+  .field input[type="password"] { letter-spacing: 2px; }
+  .hint { font-size: 11px; color: var(--amber-dim); margin: 2px 0 0 120px; }
+  #class-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  .class-card {
+    border: 1px solid var(--amber-dim);
+    padding: 10px;
+    cursor: pointer;
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 12px;
+  }
+  .class-card:hover { border-color: var(--amber); }
+  .class-card input { display: none; }
+  .class-card:has(input:checked) { border-color: var(--amber-bright); background: rgba(255, 176, 0, 0.08); }
+  .class-name { color: var(--amber-bright); }
+  .class-desc { color: var(--amber-dim); }
+  .class-loading { font-size: 12px; color: var(--amber-dim); padding: 10px; }
+  button {
+    background: transparent;
+    border: 1px solid var(--amber);
+    color: var(--amber);
+    font-family: inherit;
+    font-size: 13px;
+    padding: 8px 18px;
+    cursor: pointer;
+    letter-spacing: 1px;
+  }
+  button:hover { background: rgba(255, 176, 0, 0.12); border-color: var(--amber-bright); }
+  .btn-row { display: flex; gap: 10px; margin-top: 16px; justify-content: center; }
+  .btn-primary { border-width: 2px; padding: 10px 32px; color: var(--amber-bright); }
+  #setup-note { display: none; margin-top: 10px; font-size: 11px; color: var(--red); text-align: center; }
+  #hof-list { font-size: 11px; margin-top: 6px; }
+  .hof-row { padding: 4px 0; border-bottom: 1px dashed rgba(184, 125, 0, 0.35); display: flex; gap: 8px; flex-wrap: wrap; }
+  .hof-name { color: var(--amber-bright); }
+  .hof-meta { color: var(--amber-dim); }
+  .hof-epitaph { color: var(--red); opacity: 0.85; }
+  .hof-empty, .quest-empty { color: var(--amber-dim); font-style: italic; }
+
+  /* ---------- игра ---------- */
+  #screen-game { gap: 12px; }
+  #game-title { text-align: center; flex-shrink: 0; font-size: 14px; letter-spacing: 2px; color: var(--amber-bright); }
+  #floor-label { color: var(--amber-dim); font-size: 11px; }
+
+  .game-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(340px, 42%) 1fr;
+    gap: 12px;
+    min-height: 0;
+  }
+  .col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+
+  .panel {
+    border: 1px solid var(--amber-dim);
+    background: var(--panel-bg);
+    padding: 10px;
+    overflow: auto;
+  }
+  .panel-title { font-size: 11px; color: var(--amber-dim); letter-spacing: 2px; margin-bottom: 6px; }
+
+  #map {
+    font-size: 12.5px;
+    line-height: 1.12;
+    white-space: pre;
+    text-align: center;
+  }
+  .m-wall { color: #7a5200; }
+  .m-floor { color: #4d3600; }
+  .m-pl { color: #fff; background: rgba(255,176,0,0.35); text-shadow: 0 0 10px #fff; font-weight: bold; }
+  .m-mon { color: var(--red); text-shadow: 0 0 8px var(--red); font-weight: bold; }
+  .m-item { color: var(--amber-bright); text-shadow: 0 0 8px var(--amber-bright); }
+  .m-stair { color: #9fd8ff; text-shadow: 0 0 8px #9fd8ff; font-weight: bold; }
+
+  #stats { font-size: 12px; flex-shrink: 0; }
+  .stat-row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .stat-label { color: var(--amber-dim); }
+  .hp { color: var(--amber-bright); }
+  .stats-line { justify-content: center; color: var(--amber-dim); font-size: 11px; margin-top: 4px; }
+
+  #quests { flex-shrink: 0; max-height: 110px; font-size: 11.5px; }
+  .quest { padding: 2px 0; }
+
+  #log {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 0;
+    cursor: pointer;
+  }
+  .line { white-space: pre-wrap; word-break: break-word; margin-bottom: 6px; }
+  .kind-player { color: var(--amber-bright); }
+  .kind-dm { color: var(--amber); }
+  .kind-system { color: var(--amber-dim); }
+  .kind-roll { color: #9fd8ff; text-shadow: 0 0 6px rgba(159,216,255,0.4); }
+  .kind-combat { color: var(--red); }
+  .kind-loot { color: #7dff8a; text-shadow: 0 0 6px rgba(125,255,138,0.4); }
+  .kind-death { color: var(--red); font-weight: bold; text-shadow: 0 0 12px var(--red); }
+
+  .input-row { display: flex; gap: 8px; flex-shrink: 0; }
+  .prompt-ch { color: var(--amber-bright); align-self: center; }
+  #input {
+    flex: 1;
+    background: #000;
+    border: 1px solid var(--amber-dim);
+    color: var(--amber);
+    font-family: inherit;
+    font-size: 14px;
+    padding: 9px 10px;
+    outline: none;
+  }
+  #input:focus { border-color: var(--amber-bright); box-shadow: 0 0 12px rgba(255,176,0,0.2); }
+
+  /* ---------- смерть ---------- */
+  #screen-death {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(5, 2, 0, 0.94);
+    display: none; align-items: center; justify-content: center;
+  }
+  #screen-death.active { display: flex; }
+  .death-box { text-align: center; border: 1px solid var(--red); padding: 40px 48px; background: var(--panel-bg); box-shadow: 0 0 60px rgba(255,85,85,0.25); }
+  .death-box h2 { color: var(--red); font-size: 28px; font-weight: normal; letter-spacing: 6px; text-shadow: 0 0 20px var(--red); }
+  .death-box .epi { margin: 18px 0; font-size: 15px; color: var(--amber); }
+  .death-box .dstats { font-size: 12px; color: var(--amber-dim); margin-bottom: 20px; }
+
+  @media (max-width: 800px) {
+    .game-grid { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    #map-panel { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ЭКРАН НАСТРОЕК -->
+<div class="screen active" id="screen-setup">
+  <div class="setup-box">
+    <h2>◆ dnd by ZxcPap14</h2>
+    <div class="hint" style="margin-left:0">ASCII-рогалик с ИИ-данж-мастером. Троллем. Беспощадным.</div>
+
+    <h2>МИР</h2>
+    <div class="field">
+      <label for="set-world">Описание мира</label>
+      <input id="set-world" type="text" placeholder="Киберпанк-Токио 2099, ты — курьер-неудачник">
+    </div>
+    <div class="field">
+      <label for="set-mode">Режим</label>
+      <select id="set-mode">
+        <option value="story">Сюжет (история с концовкой)</option>
+        <option value="sandbox">Песочница (живой хаос)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="set-mp">Игра</label>
+      <select id="set-mp">
+        <option value="solo">Соло</option>
+        <option value="host">Кооп: создать комнату (2–4)</option>
+        <option value="join">Кооп: войти по коду</option>
+      </select>
+    </div>
+    <div class="field" id="join-row" style="display:none">
+      <label for="set-room">Код комнаты</label>
+      <input id="set-room" type="text" placeholder="ABCD" maxlength="4" style="text-transform:uppercase; letter-spacing:4px">
+    </div>
+    <div class="field">
+      <label for="set-name">Имя героя</label>
+      <input id="set-name" type="text" placeholder="Безымянный" maxlength="20">
+    </div>
+
+    <div id="lobby-panel" style="display:none; border:1px dashed var(--amber-dim); padding:12px; margin:10px 0">
+      <div class="field" style="justify-content:center">
+        <span class="stat-label">КОД КОМНАТЫ:</span>
+        <span id="room-code" style="font-size:22px; letter-spacing:8px; color:var(--amber-bright)">····</span>
+      </div>
+      <div class="hint" style="margin-left:0; text-align:center">Друзья открывают эту же страницу → «Кооп: войти по коду» → вводят код</div>
+      <div id="lobby-list" style="margin-top:8px"></div>
+      <div class="btn-row">
+        <button id="btn-launch" style="display:none">▶ НАЧАТЬ СПУСК</button>
+      </div>
+    </div>
+
+    <h2>КЛАСС <button id="btn-classes" style="font-size:11px; padding:3px 10px; margin-left:8px">перегенерировать под мир</button></h2>
+    <div id="class-list"></div>
+
+    <h2>ИИ-ДМАСТЕР (необязательно — без ключа играет заглушка)</h2>
+    <div class="field">
+      <label for="set-base">Base URL</label>
+      <input id="set-base" type="text" placeholder="https://api.openai.com/v1">
+    </div>
+    <div class="field">
+      <label for="set-key">API-ключ</label>
+      <input id="set-key" type="password" placeholder="sk-...">
+    </div>
+    <div class="field">
+      <label for="set-model">Модель</label>
+      <input id="set-model" type="text" placeholder="gpt-4o-mini / deepseek-chat / llama3">
+    </div>
+    <div class="hint" style="margin-left:120px">Любой OpenAI-совместимый: OpenAI, DeepSeek, OpenRouter, локальная Ollama. Ключ хранится только в твоём браузере.</div>
+    <div id="setup-note"></div>
+
+    <div class="btn-row">
+      <button class="btn-primary" id="btn-start">▶ НАЧАТЬ ЗАБЕГ</button>
+    </div>
+
+    <h2>☠ ЗАЛ СЛАВЫ ПОГИБШИХ</h2>
+    <div id="hof-list"></div>
+  </div>
+</div>
+
+<!-- ЭКРАН ИГРЫ -->
+<div class="screen" id="screen-game">
+  <header style="padding:0 0 4px">
+    <div id="game-title">dnd by ZxcPap14 <span id="floor-label"></span></div>
+    <div id="turn-banner" style="font-size:11px; color:var(--amber-bright); letter-spacing:1px; margin-top:4px"></div>
+  </header>
+  <div class="game-grid">
+    <div class="col">
+      <div class="panel" id="map-panel" style="flex:1">
+        <div class="panel-title">КАРТА · туман войны</div>
+        <pre id="map"></pre>
+      </div>
+      <div class="panel" id="stats"></div>
+      <div class="panel" id="quests">
+        <div class="panel-title">ЖУРНАЛ ЗАДАЧ</div>
+        <div id="quest-list"></div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="panel" id="log-panel" style="flex:1; display:flex; flex-direction:column; min-height:0">
+        <div class="panel-title">ХРОНИКА · клик — промотать</div>
+        <div id="log" style="flex:1; overflow-y:auto; min-height:0"></div>
+      </div>
+      <div class="input-row">
+        <span class="prompt-ch">&gt;</span>
+        <input id="input" type="text" autocomplete="off" placeholder="что ты делаешь? (пиши свободно) · ↑ история">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ЭКРАН СМЕРТИ -->
+<div id="screen-death">
+  <div class="death-box">
+    <h2>☠ ТЫ МЁРТВ ☠</h2>
+    <div class="epi" id="death-epitaph"></div>
+    <div class="dstats" id="death-stats"></div>
+    <div class="btn-row">
+      <button id="btn-export">СКАЧАТЬ ХРОНИКУ</button>
+      <button class="btn-primary" id="btn-restart">НОВЫЙ ЗАБЕГ</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// rng.js — детерминированный seeded RNG + честные кубики.
+// Принцип спецификации: все броски делает код, не ИИ.
+
+/**
+ * mulberry32 — быстрый seeded PRNG.
+ * @param {number} seed
+ * @returns {() => number} float [0, 1)
+ */
+function createRng(seed) {
+  let a = seed >>> 0;
+  return function rng() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Набор кубиков поверх RNG.
+ * @param {() => number} rng
+ */
+function makeDice(rng) {
+  return {
+    /** 1d<sides> */
+    d(sides) {
+      return 1 + Math.floor(rng() * sides);
+    },
+    /** NdM → { rolls: number[], total: number } */
+    roll(count, sides) {
+      const rolls = [];
+      let total = 0;
+      for (let i = 0; i < Math.max(0, count | 0); i++) {
+        const r = this.d(sides);
+        rolls.push(r);
+        total += r;
+      }
+      return { rolls, total };
+    },
+    /** честный d20 */
+    d20() {
+      return this.d(20);
+    },
+    /**
+     * Проверка d20 + модификатор.
+     * @returns {{ raw: number, total: number }}
+     */
+    check(mod = 0) {
+      const raw = this.d20();
+      return { raw, total: raw + mod };
+    }
+  };
+}
+
+/** Модификатор характеристики в стиле D&D: (stat-10)/2, округление вниз. */
+function mod(stat) {
+  return Math.floor((stat - 10) / 2);
+}
+
+/**
+ * Бросок с преимуществом/помехой (2d20, берём больший/меньший).
+ */
+function withAdvantage(dice, advantage = true) {
+  const a = dice.d20();
+  const b = dice.d20();
+  const raw = advantage ? Math.max(a, b) : Math.min(a, b);
+  return { raw, rolls: [a, b] };
+}
+
+
+// map.js — генерация подземелья (комнаты + коридоры), позиционирование, туман войны.
+// Этажи средние: 40x30 по спецификации.
+
+const TILE = {
+  WALL: '#',
+  FLOOR: '.',
+  DOOR: '+',
+  STAIRS: '>'
+};
+
+const MAP_W = 40;
+const MAP_H = 30;
+const FOV_RADIUS = 7;
+
+/**
+ * Генерация этажа: случайные комнаты, соединённые L-коридорами.
+ * @param {() => number} rng
+ * @param {{w?: number, h?: number, roomTries?: number}} opts
+ * @returns {{w:number, h:number, grid:string[][], rooms:Array<{x,y,w,h,cx,cy}>, stairs:{x,y}}}
+ */
+function generateDungeon(rng, opts = {}) {
+  const w = opts.w ?? MAP_W;
+  const h = opts.h ?? MAP_H;
+  const roomTries = opts.roomTries ?? 60;
+
+  const grid = Array.from({ length: h }, () => Array.from({ length: w }, () => TILE.WALL));
+  const rooms = [];
+
+  for (let i = 0; i < roomTries && rooms.length < 10; i++) {
+    const rw = 4 + Math.floor(rng() * 6);  // 4..9
+    const rh = 3 + Math.floor(rng() * 4);  // 3..6
+    const rx = 1 + Math.floor(rng() * (w - rw - 2));
+    const ry = 1 + Math.floor(rng() * (h - rh - 2));
+    const room = { x: rx, y: ry, w: rw, h: rh, cx: rx + (rw >> 1), cy: ry + (rh >> 1) };
+
+    // пересечение с уже существующими (с отступом 1)
+    const overlaps = rooms.some(r =>
+      rx < r.x + r.w + 1 && rx + rw + 1 > r.x &&
+      ry < r.y + r.h + 1 && ry + rh + 1 > r.y
+    );
+    if (overlaps) continue;
+
+    for (let y = ry; y < ry + rh; y++)
+      for (let x = rx; x < rx + rw; x++)
+        grid[y][x] = TILE.FLOOR;
+    rooms.push(room);
+  }
+
+  // соединяем каждую комнату с предыдущей L-коридором
+  for (let i = 1; i < rooms.length; i++) {
+    carveCorridor(grid, rooms[i - 1], rooms[i]);
+  }
+
+  // лестница вниз — в последней комнате
+  const last = rooms[rooms.length - 1];
+  const stairs = { x: last.cx, y: last.cy };
+  grid[stairs.y][stairs.x] = TILE.STAIRS;
+
+  return { w, h, grid, rooms, stairs };
+}
+
+/** L-образный коридор между центрами комнат. */
+function carveCorridor(grid, a, b) {
+  let x = a.cx, y = a.cy;
+  const horizFirst = (a.cx + a.cy) % 2 === 0;
+  const stepX = () => { while (x !== b.cx) { grid[y][x] = TILE.FLOOR; x += b.cx > x ? 1 : -1; } };
+  const stepY = () => { while (y !== b.cy) { grid[y][x] = TILE.FLOOR; y += b.cy > y ? 1 : -1; } };
+  if (horizFirst) { stepX(); stepY(); } else { stepY(); stepX(); }
+  grid[y][x] = TILE.FLOOR;
+}
+
+/** Случайная проходимая клетка (для спавна игрока/мобов/лута). */
+function randomFloor(rng, dungeon) {
+  for (let tries = 0; tries < 500; tries++) {
+    const room = dungeon.rooms[Math.floor(rng() * dungeon.rooms.length)];
+    const x = room.x + Math.floor(rng() * room.w);
+    const y = room.y + Math.floor(rng() * room.h);
+    if (dungeon.grid[y][x] === TILE.FLOOR) return { x, y };
+  }
+  const f = dungeon.rooms[0];
+  return { x: f.cx, y: f.cy };
+}
+
+/** Расстояние Чебышёва (8-связность). */
+function dist(ax, ay, bx, by) {
+  return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
+}
+
+/** Прямая видимость по Брезенхэму (стены блокируют, но сама стена видна). */
+function hasLineOfSight(dungeon, x0, y0, x1, y1) {
+  let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy, x = x0, y = y0;
+  while (!(x === x1 && y === y1)) {
+    const e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; x += sx; }
+    if (e2 < dx) { err += dx; y += sy; }
+    if (x === x1 && y === y1) break;
+    if (dungeon.grid[y][x] === TILE.WALL) return false;
+  }
+  return true;
+}
+
+/**
+ * FOV: все клетки в радиусе с прямой видимостью.
+ * @returns {Set<string>} ключи "x,y"
+ */
+function computeFov(dungeon, px, py, radius = FOV_RADIUS) {
+  const visible = new Set();
+  for (let y = Math.max(0, py - radius); y <= Math.min(dungeon.h - 1, py + radius); y++) {
+    for (let x = Math.max(0, px - radius); x <= Math.min(dungeon.w - 1, px + radius); x++) {
+      if (dist(px, py, x, y) > radius) continue;
+      if (hasLineOfSight(dungeon, px, py, x, y)) visible.add(`${x},${y}`);
+    }
+  }
+  visible.add(`${px},${py}`);
+  return visible;
+}
+
+/** Flood fill от точки — для теста связности уровня. */
+function floodReachable(dungeon, sx, sy) {
+  const seen = new Set();
+  const stack = [[sx, sy]];
+  while (stack.length) {
+    const [x, y] = stack.pop();
+    const key = `${x},${y}`;
+    if (seen.has(key)) continue;
+    if (x < 0 || y < 0 || x >= dungeon.w || y >= dungeon.h) continue;
+    if (dungeon.grid[y][x] === TILE.WALL) continue;
+    seen.add(key);
+    stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+  }
+  return seen;
+}
+
+
+// player.js — персонаж: 6 статов D&D, XP/уровни, инвентарь, экипировка.
+
+
+
+// ре-экспорт для удобства потребителей
+
+const STAT_NAMES = {
+  str: 'Сила', dex: 'Ловкость', int: 'Интеллект',
+  con: 'Выносливость', cha: 'Харизма', luck: 'Удача'
+};
+
+let itemSeq = 0;
+
+function makeItem({ name, type, dmg = 0, ac = 0, heal = 0, bonus = 0, qty = 1 }) {
+  return { id: `it${++itemSeq}`, name, type, dmg, ac, heal, bonus, qty };
+}
+
+/**
+ * Создание героя.
+ * @param {{name: string, className: string, stats?: Record<string,number>}} opts
+ */
+function createPlayer({ name, className, stats }) {
+  const s = { str: 12, dex: 12, int: 12, con: 12, cha: 12, luck: 12, ...stats };
+  const player = {
+    name: name || 'Безымянный',
+    className: className || 'Искатель приключений',
+    level: 1,
+    xp: 0,
+    stats: s,
+    maxHp: 12 + mod(s.con) * 2,
+    hp: 0,
+    gold: 0,
+    inventory: [],
+    equipment: { weapon: null, armor: null }
+  };
+  player.hp = player.maxHp;
+  return player;
+}
+
+/** Сколько XP нужно для перехода на следующий уровень. */
+function xpForNextLevel(level) {
+  return level * 100;
+}
+
+/**
+ * Начисление XP (опыт за всё по спецификации).
+ * @returns {number} сколько уровней получено
+ */
+function gainXp(player, amount) {
+  player.xp += Math.max(0, amount | 0);
+  let levels = 0;
+  while (player.xp >= xpForNextLevel(player.level)) {
+    player.xp -= xpForNextLevel(player.level);
+    player.level++;
+    levels++;
+    const gain = 4 + Math.floor(Math.random() * 3) + mod(player.stats.con);
+    player.maxHp += gain;
+    player.hp += gain;
+  }
+  return levels;
+}
+
+/** Защита: 10 + ловкость + броня. */
+function playerAc(player) {
+  let ac = 10 + mod(player.stats.dex);
+  if (player.equipment.armor) ac += player.equipment.armor.ac;
+  return ac;
+}
+
+/** Оружейный бонус к атаке и урон. */
+function playerWeapon(player) {
+  return player.equipment.weapon || makeItem({ name: 'кулаки', type: 'weapon', dmg: 2 });
+}
+
+function addItem(player, item) {
+  const same = player.inventory.find(i => i.name === item.name && i.type === item.type);
+  if (same && item.type === 'potion') { same.qty += item.qty; return same; }
+  player.inventory.push(item);
+  return item;
+}
+
+function removeItem(player, itemId, qty = 1) {
+  const idx = player.inventory.findIndex(i => i.id === itemId);
+  if (idx === -1) return null;
+  const item = player.inventory[idx];
+  if (item.qty > qty) { item.qty -= qty; } else { player.inventory.splice(idx, 1); }
+  return item;
+}
+
+function findItem(player, namePart) {
+  const q = (namePart || '').toLowerCase().trim();
+  if (!q) return null;
+  return player.inventory.find(i => i.name.toLowerCase().includes(q)) || null;
+}
+
+/**
+ * Экипировка предмета (снимает прежний в слоте обратно в инвентарь).
+ * @returns {{equipped: object|null, unequipped: object|null}}
+ */
+function equipItem(player, item) {
+  if (!item) return { equipped: null, unequipped: null };
+  const slot = item.type === 'weapon' ? 'weapon' : item.type === 'armor' ? 'armor' : null;
+  if (!slot) return { equipped: null, unequipped: null };
+  const prev = player.equipment[slot];
+  player.inventory = player.inventory.filter(i => i.id !== item.id);
+  player.equipment[slot] = item;
+  if (prev) player.inventory.push(prev);
+  return { equipped: item, unequipped: prev };
+}
+
+
+// combat.js — бои в стиле D&D: инициатива, атаки d20, криты 20/1, таблица дропа.
+// Кубики только отсюда: «ИИ предлагает — код решает».
+
+
+
+
+/**
+ * Инициатива: d20 + ловкость.
+ */
+function rollInitiative(dice, dexStat) {
+  const { raw, total } = dice.check(mod(dexStat));
+  return { raw, total };
+}
+
+/**
+ * Атака игрока.
+ * @returns {{raw:number, total:number, hit:boolean, crit:boolean, fumble:boolean}}
+ */
+function attackRoll(dice, attackerStats, weapon, targetAc) {
+  const ability = weapon.type === 'weapon' && weapon.finesse ? 'dex' : 'str';
+  const m = mod(attackerStats[ability]) + (weapon.bonus || 0);
+  const raw = dice.d20();
+  const total = raw + m;
+  return {
+    raw,
+    total,
+    crit: raw === 20,
+    fumble: raw === 1,
+    hit: raw === 20 || (raw !== 1 && total >= targetAc)
+  };
+}
+
+/**
+ * Урон. На крите — двойной бросок кубиков.
+ * @returns {{rolls:number[], total:number, crit:boolean}}
+ */
+function damageRoll(dice, weapon, strStat, crit = false) {
+  const base = Math.max(1, weapon.dmg || 2);
+  const count = (crit ? 2 : 1) * base;
+  const { rolls, total } = dice.roll(count, 4); // Nd4 — олдскульно и кроваво
+  const bonus = mod(strStat) * (crit ? 2 : 1);
+  return { rolls, total: Math.max(1, total + bonus), crit };
+}
+
+/**
+ * Атака монстра по игроку.
+ * @param monster {{toHit:number, dmg:number, name:string}}
+ * @returns {{raw:number, total:number, hit:boolean, crit:boolean, dmg:number}}
+ */
+function monsterAttack(dice, monster, playerAcValue) {
+  const raw = dice.d20();
+  const total = raw + (monster.toHit || 1);
+  const hit = raw === 20 || (raw !== 1 && total >= playerAcValue);
+  const crit = raw === 20;
+  const dmg = hit ? Math.max(1, dice.roll(crit ? monster.dmg * 2 : monster.dmg, 4).total) : 0;
+  return { raw, total, hit, crit, dmg };
+}
+
+/**
+ * Таблица дропа: [{chance, item}] — chance в [0..1], проверяются по порядку.
+ * Ничего не выпало → null.
+ */
+function rollDrop(dice, dropTable, depth = 1) {
+  for (const entry of dropTable) {
+    if (dice.d(100) / 100 <= entry.chance) {
+      const base = entry.item;
+      // глубокие этажи — чуть злее лут
+      const scaled = { ...base };
+      if (base.type === 'weapon' && depth > 2 && dice.d(3) === 1) {
+        scaled.name = `${base.name} (заточенное)`;
+        scaled.dmg = base.dmg + 1;
+        scaled.bonus = (base.bonus || 0) + 1;
+      }
+      return makeItem(scaled);
+    }
+  }
+  return null;
+}
+
+const BASIC_DROP_TABLE = [
+  { chance: 0.25, item: { name: 'Зелье лечения', type: 'potion', heal: 8, qty: 1 } },
+  { chance: 0.15, item: { name: 'Кинжал', type: 'weapon', dmg: 2, finesse: true } },
+  { chance: 0.10, item: { name: 'Кожаная броня', type: 'armor', ac: 2 } },
+  { chance: 0.08, item: { name: 'Короткий меч', type: 'weapon', dmg: 3 } },
+  { chance: 0.20, item: { name: 'Горсть монет', type: 'gold', qty: 15 } }
+];
+
+
+// game.js — оркестратор: состояние партии, парсер русских команд, применение интентов.
+// v0.5: мультигеройность — heroes[], очерёдность ходов, смерть партии.
+// Принцип «ИИ предлагает — код решает»: любые изменения состояния проходят отсюда.
+
+
+
+
+
+
+const DIRS = {
+  'север': [0, -1], 'с': [0, -1], 'north': [0, -1], 'n': [0, -1],
+  'юг': [0, 1], 'ю': [0, 1], 'south': [0, 1], 's': [0, 1],
+  'восток': [1, 0], 'в': [1, 0], 'east': [1, 0], 'e': [1, 0],
+  'запад': [-1, 0], 'з': [-1, 0], 'west': [-1, 0], 'w': [-1, 0]
+};
+
+const HERO_GLYPHS = ['@', '#', 'Ω', 'Φ'];
+
+let monSeq = 0;
+
+/** Офлайн-спавн: монстры и лут по этажу. */
+function populateFloor(state) {
+  const rng = state.rng;
+  state.monsters = [];
+  state.floorItems = [];
+
+  const depthBoost = state.depth;
+  const count = 3 + Math.floor(rng() * 3);
+  for (let i = 0; i < count; i++) {
+    const pos = randomFloor(rng, state.dungeon);
+    if (dist(pos.x, pos.y, state.heroes[0].pos.x, state.heroes[0].pos.y) < 4) continue;
+    const hpBase = 4 + depthBoost;
+    state.monsters.push({
+      id: `m${++monSeq}`,
+      name: pickMonsterName(rng, state.worldDesc),
+      x: pos.x, y: pos.y,
+      hp: hpBase, maxHp: hpBase,
+      toHit: 1 + Math.floor(depthBoost / 2),
+      dmg: 1 + Math.floor(depthBoost / 2),
+      xp: 20 + depthBoost * 10
+    });
+  }
+  for (let i = 0; i < 2 + Math.floor(rng() * 2); i++) {
+    const pos = randomFloor(rng, state.dungeon);
+    const drop = rollDrop(state.dice, BASIC_DROP_TABLE, state.depth);
+    if (drop) state.floorItems.push({ ...drop, x: pos.x, y: pos.y });
+  }
+}
+
+function pickMonsterName(rng, worldDesc) {
+  const generic = ['крыса-мутант', 'скелет', 'гоблин-мародёр', 'слизь', 'летучая мышь-убийца', 'злой дух'];
+  if (rng() < 0.5) return generic[Math.floor(rng() * generic.length)];
+  const words = (worldDesc || '').split(/\s+/).filter(w => w.length > 4 && /[а-яёa-z]/i.test(w));
+  if (words.length) {
+    const w = words[Math.floor(rng() * words.length)].toLowerCase().replace(/[.,!?]/g, '');
+    return `озлобленный ${w}`;
+  }
+  return generic[Math.floor(rng() * generic.length)];
+}
+
+/**
+ * Новая партия.
+ * @param {{seed?: number, mode?: string, worldDesc: string, players: Array<{name,className,stats?}>,
+ *           name?: string, className?: string, stats?: object}} opts
+ *   (opts.name/className/stats — совместимость с соло-вызовом)
+ */
+function newGame(opts) {
+  const seed = opts.seed ?? (Date.now() ^ (Math.random() * 0xffffffff));
+  const players = opts.players || [
+    { name: opts.name || 'Безымянный', className: opts.className || 'Искатель приключений', stats: opts.stats }
+  ].filter(Boolean);
+
+  const state = {
+    seed,
+    rng: createRng(seed),
+    dice: null,
+    mode: opts.mode || 'story',
+    worldDesc: opts.worldDesc || 'Классическое тёмное фэнтези',
+    depth: 1,
+    over: false,
+    epitaph: null,
+    turn: 0,
+    quests: [],
+    floorName: `Этаж 1`,
+    heroes: [],
+    activeIdx: 0,
+    monsters: [],
+    floorItems: []
+  };
+  state.dice = makeDice(state.rng);
+
+  // герои — createPlayer + позиция/FOV/жизнь
+  const taken = new Set();
+  state.dungeon = generateDungeon(state.rng);
+  state.heroes = players.map(pd => {
+    const hero = { ...createPlayer(pd), pos: { x: 0, y: 0 }, fov: new Set(), alive: true, epitaph: null };
+    let spot = randomFloor(state.rng, state.dungeon);
+    let tries = 0;
+    while (taken.has(`${spot.x},${spot.y}`) && tries++ < 50) spot = randomFloor(state.rng, state.dungeon);
+    taken.add(`${spot.x},${spot.y}`);
+    hero.pos = spot;
+    hero.fov = computeFov(state.dungeon, spot.x, spot.y);
+    return hero;
+  });
+
+  // совместимость: state.player / state.pos / state.fov → активный герой
+  Object.defineProperties(state, {
+    player: { get() { return state.heroes[state.activeIdx]; }, configurable: true },
+    pos: {
+      get() { return state.heroes[state.activeIdx].pos; },
+      set(v) { state.heroes[state.activeIdx].pos = v; },
+      configurable: true
+    },
+    fov: {
+      get() { return state.heroes[state.activeIdx].fov; },
+      set(v) { state.heroes[state.activeIdx].fov = v; },
+      configurable: true
+    }
+  });
+
+  populateFloor(state);
+  return state;
+}
+
+/** Передать ход следующему живому герою. */
+function advanceTurn(state) {
+  if (state.heroes.length <= 1) return;
+  const n = state.heroes.length;
+  for (let i = 1; i <= n; i++) {
+    const idx = (state.activeIdx + i) % n;
+    if (state.heroes[idx].alive) { state.activeIdx = idx; return; }
+  }
+}
+
+/** Граница слова для кириллицы: \b в JS не работает с не-ASCII. */
+function W(word, suffix = false) {
+  const tail = suffix ? '[а-яёa-z]*' : '';
+  return new RegExp(`(?:^|[^а-яёa-z])(?:${word})${tail}(?![а-яёa-z])`, 'i');
+}
+
+/**
+ * Парсер свободного текста → интент. Всё, что не распознано, уходит ИИ как 'free'.
+ */
+function parseCommand(text) {
+  const t = (text || '').toLowerCase().trim();
+  if (!t) return { intent: 'none' };
+
+  // движение (только целые слова: «с» не должно матчиться внутри «стражу»)
+  for (const [word, d] of Object.entries(DIRS)) {
+    if (W(word).test(t)) {
+      return { intent: 'move', dir: word, dirVec: d };
+    }
+  }
+  if (W('инвентарь|рюкзак|вещи|inv', true).test(t)) return { intent: 'inventory' };
+  if (W('карта|карту|map', true).test(t)) return { intent: 'map' };
+  if (W('задач|квест|quest|журнал', true).test(t)) return { intent: 'quests' };
+  if (W('осмотр|огляде|look|где я', true).test(t)) return { intent: 'look' };
+  if (W('ждать|постоять|wait|отдохну', true).test(t)) return { intent: 'wait' };
+  if (W('спус|лестниц|descend', true).test(t)) return { intent: 'descend' };
+
+  let m;
+  if ((m = t.match(W('выпей|выпить|пью|использ|примен|use|drink', true))))
+    return { intent: 'use', target: afterVerb(t, m) };
+  if ((m = t.match(W('надень|надеть|экипир|возьми|equip|wield', true))))
+    return { intent: 'equip', target: afterVerb(t, m) };
+  if ((m = t.match(W('атак|бей|бью|удар|убей|убить|attack|hit|kill', true))))
+    return { intent: 'attack', target: afterVerb(t, m) };
+  if ((m = t.match(W('подним|подобрать|взять|собер|pick|grab', true))))
+    return { intent: 'pickup', target: afterVerb(t, m) };
+
+  return { intent: 'free', text };
+}
+
+/** Слово(а) после глагола в исходной строке. */
+function afterVerb(t, m) {
+  const idx = t.indexOf(m[0]) + m[0].length;
+  return t.slice(idx).replace(/^[,\s]+/, '').trim();
+}
+
+/** Событие для лога/ИИ. kind: dm|system|roll|combat|loot|death|levelup */
+function ev(kind, text) {
+  return { kind, text, turn: 0 };
+}
+
+/** Монстры в зоне видимости героя. */
+function visibleMonsters(state, heroIdx = state.activeIdx) {
+  const hero = state.heroes[heroIdx];
+  if (!hero) return [];
+  return state.monsters.filter(m => hero.fov.has(`${m.x},${m.y}`) && m.hp > 0);
+}
+
+/** Все живые герои на лестнице? (правило общего спуска) */
+function allOnStairs(state) {
+  const s = state.dungeon.stairs;
+  return state.heroes.filter(h => h.alive).every(h => h.pos.x === s.x && h.pos.y === s.y);
+}
+
+/**
+ * Применение интента к состоянию от конкретного героя. Возвращает события.
+ * Действовать может только активный герой (очередь ходов).
+ */
+function applyIntent(state, intent, heroIdx = state.activeIdx) {
+  if (state.over || intent.intent === 'none') return [];
+  if (heroIdx !== state.activeIdx) return []; // не твой ход
+  const hero = state.heroes[heroIdx];
+  if (!hero || !hero.alive) return [];
+
+  const events = [];
+  const push = (kind, text) => events.push(ev(kind, text));
+  const dice = state.dice;
+  state.turn++;
+
+  switch (intent.intent) {
+    case 'move': {
+      const [dx, dy] = intent.dirVec;
+      const nx = hero.pos.x + dx, ny = hero.pos.y + dy;
+      if (nx < 0 || ny < 0 || nx >= state.dungeon.w || ny >= state.dungeon.h ||
+          state.dungeon.grid[ny][nx] === TILE.WALL) {
+        push('system', 'Ты упираешься в холодную стену. Она не впечатлена.');
+        break;
+      }
+      const monster = state.monsters.find(m => m.hp > 0 && m.x === nx && m.y === ny);
+      if (monster) {
+        push('combat', `Путь преграждает ${monster.name}. Бой!`);
+        events.push(...resolveCombatRound(state, hero, monster, dice));
+        break;
+      }
+      hero.pos = { x: nx, y: ny };
+      const tile = state.dungeon.grid[ny][nx];
+      if (tile === TILE.STAIRS) push('system', 'Ты стоишь на лестнице вниз. (Скажи «спускаюсь» — когда вся партия будет готова)');
+      gainXp(hero, 2); // опыт за исследование
+      hero.fov = computeFov(state.dungeon, nx, ny);
+      const here = state.floorItems.find(it => it.x === nx && it.y === ny);
+      if (here) events.push(...pickupItem(state, hero, here));
+      break;
+    }
+
+    case 'attack': {
+      const targets = visibleMonsters(state, heroIdx);
+      if (!targets.length) {
+        push('system', 'Ты угрожающе машешь оружием в пустоту. Пустота не в счёт.');
+        break;
+      }
+      let target = targets[0];
+      if (intent.target) {
+        const found = targets.find(m => m.name.toLowerCase().includes(intent.target.toLowerCase()));
+        if (found) target = found;
+      }
+      push('combat', `${hero.name} бросается на ${target.name}!`);
+      events.push(...resolveCombatRound(state, hero, target, dice));
+      break;
+    }
+
+    case 'use': {
+      const item = findItem(hero, intent.target);
+      if (!item) { push('system', `Среди вещей ${hero.name} нет ничего похожего на «${intent.target}».`); break; }
+      if (item.type === 'potion') {
+        removeItem(hero, item.id);
+        const heal = item.heal || 8;
+        hero.hp = Math.min(hero.maxHp, hero.hp + heal);
+        push('loot', `${hero.name} вливает в себя ${item.name} (+${heal} HP). Жизнь налаживается.`);
+      } else if (item.type === 'weapon' || item.type === 'armor') {
+        events.push(...applyIntent(state, { intent: 'equip', target: item.name }, heroIdx));
+      } else {
+        push('system', `${item.name}: на вкус как побитая жизнь. Больше не будем.`);
+      }
+      break;
+    }
+
+    case 'equip': {
+      const item = findItem(hero, intent.target);
+      if (!item) { push('system', `${hero.name} не нашёл «${intent.target}» в инвентаре.`); break; }
+      const { equipped, unequipped } = equipItem(hero, item);
+      if (equipped) {
+        push('loot', `Экипировано: ${equipped.name}` + (unequipped ? ` (в рюкзак уходит ${unequipped.name})` : ''));
+      } else {
+        push('system', `${item.name} нельзя надеть. Разве что как украшение.`);
+      }
+      break;
+    }
+
+    case 'pickup': {
+      const here = state.floorItems.find(it => it.x === hero.pos.x && it.y === hero.pos.y);
+      if (!here) { push('system', 'Под ногами пусто. Даже пыли нет.'); break; }
+      events.push(...pickupItem(state, hero, here));
+      break;
+    }
+
+    case 'descend': {
+      if (state.dungeon.grid[hero.pos.y][hero.pos.x] !== TILE.STAIRS) {
+        push('system', 'Чтобы спуститься, нужно сначала найти лестницу. Она не под тобой.');
+        break;
+      }
+      if (!allOnStairs(state)) {
+        push('system', 'Партия не собрана: не все живые герои на лестнице. Ждём отстающих.');
+        break;
+      }
+      state.depth++;
+      state.dungeon = generateDungeon(state.rng);
+      const taken = new Set();
+      state.heroes.forEach(h => {
+        let spot = randomFloor(state.rng, state.dungeon);
+        let tries = 0;
+        while (taken.has(`${spot.x},${spot.y}`) && tries++ < 50) spot = randomFloor(state.rng, state.dungeon);
+        taken.add(`${spot.x},${spot.y}`);
+        h.pos = spot;
+        h.fov = computeFov(state.dungeon, spot.x, spot.y);
+      });
+      state.floorName = `Этаж ${state.depth}`;
+      populateFloor(state);
+      gainXp(hero, 30);
+      push('system', `Партия спускается глубже. ${state.floorName}. Воздух гуще, тьма наглее.`);
+      break;
+    }
+
+    case 'inventory':
+      push('system', renderInventory(hero));
+      break;
+
+    case 'quests':
+      push('system', state.quests.length
+        ? 'Журнал:\n' + state.quests.map((q, i) => `  ${i + 1}. ${q}`).join('\n')
+        : 'Журнал пуст. Судьба пока не оставила тебе поручений.');
+      break;
+
+    case 'map':
+      push('system', 'Карта уже перед глазами слева. Туман войны скрывает неисследованное.');
+      break;
+
+    case 'look':
+      push('system', describeSurroundings(state, heroIdx));
+      break;
+
+    case 'wait':
+      push('system', 'Ты стоишь и слушаешь тишину. Тишина слушает в ответ.');
+      break;
+
+    case 'free':
+      // свободный текст — обрабатывает ИИ-слой (или офлайн-заглушка)
+      push('dm', `__FREE__${intent.text}`);
+      break;
+  }
+
+  // смерть героя?
+  if (hero.hp <= 0 && hero.alive) {
+    hero.alive = false;
+    hero.epitaph = state.deathCause || 'умер при невыясненных обстоятельствах';
+    push('death', `☠ ${hero.name} мёртв. Эпитафия: ${hero.epitaph}`);
+    if (state.heroes.every(h => !h.alive)) {
+      state.over = true;
+      state.epitaph = hero.epitaph;
+      push('death', `☠ Партия уничтожена. Подземелье победило.`);
+    }
+  }
+
+  if (!state.over) advanceTurn(state);
+  return events;
+}
+
+function pickupItem(state, hero, item) {
+  const events = [];
+  state.floorItems = state.floorItems.filter(it => it !== item);
+  if (item.type === 'gold') {
+    hero.gold += item.qty;
+    events.push(ev('loot', `${hero.name} подбирает ${item.qty} золота. Капиталист внутри доволен.`));
+  } else {
+    addItem(hero, item);
+    events.push(ev('loot', `${hero.name} подбирает: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`));
+  }
+  gainXp(hero, 5);
+  return events;
+}
+
+/** Один раунд боя: герой бьёт, если враг жив — враг отвечает ближайшему видимому герою. */
+function resolveCombatRound(state, hero, monster, dice) {
+  const events = [];
+  const push = (kind, text) => events.push(ev(kind, text));
+  const weapon = playerWeapon(hero);
+
+  const pInit = rollInitiative(dice, hero.stats.dex).total;
+  const mInit = rollInitiative(dice, hero.stats.dex).total + 1;
+  const playerFirst = pInit >= mInit;
+
+  const playerStrike = () => {
+    const atk = attackRoll(dice, hero.stats, weapon, 10 + (monster.toHit || 0));
+    events.push(ev('roll', `${hero.name}: d20 [${atk.raw}]${atk.crit ? ' КРИТ!' : atk.fumble ? ' провал...' : ''} → атака ${atk.total}`));
+    if (!atk.hit) {
+      push('combat', `${hero.name} промахивается по ${monster.name}. ${atk.fumble ? 'Очень зрелищно промахивается.' : ''}`);
+      return;
+    }
+    const dmg = damageRoll(dice, weapon, hero.stats.str, atk.crit);
+    monster.hp -= dmg.total;
+    push('combat', `${atk.crit ? 'КРИТИЧЕСКИЙ УДАР! ' : ''}${hero.name} наносит ${dmg.total} урона ${monster.name} ${dmg.rolls.map(r => `[${r}]`).join('')}. ${monster.hp <= 0 ? `${monster.name} повержен!` : `У него осталось ${monster.hp} HP.`}`);
+    if (monster.hp <= 0) {
+      const levels = gainXp(hero, monster.xp);
+      push('loot', `${hero.name} получает ${monster.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
+      const drop = rollDrop(dice, BASIC_DROP_TABLE, state.depth);
+      if (drop) {
+        state.floorItems.push({ ...drop, x: monster.x, y: monster.y });
+        push('loot', `${monster.name} роняет: ${drop.name}.`);
+      }
+    }
+  };
+
+  const monsterStrike = () => {
+    // монстр бьёт ближайшего видимого ему героя, а не только атакующего
+    const candidates = state.heroes
+      .filter(h => h.alive && h.fov.has(`${monster.x},${monster.y}`))
+      .sort((a, b) => dist(a.pos.x, a.pos.y, monster.x, monster.y) - dist(b.pos.x, b.pos.y, monster.x, monster.y));
+    const target = candidates[0] || hero;
+    const atk = monsterAttack(dice, monster, playerAc(target));
+    if (!atk.hit) {
+      push('combat', `${monster.name} бьёт мимо ${target.name} ${atk.crit ? '(а ведь чуть не кританул)' : ''}.`);
+      return;
+    }
+    target.hp -= atk.dmg;
+    state.deathCause = `убит ${monster.name}`;
+    push('combat', `${monster.name} ${atk.crit ? 'КРИТУЕТ' : 'попадает'} по ${target.name}: -${atk.dmg} HP (осталось ${Math.max(0, target.hp)}).`);
+  };
+
+  if (playerFirst) { playerStrike(); if (monster.hp > 0) monsterStrike(); }
+  else { monsterStrike(); if (hero.hp > 0) playerStrike(); }
+
+  return events;
+}
+
+function renderInventory(player) {
+  const lines = [`HP: ${player.hp}/${player.maxHp} | Ур.${player.level} | XP ${player.xp}/${player.level * 100} | Золото: ${player.gold}`];
+  lines.push(`Оружие: ${player.equipment.weapon ? player.equipment.weapon.name : 'кулаки'} | Броня: ${player.equipment.armor ? player.equipment.armor.name : 'нет'} (AC ${playerAc(player)})`);
+  lines.push('Рюкзак:');
+  if (!player.inventory.length) lines.push('  (пусто)');
+  for (const it of player.inventory) lines.push(`  - ${it.name}${it.qty > 1 ? ` x${it.qty}` : ''}`);
+  return lines.join('\n');
+}
+
+function describeSurroundings(state, heroIdx = state.activeIdx) {
+  const hero = state.heroes[heroIdx];
+  const mons = visibleMonsters(state, heroIdx).map(m => `${m.name} (HP ${m.hp}/${m.maxHp})`);
+  const items = state.floorItems.filter(it => hero.fov.has(`${it.x},${it.y}`));
+  const party = state.heroes.filter((h, i) => i !== heroIdx && h.alive && h.fov.has(`${hero.pos.x},${hero.pos.y}`) && hero.fov.has(`${h.pos.x},${h.pos.y}`));
+  const parts = [`${state.floorName}. `];
+  if (party.length) parts.push(`Рядом товарищи: ${party.map(p => p.name).join(', ')}. `);
+  if (mons.length) parts.push(`Рядом: ${mons.join(', ')}. `);
+  if (items.length) parts.push(`На земле: ${items.map(i => i.name).join(', ')}. `);
+  if (!mons.length && !items.length && !party.length) parts.push('Пока ничего интересного.');
+  return parts.join('');
+}
+
+/** Добавить квест в журнал (ИИ или движок). */
+function addQuest(state, text) {
+  if (text && !state.quests.includes(text)) state.quests.push(text);
+}
+
+/**
+ * Персональный снапшот для сетевой игры: только то, что видит герой.
+ */
+function buildSnapshot(state, heroIdx = state.activeIdx) {
+  const hero = state.heroes[heroIdx];
+  const cells = [];
+  const monsters = [], items = [];
+  for (let y = 0; y < state.dungeon.h; y++) {
+    let row = '';
+    for (let x = 0; x < state.dungeon.w; x++) {
+      if (x === hero.pos.x && y === hero.pos.y) { row += '@'; continue; }
+      if (!hero.fov.has(`${x},${y}`)) { row += ' '; continue; }
+      const mon = state.monsters.find(m => m.hp > 0 && m.x === x && m.y === y);
+      if (mon) {
+        row += 'м';
+        monsters.push({ name: mon.name, x, y, hp: mon.hp, maxHp: mon.maxHp });
+        continue;
+      }
+      const otherIdx = state.heroes.findIndex((h, i) => i !== heroIdx && h.alive && h.pos.x === x && h.pos.y === y);
+      if (otherIdx !== -1) { row += HERO_GLYPHS[otherIdx] || '?'; continue; }
+      const item = state.floorItems.find(it => it.x === x && it.y === y);
+      if (item) {
+        row += item.type === 'gold' ? '$' : item.type === 'potion' ? '!' : '†';
+        items.push({ name: item.name, type: item.type, x, y });
+        continue;
+      }
+      const t = state.dungeon.grid[y][x];
+      row += t === TILE.WALL ? '#' : t === TILE.STAIRS ? '>' : '.';
+    }
+    cells.push(row);
+  }
+  return {
+    t: 'snapshot',
+    depth: state.depth, floorName: state.floorName, turnOf: state.activeIdx,
+    over: state.over, epitaph: state.epitaph, mode: state.mode, worldDesc: state.worldDesc, quests: [...state.quests],
+    you: heroIdx,
+    heroes: state.heroes.map((h, i) => ({
+      idx: i, name: h.name, className: h.className, alive: h.alive,
+      pos: { ...h.pos }, hp: h.hp, maxHp: h.maxHp, level: h.level, glyph: HERO_GLYPHS[i] || '?'
+    })),
+    self: {
+      hp: hero.hp, maxHp: hero.maxHp, level: hero.level, xp: hero.xp,
+      xpNext: hero.level * 100, gold: hero.gold, stats: { ...hero.stats },
+      inventory: hero.inventory.map(i => ({ ...i })),
+      equipment: {
+        weapon: hero.equipment.weapon && { ...hero.equipment.weapon },
+        armor: hero.equipment.armor && { ...hero.equipment.armor }
+      },
+      ac: playerAc(hero)
+    },
+    map: { w: state.dungeon.w, h: state.dungeon.h, cells, monsters, items }
+  };
+}
+
+/**
+ * Применение эффектов, предложенных ИИ. Движок ВАЛИДИРУЕТ всё.
+ * playerDamage/heal/goldGain/itemGain/xpGain бьют по герою heroIdx (по умолчанию — активному).
+ */
+function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
+  const events = [];
+  const push = (kind, text) => events.push(ev(kind, text));
+  if (!effects || typeof effects !== 'object') return events;
+  const hero = state.heroes[heroIdx] || state.heroes[state.activeIdx];
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v | 0));
+
+  if (effects.enemySpawn && !state.over) {
+    const pos = randomFloor(state.rng, state.dungeon);
+    state.monsters.push({
+      id: `m${++monSeq}`,
+      name: String(effects.enemySpawn.name || 'нечто').slice(0, 40),
+      x: pos.x, y: pos.y,
+      hp: clamp(effects.enemySpawn.hp || 4, 1, 20),
+      maxHp: clamp(effects.enemySpawn.hp || 4, 1, 20),
+      toHit: clamp(effects.enemySpawn.toHit || 1, 0, 5),
+      dmg: clamp(effects.enemySpawn.dmg || 1, 1, 6),
+      xp: clamp(effects.enemySpawn.xp || 25, 5, 200)
+    });
+  }
+
+  if (effects.enemyDamage) {
+    const mons = visibleMonsters(state, heroIdx);
+    const target = (effects.enemyName &&
+      mons.find(m => m.name.toLowerCase().includes(String(effects.enemyName).toLowerCase()))) || mons[0];
+    if (target) {
+      const dmg = clamp(effects.enemyDamage, 0, 30);
+      target.hp -= dmg;
+      push('combat', `${target.name} получает ${dmg} урона. ${target.hp <= 0 ? 'Повержен!' : `Осталось ${target.hp} HP.`}`);
+      if (target.hp <= 0) {
+        const levels = gainXp(hero, target.xp);
+        push('loot', `${hero.name} получает ${target.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
+      }
+    }
+  }
+
+  if (effects.itemGain && effects.itemGain.name) {
+    const item = makeItem({
+      name: String(effects.itemGain.name).slice(0, 40),
+      type: ['weapon', 'armor', 'potion', 'misc'].includes(effects.itemGain.type) ? effects.itemGain.type : 'misc',
+      dmg: clamp(effects.itemGain.dmg || 0, 0, 8),
+      ac: clamp(effects.itemGain.ac || 0, 0, 6),
+      heal: clamp(effects.itemGain.heal || 0, 0, 20),
+      qty: clamp(effects.itemGain.qty || 1, 1, 5)
+    });
+    if (item.type === 'misc' && !item.dmg && !item.ac && !item.heal && effects.itemGain.gold) {
+      hero.gold += clamp(effects.itemGain.gold, 1, 500);
+      push('loot', `${hero.name} получает: ${clamp(effects.itemGain.gold, 1, 500)} золота.`);
+    } else {
+      addItem(hero, item);
+      push('loot', `${hero.name} получает: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`);
+    }
+    gainXp(hero, 5);
+  }
+
+  if (effects.goldGain) {
+    hero.gold += clamp(effects.goldGain, 1, 500);
+    push('loot', `${hero.name} получает ${clamp(effects.goldGain, 1, 500)} золота.`);
+  }
+
+  if (effects.heal && !state.over) {
+    hero.hp = Math.min(hero.maxHp, hero.hp + clamp(effects.heal, 0, 20));
+    push('loot', `${hero.name} восстанавливает ${clamp(effects.heal, 0, 20)} HP.`);
+  }
+
+  if (effects.playerDamage && !state.over) {
+    const dmg = clamp(effects.playerDamage, 0, 15);
+    hero.hp -= dmg;
+    state.deathCause = effects.causeOfDeath ? String(effects.causeOfDeath).slice(0, 80) : 'мир оказался хуже игрока';
+    push('combat', `${hero.name} получает ${dmg} урона (осталось ${Math.max(0, hero.hp)} HP).`);
+  }
+
+  if (effects.xpGain) {
+    const levels = gainXp(hero, clamp(effects.xpGain, 0, 100));
+    push('loot', `${hero.name} получает ${clamp(effects.xpGain, 0, 100)} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
+  }
+
+  if (effects.questAdd) addQuest(state, String(effects.questAdd).slice(0, 100));
+  if (effects.questDone) {
+    const q = state.quests.find(t => t.includes(String(effects.questDone).slice(0, 20)));
+    if (q) state.quests = state.quests.filter(t => t !== q);
+  }
+
+  if (effects.narrative) push('dm', String(effects.narrative).slice(0, 1200));
+
+  if (hero.hp <= 0 && hero.alive) {
+    hero.alive = false;
+    hero.epitaph = state.deathCause || 'кончилось плохо';
+    push('death', `☠ ${hero.name} мёртв. Эпитафия: ${hero.epitaph}`);
+    if (state.heroes.every(h => !h.alive)) {
+      state.over = true;
+      state.epitaph = hero.epitaph;
+      push('death', `☠ Партия уничтожена.`);
+    }
+  }
+  return events;
+}
+
+
+// client.js — тонкий клиент любого OpenAI-совместимого API.
+// fetch инжектится для тестируемости (в браузере — глобальный fetch).
+
+/**
+ * @param {{baseUrl: string, apiKey: string, model: string, fetch?: typeof fetch}} cfg
+ */
+function createClient(cfg) {
+  const doFetch = cfg.fetch || globalThis.fetch;
+  const baseUrl = (cfg.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  return {
+    model: cfg.model,
+    /**
+     * @param {Array<{role:string, content:string}>} messages
+     * @param {{temperature?: number, maxTokens?: number}} [opts]
+     * @returns {Promise<string>} текст первого ответа
+     */
+    async chat(messages, opts = {}) {
+      const res = await doFetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cfg.apiKey}`
+        },
+        body: JSON.stringify({
+          model: cfg.model,
+          messages,
+          temperature: opts.temperature ?? 0.9,
+          max_tokens: opts.maxTokens ?? 600
+        })
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`AI API ${res.status}: ${body.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (typeof content !== 'string') throw new Error('Пустой ответ от ИИ');
+      return content;
+    }
+  };
+}
+
+/**
+ * Достать JSON из ответа модели (устойчиво к ```json обёрткам и болтовне).
+ * @returns {object|null}
+ */
+function extractJson(text) {
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidates = [fenced && fenced[1], text];
+  for (const c of candidates) {
+    if (!c) continue;
+    const start = c.indexOf('{');
+    const end = c.lastIndexOf('}');
+    if (start === -1 || end <= start) continue;
+    try {
+      return JSON.parse(c.slice(start, end + 1));
+    } catch { /* пробуем дальше */ }
+  }
+  return null;
+}
+
+
+// dm.js — ИИ-данж-мастер: сборка контекста, системный промпт, парсинг ответа.
+// Характер по спецификации: юмор и троллинг + беспощадность. Русский язык.
+
+
+
+const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-игры «dnd by ZxcPap14». 
+
+ХАРАКТЕР: ты тролль и шутник. Издеваешься над игроком, шутишь, делаешь отсылки к поп-культуре и мемам. Но мир живёт всерьёз: опасности реальны, а плохие решения наказываются. Ты БЕСПОЩАДЕН: глупый поступок = реальный урон или смерть. Не жалей игрока.
+
+ПРАВИЛА:
+- Пиши ТОЛЬКО по-русски. 2-4 предложения на событие (больше — только на ключевых моментах).
+- Ты НЕ кидаешь кубики и НЕ решаешь исходы атак сам — это делает движок. Ты только описываешь и предлагаешь.
+- Ты можешь предлагать только эти эффекты, в пределах разумного: playerDamage (0-15), heal (0-20), xpGain (0-50), goldGain (1-200), enemyDamage (0-25), enemySpawn, itemGain (слабые предметы), questAdd.
+- Никогда не обещай игроку лут мощнее кинжала без причины.
+
+ОТВЕТ: ТОЛЬКО валидный JSON без markdown:
+{
+  "narrative": "твоё описание происшедшего",
+  "playerDamage": 0, "causeOfDeath": "",
+  "heal": 0, "xpGain": 0, "goldGain": 0,
+  "enemyName": "", "enemyDamage": 0,
+  "enemySpawn": null,            // {"name","hp","toHit","dmg","xp"} если появляется монстр
+  "itemGain": null,              // {"name","type":"weapon|armor|potion|misc","dmg","ac","heal","gold","qty"}
+  "questAdd": "", "questDone": ""
+}
+Все числовые поля по умолчанию 0/null — включай только то, что реально происходит.`;
+
+/**
+ * Компактный контекст текущего состояния для модели.
+ */
+function buildContext(state, playerInput) {
+  const p = state.player;
+  const nearby = (state.monsters || [])
+    .filter(m => m.hp > 0 && state.fov?.has(`${m.x},${m.y}`))
+    .map(m => `${m.name} (HP ${m.hp}/${m.maxHp})`);
+  const items = (state.floorItems || []).filter(it => state.fov?.has(`${it.x},${it.y}`)).map(i => i.name);
+  return [
+    { role: 'system', content: SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: [
+        `МИР: ${state.worldDesc}. Режим: ${state.mode}. ${state.floorName}.`,
+        `ГЕРОЙ: ${p.name}, ${p.className}, ур.${p.level}, HP ${p.hp}/${p.maxHp}, AC ${playerAc(p)}, золото ${p.gold}.`,
+        `ПАРТИЯ: ${state.heroes.map(h => `${h.name} (${h.className}, HP ${h.hp}/${h.maxHp}${h.alive ? '' : ', МЁРТВ'})`).join('; ')}.`,
+        `СТАТЫ: ${Object.entries(p.stats).map(([k, v]) => `${k} ${v}`).join(', ')}.`,
+        `ИНВЕНТАРЬ: ${p.inventory.map(i => i.name).join(', ') || 'пуст'}; оружие: ${p.equipment.weapon?.name || 'кулаки'}; броня: ${p.equipment.armor?.name || 'нет'}.`,
+        nearby.length ? `ВИДИТ ВРАГОВ: ${nearby.join(', ')}.` : 'ВРАГОВ НЕ ВИДИТ.',
+        items.length ? `ВИДИТ ПРЕДМЕТЫ: ${items.join(', ')}.` : '',
+        state.quests.length ? `КВЕСТЫ: ${state.quests.join('; ')}.` : '',
+        `ПРОВЕРКИ ДВИЖКА (последние): ${state.recentRolls?.join(', ') || 'нет'}.`,
+        `ДЕЙСТВИЕ ИГРОКА: "${playerInput}"`
+      ].filter(Boolean).join('\n')
+    }
+  ];
+}
+
+/**
+ * Стартовое вступление мира.
+ */
+function introMessages(state) {
+  const p = state.player;
+  return [
+    { role: 'system', content: SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: `Сгенерируй вступление новой игры. МИР: ${state.worldDesc}. Режим: ${state.mode}. ГЕРОЙ: ${p.name}, ${p.className}, ур.${p.level}. Опиши место, где он очнулся, добавь первичный квест (questAdd) и шутку в свой стиль. ${state.floorName}.`
+    }
+  ];
+}
+
+/**
+ * Классы под сеттинг.
+ */
+function classMessages(worldDesc) {
+  return [
+    { role: 'system', content: 'Ты генератор классов для D&D-игры. Отвечай ТОЛЬКО JSON без markdown.' },
+    {
+      role: 'user',
+      content: `МИР: ${worldDesc}. Придумай 4 класса под этот мир. JSON: {"classes":[{"name":"...","desc":"1 предложение","stats":{"str":12,"dex":14,"int":10,"con":12,"cha":12,"luck":12}}]} — статы от 8 до 16, сумма около 72.`
+    }
+  ];
+}
+
+
+// stub.js — офлайн-заглушка ДМа: играется без API-ключа.
+// Тот же юмор и троллинг, но из заготовленного пула. Тот же JSON-контракт эффектов.
+
+
+
+
+const SNARK = [
+  'Ты делаешь что-то настолько смелое, что даже тьма делает шаг назад. Из уважения. Или ужаса.',
+  'Древние руны на стене складываются в слово «новичок». Совпадение? Не думаю.',
+  'Где-то вдалеке кто-то смеётся. Возможно, это твоя судьба. Возможно, просто эхо.',
+  'Ты чувствуешь, как приключение находит тебя. Оно шло за тобой с самого начала.',
+  'Стены подземелья ведут себя подозрительно невинно. Слишком невинно.',
+  'Мимокрокодил пробежал мимо и ничего не сказал. Странный день.',
+  'Ты осматриваешься с таким лицом, будто знаешь, что делаешь. Подземелье решает подыграть.'
+];
+
+const BAD_IDEA = [
+  'Идея так себе, но подземелье уважает смелость. Немного. Очень немного.',
+  'Ты пробуешь. Подземелье пробует тебя. Угадай, у кого получилось лучше.',
+  'Это сработает. Наверное. Где-нибудь. Но не сегодня и не здесь.'
+];
+
+const QUESTS = [
+  'Найти выход из этого цирка',
+  'Разобраться, кто здесь главный',
+  'Пережить собственные решения',
+  'Найти легендарный сэндвич 3-го этажа'
+];
+
+let snarkIdx = 0;
+let questGiven = false;
+
+function resetStub() {
+  snarkIdx = 0;
+  questGiven = false;
+}
+
+/**
+ * Ответ заглушки на свободное действие. Контракт тот же, что у ИИ:
+ * возвращает эффекты для applyDmEffects.
+ */
+function stubDmTurn(state, input) {
+  const rng = state.rng;
+  const roll = rng();
+
+  // редкая встреча
+  if (roll < 0.15 && !state.over) {
+    const pos = randomFloor(rng, state.dungeon);
+    return {
+      narrative: `От тьмы отделяется ${'нечто недоброе'}. Похоже, тишина тебе не понравилась.`,
+      enemySpawn: { name: 'неудобный знакомый', hp: 4 + state.depth, toHit: 2, dmg: 1, xp: 25 + state.depth * 5 }
+    };
+  }
+  // редкий лут
+  if (roll < 0.25 && !state.over) {
+    return {
+      narrative: 'Ты нащупываешь в темноте что-то полезное. Подземелье сегодня щедрое. Подозрительно.',
+      itemGain: makeItem({ name: 'Зелье лечения', type: 'potion', heal: 8 })
+    };
+  }
+  // первый раз — даём квест
+  if (!questGiven) {
+    questGiven = true;
+    const q = QUESTS[Math.floor(rng() * QUESTS.length)];
+    return {
+      narrative: `Твоя интуиция (а может, голод) подсказывает главное занятие: ${q}. Остальное — в твоих руках. Спойлер: руки у тебя кривые.`,
+      questAdd: q
+    };
+  }
+  // ирония над сомнительной идеей
+  if (/(украсть|обман|подкуп|взорвать|прыг|крич|сплюнуть|потрогать всё)/.test(input.toLowerCase())) {
+    return { narrative: BAD_IDEA[Math.floor(rng() * BAD_IDEA.length)] };
+  }
+  return { narrative: SNARK[snarkIdx++ % SNARK.length] };
+}
+
+
+// protocol.js — версия протокола и константы мультиплеера.
+
+const PROTOCOL_VER = 'mp1';
+const TURN_MS = 60000;          // таймер хода (0 = выключен)
+const FREE_COOLDOWN_MS = 10000; // антиспам свободного текста (ключ хоста!)
+const MAX_PLAYERS = 4;
+
+
+// loopback.js — in-memory сеть для хот-сита, тестов и отладки.
+// Интерфейс хоста: broadcast/sendTo/onClientMessage/onClientJoin/onClientLeave.
+// Интерфейс клиента: send/onMessage/onClose.
+
+function createLoopbackNet() {
+  const clients = new Map(); // id → endpoint
+  let seq = 0;
+  let onMsg = null, onJoin = null, onLeave = null;
+
+  const hostNet = {
+    broadcast(msg) {
+      for (const ep of clients.values()) queueMicrotask(() => ep._recv(msg));
+    },
+    sendTo(id, msg) {
+      const ep = clients.get(id);
+      if (ep) queueMicrotask(() => ep._recv(msg));
+    },
+    onClientMessage(cb) { onMsg = cb; },
+    onClientJoin(cb) { onJoin = cb; },
+    onClientLeave(cb) { onLeave = cb; }
+  };
+
+  return {
+    host: hostNet,
+    /** Создать клиентский эндпоинт. Возвращает link для ClientSession. */
+    spawnClient() {
+      const id = 'c' + (++seq);
+      const ep = {
+        id,
+        _recv(msg) { if (ep._onMsg) ep._onMsg(msg); },
+        send(msg) { queueMicrotask(() => { if (onMsg) onMsg(id, msg); }); },
+        onMessage(fn) { ep._onMsg = fn; },
+        onClose(fn) { ep._onClose = fn; },
+        close() {
+          if (clients.has(id)) {
+            clients.delete(id);
+            if (onLeave) queueMicrotask(() => onLeave(id));
+          }
+        }
+      };
+      clients.set(id, ep);
+      if (onJoin) queueMicrotask(() => onJoin(id));
+      return ep;
+    },
+    clientCount() { return clients.size; }
+  };
+}
+
+/** Сгенерировать короткий код комнаты (без похожих символов). */
+function makeRoomCode(rng = Math.random) {
+  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 4; i++) code += alphabet[Math.floor(rng() * alphabet.length)];
+  return code;
+}
+
+
+// host.js — сессия хоста: лобби, очередь ходов, раздача снапшотов, таймер хода.
+// Хост — всегда игрок 0. Движок и API-ключ живут здесь.
+
+
+
+
+
+/**
+ * @param {object} opts
+ * @param {object} opts.net  — { broadcast, sendTo, onClientMessage, onClientJoin, onClientLeave }
+ * @param {string} opts.hostName
+ * @param {object} [opts.dm] — { resolveFree(game, text, player) → Promise<effects>, intro(game) → Promise<effects> }
+ * @param {number} [opts.turnMs] — таймер хода, 0 = выключен
+ */
+function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
+  const players = new Map(); // clientId → {id, name, heroIdx}
+  let game = null;
+  let started = false;
+  let seq = 0;
+  let turnTimer = null;
+  const lastFree = new Map();
+  const ui = { lobby: [], events: [], snapshot: [], over: [] };
+
+  const nextSeq = () => ++seq;
+
+  function emit(key, payload) { ui[key].forEach(fn => { try { fn(payload); } catch { /* UI не роняет хост */ } }); }
+
+  function lobbyList() {
+    return [
+      { id: 0, name: hostName, host: true },
+      ...[...players.values()].map(p => ({ id: p.id, name: p.name, host: false }))
+    ];
+  }
+
+  function broadcastLobby() {
+    const msg = { t: 'lobby', ver: PROTOCOL_VER, players: lobbyList(), started };
+    net.broadcast(msg);
+    emit('lobby', msg.players);
+  }
+
+  function idForHero(heroIdx) {
+    for (const p of players.values()) if (p.heroIdx === heroIdx) return p.id;
+    return null;
+  }
+
+  function broadcastEvents(events) {
+    const clean = events
+      .filter(e => e.kind !== 'dm' || !e.text.startsWith('__FREE__'))
+      .map(e => ({ kind: e.kind, text: e.text }));
+    if (clean.length) {
+      net.broadcast({ t: 'events', seq: nextSeq(), events: clean });
+      emit('events', clean);
+    }
+    if (game) {
+      broadcastSnapshots();
+      if (game.over) emit('over', { epitaph: game.epitaph });
+    }
+  }
+
+  function broadcastSnapshots() {
+    if (!game) return;
+    for (let idx = 0; idx < game.heroes.length; idx++) {
+      const snap = buildSnapshot(game, idx);
+      snap.seq = nextSeq();
+      if (idx === 0) emit('snapshot', snap);
+      else {
+        const id = idForHero(idx);
+        if (id != null) net.sendTo(id, snap);
+      }
+    }
+  }
+
+  function armTurnTimer() {
+    if (turnTimer) { clearTimeout(turnTimer); turnTimer = null; }
+    if (!turnMs || !game || game.over || game.heroes.length <= 1) return;
+    turnTimer = setTimeout(() => {
+      if (game && !game.over && started) {
+        const events = applyIntent(game, { intent: 'wait' }, game.activeIdx);
+        broadcastEvents(events);
+      }
+    }, turnMs);
+  }
+
+  async function processIntent(heroIdx, command, cooldownKey, notifyId = null) {
+    if (!game || !started || game.over) return;
+    const notify = (events) => {
+      const msg = { t: 'events', seq: nextSeq(), events };
+      if (notifyId != null) net.sendTo(notifyId, msg);
+      else emit('events', events);
+    };
+    // кулдаун на свободный текст — ДО проверки хода: он защищает ключ хоста
+    const intent = parseCommand(command);
+    if (intent.intent === 'free') {
+      const now = Date.now();
+      const last = lastFree.get(cooldownKey) || 0;
+      const wait = FREE_COOLDOWN_MS - (now - last);
+      if (wait > 0) {
+        notify([{ kind: 'system', text: `Слишком много вольностей подряд — ДМ переваривает. ${Math.ceil(wait / 1000)} сек.` }]);
+        return;
+      }
+      lastFree.set(cooldownKey, now);
+    }
+    if (heroIdx !== game.activeIdx) {
+      notify([{ kind: 'system', text: 'Сейчас не твой ход — дождись очереди.' }]);
+      return;
+    }
+    let events = applyIntent(game, intent, heroIdx);
+    // свободный текст → ДМ
+    for (const e of events) {
+      if (e.kind === 'dm' && e.text.startsWith('__FREE__')) {
+        const text = e.text.slice('__FREE__'.length);
+        const effects = (dm && dm.resolveFree)
+          ? await dm.resolveFree(game, text)
+          : stubDmTurn(game, text);
+        events.push(...applyDmEffects(game, effects, heroIdx));
+      }
+    }
+    broadcastEvents(events);
+    armTurnTimer();
+  }
+
+  // ---- сетевые события ----
+  net.onClientMessage(async (id, msg) => {
+    try {
+      if (msg.t === 'hello') {
+        if (started) { net.sendTo(id, { t: 'reject', reason: 'Игра уже началась.' }); return; }
+        if (msg.ver !== PROTOCOL_VER) { net.sendTo(id, { t: 'reject', reason: 'Разные версии игры — обнови страницу.' }); return; }
+        if (players.size >= MAX_PLAYERS) { net.sendTo(id, { t: 'reject', reason: 'Комната полна (макс 4).' }); return; }
+        const taken = new Set([hostName, ...[...players.values()].map(p => p.name)]);
+        let name = String(msg.name || 'Игрок').slice(0, 16).trim() || 'Игрок';
+        if (taken.has(name)) name = name.slice(0, 13) + Math.floor(Math.random() * 90 + 10);
+        players.set(id, { id, name, heroIdx: null });
+        net.sendTo(id, { t: 'welcome', ver: PROTOCOL_VER, playerId: id });
+        broadcastLobby();
+      } else if (msg.t === 'intent') {
+        const p = players.get(id);
+        await processIntent(p?.heroIdx, String(msg.command || '').slice(0, 200), id, id);
+      } else if (msg.t === 'ping') {
+        net.sendTo(id, { t: 'pong' });
+      }
+    } catch { /* мусор от клиента не роняет хост */ }
+  });
+
+  net.onClientLeave(id => {
+    const p = players.get(id);
+    players.delete(id);
+    broadcastLobby();
+    if (started && game && p && p.heroIdx != null && game.heroes[p.heroIdx]?.alive) {
+      const hero = game.heroes[p.heroIdx];
+      hero.alive = false;
+      hero.epitaph = 'сбежал из подземелья по-английски';
+      const events = [{
+        kind: 'death',
+        text: `☠ ${hero.name} растворился в темноте (вышел из игры). Его снаряжение достаётся подземелью.`
+      }];
+      if (game.heroes.every(h => !h.alive)) {
+        game.over = true;
+        game.epitaph = hero.epitaph;
+        events.push({ kind: 'death', text: '☠ Партия уничтожена.' });
+      }
+      broadcastEvents(events);
+    }
+  });
+
+  // ---- публичный API ----
+  return {
+    /** Список лобби для UI */
+    getLobby: lobbyList,
+    isStarted: () => started,
+    getGame: () => game,
+
+    /** Подписки UI хоста */
+    onLobby(fn) { ui.lobby.push(fn); },
+    onEvents(fn) { ui.events.push(fn); },
+    onSnapshot(fn) { ui.snapshot.push(fn); },
+    onOver(fn) { ui.over.push(fn); },
+
+    /**
+     * Старт игры. classAssignments: [{name, className, stats}] для ВСЕЙ партии,
+     * хост первый. intro — асинхронный эффект вступления (ИИ или заглушка).
+     */
+    startGame({ worldDesc, mode, classAssignments, intro = null }) {
+      if (started) return;
+      resetStub();
+      const playersCfg = classAssignments.map((c, i) => ({ ...c, name: i === 0 ? hostName : (players.get([...players.keys()][i - 1])?.name || c.name) }));
+      game = newGame({
+        seed: (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
+        mode, worldDesc, players: playersCfg
+      });
+      let i = 1;
+      for (const p of players.values()) p.heroIdx = i++;
+      started = true;
+      net.broadcast({ t: 'start', ver: PROTOCOL_VER, worldDesc, mode });
+      broadcastLobby();
+      broadcastSnapshots();
+      if (intro) {
+        Promise.resolve(intro(game))
+          .then(effects => broadcastEvents(applyDmEffects(game, effects, 0)))
+          .catch(() => broadcastEvents(applyDmEffects(game, { narrative: 'ДМ не отвечает. Ты очнулся в темноте. Как обычно.' }, 0)));
+      }
+      armTurnTimer();
+    },
+
+    /** Ход игрока-хоста (heroIdx 0). resolveFree подключается так же, как для клиентов. */
+    localIntent(command) {
+      return processIntent(0, command, 'host');
+    },
+
+    /** Пуш эффектов ДМа извне (интро, события хоста). */
+    pushDmEffects(effects, heroIdx = 0) {
+      if (!game) return;
+      broadcastEvents(applyDmEffects(game, effects, heroIdx));
+    },
+
+    /** Пуш системного события всем. */
+    pushSystem(text) {
+      broadcastEvents([{ kind: 'system', text }]);
+    },
+
+    kick(id, reason = 'Хост выгнал тебя. Бывает.') {
+      const p = players.get(id);
+      if (!p) return;
+      net.sendTo(id, { t: 'kicked', reason });
+      players.delete(id);
+      broadcastLobby();
+      if (started && game && p.heroIdx != null && game.heroes[p.heroIdx]?.alive) {
+        const hero = game.heroes[p.heroIdx];
+        hero.alive = false;
+        hero.epitaph = 'выгнан хостом';
+        broadcastEvents([{ kind: 'death', text: `☠ ${hero.name} изгнан. ${reason}` }]);
+      }
+    },
+
+    stop() {
+      if (turnTimer) clearTimeout(turnTimer);
+      started = false;
+      game = null;
+    }
+  };
+}
+
+
+// client.js — клиентская сессия: тонкий терминал. Держит link (send/onMessage/onClose).
+
+
+
+/**
+ * @param {object} opts
+ * @param {object} opts.link — { send(msg), onMessage(cb), onClose(cb), close() }
+ * @param {string} opts.name
+ */
+function createClientSession({ link, name }) {
+  let myId = null;
+  let lastSeq = 0;
+  let closed = false;
+  const cbs = {
+    welcome: [], lobby: [], events: [], snapshot: [], start: [],
+    reject: [], kicked: [], close: []
+  };
+
+  function emit(key, payload) { cbs[key].forEach(fn => { try { fn(payload); } catch { /* ignore */ } }); }
+
+  link.onMessage(msg => {
+    if (!msg || typeof msg !== 'object') return;
+    switch (msg.t) {
+      case 'welcome':
+        myId = msg.playerId;
+        emit('welcome', { playerId: msg.playerId });
+        break;
+      case 'reject':
+        emit('reject', { reason: msg.reason });
+        break;
+      case 'kicked':
+        emit('kicked', { reason: msg.reason });
+        break;
+      case 'lobby':
+        emit('lobby', msg.players);
+        break;
+      case 'start':
+        emit('start', { worldDesc: msg.worldDesc, mode: msg.mode });
+        break;
+      case 'events':
+        if (typeof msg.seq === 'number' && msg.seq <= lastSeq) return; // дубликат/устаревшее
+        if (typeof msg.seq === 'number') lastSeq = msg.seq;
+        emit('events', msg.events || []);
+        break;
+      case 'snapshot':
+        if (typeof msg.seq === 'number' && msg.seq < lastSeq - 1) return;
+        if (typeof msg.seq === 'number') lastSeq = Math.max(lastSeq, msg.seq);
+        emit('snapshot', msg);
+        break;
+      case 'pong':
+      default:
+        break;
+    }
+  });
+
+  link.onClose(() => {
+    if (!closed) { closed = true; emit('close', {}); }
+  });
+
+  return {
+    hello() { link.send({ t: 'hello', ver: PROTOCOL_VER, name }); },
+    sendCommand(text) { if (!closed) link.send({ t: 'intent', command: String(text).slice(0, 200) }); },
+    ping() { link.send({ t: 'ping' }); },
+    getId: () => myId,
+    close() { closed = true; link.close(); },
+    onWelcome(fn) { cbs.welcome.push(fn); },
+    onLobby(fn) { cbs.lobby.push(fn); },
+    onEvents(fn) { cbs.events.push(fn); },
+    onSnapshot(fn) { cbs.snapshot.push(fn); },
+    onStart(fn) { cbs.start.push(fn); },
+    onReject(fn) { cbs.reject.push(fn); },
+    onKicked(fn) { cbs.kicked.push(fn); },
+    onClose(fn) { cbs.close.push(fn); }
+  };
+}
+
+
+// peer.js — WebRTC-транспорт поверх PeerJS (ленивая загрузка с CDN).
+// Хост: принимает несколько подключений. Клиент: один линк к хосту.
+// Room code → namespaced peer-id на публичном signaling-брокере.
+
+const PEER_NAMESPACE = 'dndzxc14-';
+const PEER_CDN = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+const CONNECT_TIMEOUT_MS = 15000;
+
+function loadPeerJS() {
+  if (globalThis.Peer) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = PEER_CDN;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Не удалось загрузить PeerJS — нужна сеть для мультиплеера'));
+    document.head.appendChild(s);
+  });
+}
+
+/**
+ * Сеть хоста. Интерфейс: { broadcast, sendTo, onClientMessage, onClientJoin, onClientLeave, close }
+ */
+async function createPeerHostNet(code) {
+  await loadPeerJS();
+  const Peer = globalThis.Peer;
+  const peer = new Peer(PEER_NAMESPACE + String(code).toLowerCase());
+  const conns = new Map();
+  let onMsg = null, onJoin = null, onLeave = null;
+
+  peer.on('connection', conn => {
+    conns.set(conn.peer, conn);
+    conn.on('data', msg => { if (onMsg) onMsg(conn.peer, msg); });
+    conn.on('open', () => { if (onJoin) onJoin(conn.peer); });
+    conn.on('close', () => { conns.delete(conn.peer); if (onLeave) onLeave(conn.peer); });
+  });
+
+  await Promise.race([
+    new Promise((res, rej) => {
+      peer.on('open', res);
+      peer.on('error', e => rej(new Error('PeerJS: ' + (e.type || e.message))));
+    }),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('Signaling-брокер не отвечает — попробуй ещё раз')), CONNECT_TIMEOUT_MS))
+  ]);
+
+  return {
+    broadcast(msg) { conns.forEach(c => { if (c.open) c.send(msg); }); },
+    sendTo(id, msg) { const c = conns.get(id); if (c && c.open) c.send(msg); },
+    onClientMessage(cb) { onMsg = cb; },
+    onClientJoin(cb) { onJoin = cb; },
+    onClientLeave(cb) { onLeave = cb; },
+    close() { peer.destroy(); }
+  };
+}
+
+/**
+ * Линк клиента. Интерфейс: { send, onMessage, onClose, close }
+ */
+async function createPeerClientLink(code) {
+  await loadPeerJS();
+  const Peer = globalThis.Peer;
+  const peer = new Peer();
+  const conn = peer.connect(PEER_NAMESPACE + String(code).toLowerCase(), { reliable: true });
+  let onMsg = null, onClose = null;
+
+  conn.on('data', msg => { if (onMsg) onMsg(msg); });
+  conn.on('close', () => { if (onClose) onClose(); });
+  peer.on('error', () => { if (onClose) onClose(); });
+
+  await Promise.race([
+    new Promise((res, rej) => {
+      conn.on('open', res);
+      peer.on('error', e => {
+        const type = e.type || '';
+        if (type === 'peer-unavailable') rej(new Error('Комната не найдена — проверь код'));
+        else rej(new Error('PeerJS: ' + (type || e.message)));
+      });
+    }),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('Хост не отвечает — проверь код комнаты')), CONNECT_TIMEOUT_MS))
+  ]);
+
+  return {
+    send(msg) { if (conn.open) conn.send(msg); },
+    onMessage(cb) { onMsg = cb; },
+    onClose(cb) { onClose = cb; },
+    close() { try { conn.close(); } catch { /*ignore*/ } try { peer.destroy(); } catch { /*ignore*/ } }
+  };
+}
+
+
+// sound.js — синтезированные звуки через WebAudio. Никаких файлов, только математика.
+
+let ctx = null;
+
+function initAudio() {
+  if (!ctx) {
+    try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { ctx = null; }
+  }
+  if (ctx && ctx.state === 'suspended') ctx.resume();
+}
+
+function tone(freq, dur, type = 'square', gain = 0.03, when = 0, slideTo = null) {
+  if (!ctx) return;
+  const t0 = ctx.currentTime + when;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t0);
+  if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+  g.gain.setValueAtTime(gain, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g).connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.02);
+}
+
+/** Блип печати терминала. */
+function blip(freq = 700 + Math.random() * 300) {
+  tone(freq, 0.02, 'square', 0.012);
+}
+
+/** Барабанная дробь перед броском + результат. */
+function rollSound(crit = false) {
+  for (let i = 0; i < 6; i++) tone(200 + i * 40, 0.03, 'square', 0.02, i * 0.05);
+  tone(crit ? 880 : 440, crit ? 0.25 : 0.12, 'triangle', 0.05, 0.32);
+  if (crit) tone(1320, 0.3, 'triangle', 0.04, 0.4);
+}
+
+/** Глухой удар при уроне. */
+function hitSound() {
+  tone(160, 0.15, 'sawtooth', 0.06, 0, 60);
+}
+
+/** Звук подбора лута. */
+function lootSound() {
+  tone(660, 0.06, 'square', 0.03);
+  tone(880, 0.08, 'square', 0.03, 0.06);
+}
+
+/** Повышение уровня — арпеджио. */
+function levelUpSound() {
+  [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.12, 'triangle', 0.05, i * 0.09));
+}
+
+/** Смерть — нисходящий стон. */
+function deathSound() {
+  tone(300, 0.9, 'sawtooth', 0.07, 0, 55);
+}
+
+
+// terminal.js — рендер карты/статов и печатная машинка для хроники.
+
+
+
+
+
+/**
+ * Печатная машинка: очередь строк, появляющихся посимвольно.
+ * Клик по хронике — промотать мгновенно.
+ */
+function createTyper(el) {
+  const queue = [];
+  const finishers = [];
+  let cur = null;
+  let timer = null;
+
+  function pump() {
+    if (cur || !queue.length) return;
+    cur = queue.shift();
+    const line = document.createElement('div');
+    line.className = 'line kind-' + cur.kind;
+    el.appendChild(line);
+    let i = 0;
+
+    const finish = () => {
+      line.textContent = cur.text;
+      el.scrollTop = el.scrollHeight;
+      cur = null;
+      if (queue.length) {
+        pump();
+      } else {
+        timer = null;
+        while (finishers.length) finishers.shift()();
+      }
+    };
+
+    const step = () => {
+      if (!cur) return;
+      if (cur.skip) { finish(); return; }
+      i++;
+      line.textContent = cur.text.slice(0, i);
+      if (i % 4 === 0) blip();
+      el.scrollTop = el.scrollHeight;
+      if (i >= cur.text.length) finish();
+      else timer = setTimeout(step, 9);
+    };
+    step();
+  }
+
+  return {
+    add(kind, text) {
+      queue.push({ kind, text, skip: false });
+      pump();
+    },
+    skipAll() {
+      for (const item of queue) item.skip = true;
+      if (cur) cur.skip = true;
+    },
+    get busy() { return !!(cur || queue.length); },
+    /** колбэк, когда всё напечатано */
+    onFinish(fn) {
+      if (!this.busy) fn();
+      else finishers.push(fn);
+    },
+    clear() {
+      queue.length = 0;
+      finishers.length = 0;
+      cur = null;
+      if (timer) clearTimeout(timer);
+      timer = null;
+      el.innerHTML = '';
+    }
+  };
+}
+
+/**
+ * Рендер карты с туманом войны в <pre>.
+ */
+function renderMap(pre, state) {
+  const parts = [];
+  for (let y = 0; y < state.dungeon.h; y++) {
+    for (let x = 0; x < state.dungeon.w; x++) {
+      if (x === state.pos.x && y === state.pos.y) {
+        parts.push('<span class="m-pl">@</span>');
+        continue;
+      }
+      if (!state.fov.has(`${x},${y}`)) { parts.push(' '); continue; }
+      const tile = state.dungeon.grid[y][x];
+      if (tile === TILE.WALL) { parts.push('<span class="m-wall">#</span>'); continue; }
+      const mon = state.monsters.find(m => m.hp > 0 && m.x === x && m.y === y);
+      if (mon) { parts.push(`<span class="m-mon" title="${mon.name}">м</span>`); continue; }
+      const item = state.floorItems.find(it => it.x === x && it.y === y);
+      if (item) {
+        const ch = item.type === 'gold' ? '$' : item.type === 'potion' ? '!' : '†';
+        parts.push(`<span class="m-item" title="${item.name}">${ch}</span>`);
+        continue;
+      }
+      if (tile === TILE.STAIRS) { parts.push('<span class="m-stair">&gt;</span>'); continue; }
+      parts.push('<span class="m-floor">.</span>');
+    }
+    parts.push('\n');
+  }
+  pre.innerHTML = parts.join('');
+}
+
+/** Полоска HP из блоков. */
+function hpBar(player, width = 10) {
+  const filled = Math.round((Math.max(0, player.hp) / player.maxHp) * width);
+  return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
+function renderStats(el, state) {
+  const p = state.player;
+  el.innerHTML = `
+    <div class="stat-row"><span class="stat-label">${p.name}</span><span>${p.className} · ур.${p.level}</span></div>
+    <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${hpBar(p)} ${p.hp}/${p.maxHp}</span></div>
+    <div class="stat-row"><span class="stat-label">AC / XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
+    <div class="stat-row"><span class="stat-label">Оружие</span><span>${p.equipment.weapon ? p.equipment.weapon.name : 'кулаки'}</span></div>
+    <div class="stat-row"><span class="stat-label">Броня</span><span>${p.equipment.armor ? p.equipment.armor.name : 'нет'}</span></div>
+    <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
+  `;
+}
+
+function renderQuests(el, state) {
+  el.innerHTML = state.quests.length
+    ? state.quests.map(q => `<div class="quest">◆ ${q}</div>`).join('')
+    : '<div class="quest quest-empty">Журнал пуст — судьба ещё не наградила тебя поручениями</div>';
+}
+
+// ---------- рендеры из сетевого снапшота (кооп) ----------
+
+const CELL_CLASS = {
+  '#': 'm-wall', '.': 'm-floor', 'м': 'm-mon', '!': 'm-item',
+  '†': 'm-item', '$': 'm-item', '>': 'm-stair', '@': 'm-pl'
+};
+
+/** Карта из персонального снапшота (символы уже вырезаны на хосте). */
+function renderSnapshotMap(pre, snap) {
+  const parts = [];
+  for (const row of snap.map.cells) {
+    for (const ch of row) {
+      const cls = CELL_CLASS[ch];
+      parts.push(cls ? `<span class="${cls}">${ch === '>' ? '&gt;' : ch}</span>` : ' ');
+    }
+    parts.push('\n');
+  }
+  pre.innerHTML = parts.join('');
+}
+
+/** Статы + список партии из снапшота. */
+function renderStatsSnap(el, snap) {
+  const s = snap.self;
+  const filled = Math.round((Math.max(0, s.hp) / s.maxHp) * 10);
+  const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
+  const party = snap.heroes.map(h => {
+    const dead = h.alive ? '' : ' <span class="hof-epitaph">☠</span>';
+    const you = h.idx === snap.you ? ' (ты)' : '';
+    return `<div class="stat-row"><span class="stat-label">${h.glyph} ${h.name}${you}</span><span>ур.${h.level} · ${h.hp}/${h.maxHp} HP${dead}</span></div>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="stat-row"><span class="stat-label">Уровень ${s.level}</span><span>XP ${s.xp}/${s.xpNext} · золото ${s.gold}</span></div>
+    <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${bar} ${s.hp}/${s.maxHp}</span></div>
+    <div class="stat-row"><span class="stat-label">Оружие</span><span>${s.equipment.weapon ? s.equipment.weapon.name : 'кулаки'}</span></div>
+    <div class="stat-row"><span class="stat-label">Броня</span><span>${s.equipment.armor ? s.equipment.armor.name : 'нет'} (AC ${s.ac})</span></div>
+    <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
+    ${party}
+  `;
+}
+
+
+// app.js — склейка всего: экраны, игровой цикл, ввод, кооп (хост/клиент), смерть, зал славы, экспорт.
+
+
+
+
+
+
+
+
+
+
+
+
+
+const $ = (id) => document.getElementById(id);
+
+const STUB_CLASSES = [
+  { name: 'Плут', desc: 'Кривые руки, быстрые ноги', stats: { str: 10, dex: 16, int: 12, con: 10, cha: 14, luck: 10 } },
+  { name: 'Воин', desc: 'Стена мяса с мечом', stats: { str: 16, dex: 12, int: 8, con: 14, cha: 10, luck: 12 } },
+  { name: 'Волхв', desc: 'Магия и высокомерие', stats: { str: 8, dex: 10, int: 16, con: 12, cha: 14, luck: 12 } }
+];
+
+let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini' };
+let client = null;          // AI-клиент (хост/соло)
+let state = null;           // соло-состояние
+let typer = null;
+let chronicle = [];
+let inputHistory = [];
+let historyIdx = -1;
+
+let sessionMode = 'solo';   // 'solo' | 'host' | 'client'
+let hostSession = null;
+let clientSession = null;
+let mySnapshot = null;
+let roomCode = null;
+
+// ---------- хранилище ----------
+
+function loadCfg() {
+  try {
+    const raw = localStorage.getItem('dnd_cfg');
+    if (raw) cfg = { ...cfg, ...JSON.parse(raw) };
+  } catch { /*ignore*/ }
+  $('set-base').value = cfg.baseUrl;
+  $('set-key').value = cfg.apiKey;
+  $('set-model').value = cfg.model;
+}
+function saveCfg() {
+  cfg = {
+    baseUrl: $('set-base').value.trim() || 'https://api.openai.com/v1',
+    apiKey: $('set-key').value.trim(),
+    model: $('set-model').value.trim() || 'gpt-4o-mini'
+  };
+  localStorage.setItem('dnd_cfg', JSON.stringify(cfg));
+}
+
+function loadHof() {
+  try { return JSON.parse(localStorage.getItem('dnd_hof') || '[]'); } catch { return []; }
+}
+function saveHofEntry(entry) {
+  const hof = loadHof();
+  hof.unshift(entry);
+  localStorage.setItem('dnd_hof', JSON.stringify(hof.slice(0, 20)));
+}
+function renderHof() {
+  const hof = loadHof();
+  $('hof-list').innerHTML = hof.length
+    ? hof.slice(0, 10).map(h =>
+      `<div class="hof-row"><span class="hof-name">${esc(h.name)}</span> <span class="hof-meta">${esc(h.className)} · ${esc(h.world)} · этаж ${h.depth}</span><span class="hof-epitaph">「${esc(h.epitaph)}」</span></div>`
+    ).join('')
+    : '<div class="hof-row hof-empty">Зал пуст. Пока что.</div>';
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// ---------- экраны ----------
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+}
+
+function currentClient() {
+  saveCfg();
+  if (cfg.apiKey && cfg.baseUrl && cfg.model) {
+    client = createClient({ ...cfg });
+    return client;
+  }
+  client = null;
+  return null;
+}
+
+async function renderClassList() {
+  const world = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
+  const list = $('class-list');
+  list.innerHTML = '<div class="class-loading">Придумываем классы…</div>';
+  let classes = STUB_CLASSES;
+  const c = currentClient();
+  if (c) {
+    try {
+      const raw = await c.chat(classMessages(world), { maxTokens: 300 });
+      const data = extractJson(raw);
+      if (data?.classes?.length) classes = data.classes.slice(0, 4);
+    } catch (e) {
+      addSetupNote(`ИИ недоступен (${e.message}) — берём стандартные классы`);
+    }
+  }
+  list.innerHTML = classes.map((cl, i) => `
+    <label class="class-card">
+      <input type="radio" name="class" value="${i}" ${i === 0 ? 'checked' : ''}>
+      <span class="class-name">${esc(cl.name)}</span>
+      <span class="class-desc">${esc(cl.desc || '')}</span>
+    </label>`).join('');
+  list.dataset.payload = JSON.stringify(classes);
+}
+
+function addSetupNote(text) {
+  const n = $('setup-note');
+  n.textContent = text;
+  n.style.display = 'block';
+}
+
+function readCommonConfig() {
+  return {
+    world: $('set-world').value.trim() || 'Классическое тёмное фэнтези',
+    mode: $('set-mode').value,
+    name: $('set-name').value.trim() || 'Безымянный'
+  };
+}
+
+function selectedClasses() {
+  try { return JSON.parse($('class-list').dataset.payload || 'null') || STUB_CLASSES; }
+  catch { return STUB_CLASSES; }
+}
+
+/** Асинхронный ДМ: ИИ хоста или заглушка. */
+function makeDmResolver() {
+  return {
+    resolveFree: async (game, text) => {
+      if (client) {
+        try {
+          const raw = await client.chat(buildContext(game, text), { maxTokens: 600 });
+          const eff = extractJson(raw);
+          return eff || { narrative: raw.slice(0, 800) };
+        } catch (e) {
+          return { narrative: `ИИ замолк (${e.message}), поэтому придётся импровизировать.` };
+        }
+      }
+      return stubDmTurn(game, text);
+    }
+  };
+}
+
+// ---------- СОЛО ----------
+
+function startSolo() {
+  saveCfg();
+  initAudio();
+  currentClient();
+  const { world, mode, name } = readCommonConfig();
+  const classes = selectedClasses();
+  const cls = classes[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
+
+  resetStub();
+  sessionMode = 'solo';
+  state = newGame({
+    seed: (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
+    mode, worldDesc: world,
+    players: [{ name, className: cls.name, stats: cls.stats }]
+  });
+  chronicle = [`МИР: ${world}`, `РЕЖИМ: ${mode === 'sandbox' ? 'песочница' : 'сюжет'}`, `ГЕРОЙ: ${name}, ${cls.name}`];
+  typer = createTyper($('log'));
+  showScreen('screen-game');
+  refreshPanelsSolo();
+  $('turn-banner').textContent = 'СОЛО · твой ход всегда';
+
+  if (client) {
+    client.chat(introMessages(state), { maxTokens: 500 })
+      .then(raw => {
+        const eff = extractJson(raw);
+        handleEventsSolo(applyDmEffects(state, eff || { narrative: raw.slice(0, 600) }));
+      })
+      .catch(e => handleEventsSolo(applyDmEffects(state, { narrative: `ДМ не отвечает (${e.message}), поэтому придётся импровизировать. Ты очнулся в темноте. Как обычно.` })));
+  } else {
+    handleEventsSolo(applyDmEffects(state, stubDmTurn(state, 'начало')));
+    handleEventsSolo(applyDmEffects(state, { narrative: 'Режим без ИИ: заглушка-ДМ издевается по шаблонам. Введи ключ в настройках, чтобы разбудить настоящего тролля.' }));
+  }
+  $('input').focus();
+}
+
+function refreshPanelsSolo() {
+  renderMap($('map'), state);
+  renderStats($('stats'), state);
+  renderQuests($('quest-list'), state);
+  $('floor-label').textContent = state.floorName;
+}
+
+function logEvent(kind, text) {
+  chronicle.push(`[${kind}] ${text}`);
+  typer.add(kind, text);
+  switch (kind) {
+    case 'roll': rollSound(text.includes('КРИТ')); break;
+    case 'combat': hitSound(); break;
+    case 'loot': lootSound(); break;
+    case 'death': deathSound(); break;
+    default: break;
+  }
+}
+
+function handleEventsSolo(events) {
+  for (const e of events) {
+    if (e.kind === 'loot' && /УРОВЕНЬ/.test(e.text)) levelUpSound();
+    logEvent(e.kind, e.text);
+  }
+  refreshPanelsSolo();
+  if (state.over) typer.onFinish(showDeathSolo);
+}
+
+// ---------- КОП: ХОСТ ----------
+
+async function startHostRoom() {
+  saveCfg();
+  initAudio();
+  currentClient();
+  const { name } = readCommonConfig();
+  roomCode = makeRoomCode();
+  $('lobby-panel').style.display = 'block';
+  $('room-code').textContent = '····';
+  $('lobby-list').innerHTML = '<div class="class-loading">Создаём комнату…</div>';
+  $('btn-start').disabled = true;
+
+  let net;
+  try {
+    net = await createPeerHostNet(roomCode);
+  } catch (e) {
+    $('btn-start').disabled = false;
+    $('lobby-panel').style.display = 'none';
+    addSetupNote(`Не удалось создать комнату: ${e.message}`);
+    return;
+  }
+
+  sessionMode = 'host';
+  hostSession = createHostSession({
+    net,
+    hostName: name,
+    dm: makeDmResolver(),
+    turnMs: 60000
+  });
+  hostSession.onLobby(renderLobby);
+  hostSession.onEvents(evs => { if (typer) evs.forEach(e => logEvent(e.kind, e.text)); });
+  hostSession.onSnapshot(snap => applySnapshot(snap));
+
+  $('room-code').textContent = roomCode;
+  $('btn-start').disabled = false;
+  $('btn-start').textContent = '▶ ЖДАТЬ ИГРОКОВ…';
+  $('btn-start').disabled = true;
+  $('btn-launch').style.display = 'inline-block';
+  renderLobby(hostSession.getLobby());
+}
+
+function renderLobby(players) {
+  $('lobby-list').innerHTML = players.map(p =>
+    `<div class="quest">◆ ${esc(p.name)}${p.host ? ' <span class="hof-meta">(хост, оплачивает ИИ)</span>' : ''}</div>`
+  ).join('');
+  if (sessionMode === 'host') {
+    $('btn-launch').disabled = players.length < 1;
+    $('btn-launch').textContent = players.length < 2
+      ? '▶ НАЧАТЬ (можно и одному)'
+      : `▶ НАЧАТЬ СПУСК (${players.length} героев)`;
+  }
+}
+
+async function hostLaunch() {
+  const { world, mode, name } = readCommonConfig();
+  const classes = selectedClasses();
+  const lobby = hostSession.getLobby();
+  const classAssignments = lobby.map((p, i) => ({
+    name: p.name,
+    className: classes[i % classes.length].name,
+    stats: classes[i % classes.length].stats
+  }));
+  chronicle = [`МИР: ${world}`, `РЕЖИМ: ${mode === 'sandbox' ? 'песочница' : 'сюжет'} · КО-ОП`, `ПАРТИЯ: ${classAssignments.map(c => c.name).join(', ')}`];
+  typer = createTyper($('log'));
+  showScreen('screen-game');
+  $('turn-banner').textContent = 'ЖДЁМ ХОДА…';
+  const intro = client
+    ? async (game) => {
+      try {
+        const raw = await client.chat(introMessages(game), { maxTokens: 500 });
+        return extractJson(raw) || { narrative: raw.slice(0, 600) };
+      } catch (e) {
+        return { narrative: `ДМ не отвечает (${e.message}). Партия очнулась в темноте. Как обычно.` };
+      }
+    }
+  : async () => ({ narrative: `Вы все очнулись в темноте. ${name} претендует на роль лидера — подземелью это смешно.` });
+  hostSession.startGame({ worldDesc: world, mode, classAssignments, intro });
+}
+
+// ---------- КОП: КЛИЕНТ ----------
+
+async function joinRoom() {
+  saveCfg();
+  initAudio();
+  const code = ($('set-room').value || '').trim().toUpperCase();
+  const name = $('set-name').value.trim() || 'Безымянный';
+  if (code.length !== 4) { addSetupNote('Код комнаты — 4 символа'); return; }
+
+  $('lobby-panel').style.display = 'block';
+  $('room-code').textContent = code;
+  $('lobby-list').innerHTML = '<div class="class-loading">Подключаемся…</div>';
+  $('btn-start').disabled = true;
+
+  let link;
+  try {
+    link = await createPeerClientLink(code);
+  } catch (e) {
+    $('btn-start').disabled = false;
+    $('lobby-panel').style.display = 'none';
+    addSetupNote(`Не удалось подключиться: ${e.message}`);
+    return;
+  }
+
+  sessionMode = 'client';
+  clientSession = createClientSession({ link, name });
+  clientSession.onLobby(renderLobby);
+  clientSession.onEvents(evs => { if (typer) evs.forEach(e => logEvent(e.kind, e.text)); });
+  clientSession.onSnapshot(snap => applySnapshot(snap));
+  clientSession.onStart(() => {
+    chronicle = [`КО-ОП · комната ${code}`];
+    typer = createTyper($('log'));
+    showScreen('screen-game');
+    $('turn-banner').textContent = 'ЖДЁМ ХОДА…';
+  });
+  clientSession.onReject(r => backToSetup(`Отказ: ${r.reason}`));
+  clientSession.onKicked(r => backToSetup(`Тебя выгнали: ${r.reason}`));
+  clientSession.onClose(() => {
+    if (sessionMode === 'client') backToSetup('Соединение с хостом потеряно. Забег погиб вместе с ним.');
+  });
+  clientSession.hello();
+}
+
+function backToSetup(note) {
+  sessionMode = 'solo';
+  hostSession = null;
+  clientSession = null;
+  mySnapshot = null;
+  showScreen('screen-setup');
+  $('lobby-panel').style.display = 'none';
+  $('btn-start').disabled = false;
+  $('btn-start').textContent = '▶ НАЧАТЬ ЗАБЕГ';
+  $('btn-launch').style.display = 'none';
+  renderHof();
+  if (note) addSetupNote(note);
+}
+
+// ---------- общий рендер из снапшота (хост+клиент в копе) ----------
+
+function applySnapshot(snap) {
+  mySnapshot = snap;
+  renderSnapshotMap($('map'), snap);
+  renderStatsSnap($('stats'), snap);
+  renderQuests($('quest-list'), snap);
+  $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`;
+  const hero = snap.heroes[snap.you];
+  if (snap.over) {
+    $('turn-banner').textContent = '☠ ПАРТИЯ УНИЧТОЖЕНА';
+    typer.onFinish(() => showDeathSnap(snap));
+  } else if (!hero.alive) {
+    $('turn-banner').textContent = '☠ ТЫ МЁРТВ — наблюдаешь за партией';
+  } else if (snap.turnOf === snap.you) {
+    $('turn-banner').textContent = `▶ ТВОЙ ХОД (${hero.name})`;
+  } else {
+    $('turn-banner').textContent = `Ход: ${snap.heroes[snap.turnOf]?.name || '…'} — жди`;
+  }
+  // блокируем ввод чужого хода
+  $('input').disabled = !snap.over && hero.alive && snap.turnOf !== snap.you;
+  $('input').placeholder = $('input').disabled
+    ? 'жди своего хода…'
+    : 'что ты делаешь? (пиши свободно) · ↑ история';
+}
+
+// ---------- смерть ----------
+
+function showDeathSolo() {
+  saveHofEntry({
+    name: state.player.name,
+    className: state.player.className,
+    world: state.worldDesc,
+    depth: state.depth,
+    epitaph: state.epitaph || 'умер от жизни',
+    date: new Date().toLocaleDateString('ru-RU')
+  });
+  showDeathCommon(state.epitaph || '', `${state.player.name}, ${state.player.className}, ур.${state.player.level}. Дошёл до этажа ${state.depth}. Ходов: ${state.turn}.`);
+}
+
+function showDeathSnap(snap) {
+  const me = snap.heroes[snap.you];
+  saveHofEntry({
+    name: me.name,
+    className: me.className,
+    world: snap.worldDesc,
+    depth: snap.depth,
+    epitaph: snap.epitaph || (me.alive ? 'пережил всех, но не подземелье' : 'погиб в подземелье'),
+    date: new Date().toLocaleDateString('ru-RU')
+  });
+  showDeathCommon(
+    snap.epitaph || '',
+    `${me.name}, ${me.className}, ур.${me.level}. Дошёл до этажа ${snap.depth}.`
+  );
+}
+
+function showDeathCommon(epitaph, stats) {
+  $('death-epitaph').textContent = epitaph;
+  $('death-stats').textContent = stats;
+  $('screen-death').classList.add('active');
+}
+
+function exportChronicle() {
+  const header = [
+    '═'.repeat(60),
+    '  dnd by ZxcPap14 — хроника забега',
+    `  ${new Date().toLocaleString('ru-RU')}`,
+    ...chronicle.slice(0, 3),
+    '═'.repeat(60),
+    ''
+  ].join('\n');
+  const body = chronicle.slice(3).join('\n');
+  const tail = `\n\n${'═'.repeat(60)}\n${mySnapshot?.epitaph || state?.epitaph ? 'ЭПИТАФИЯ: ' + (mySnapshot?.epitaph || state?.epitaph) : ''}\n`;
+  const blob = new Blob([header + body + tail], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `dnd-chronicle-${Date.now()}.txt`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ---------- ввод ----------
+
+function submitInput() {
+  const text = $('input').value.trim();
+  if (!text) return;
+  if (sessionMode === 'solo') {
+    if (!state || state.over) return;
+    $('input').value = '';
+    inputHistory.push(text);
+    historyIdx = inputHistory.length;
+    blip(520);
+    logEvent('player', `> ${text}`);
+    handleEventsSolo(applyIntent(state, parseCommand(text)));
+  } else if (sessionMode === 'host') {
+    if (!hostSession || !hostSession.isStarted()) return;
+    $('input').value = '';
+    inputHistory.push(text);
+    blip(520);
+    logEvent('player', `> ${text}`);
+    hostSession.localIntent(text);
+  } else if (sessionMode === 'client') {
+    if (!clientSession || !mySnapshot) return;
+    if (mySnapshot.turnOf !== mySnapshot.you) return;
+    $('input').value = '';
+    inputHistory.push(text);
+    blip(520);
+    logEvent('player', `> ${text}`);
+    clientSession.sendCommand(text);
+  }
+}
+
+// ---------- инициализация ----------
+
+function wire() {
+  loadCfg();
+  renderHof();
+
+  $('set-mp').addEventListener('change', () => {
+    const mp = $('set-mp').value;
+    $('join-row').style.display = mp === 'join' ? 'flex' : 'none';
+    $('btn-start').textContent = mp === 'host' ? '▶ СОЗДАТЬ КОМНАТУ' : mp === 'join' ? '▶ ВОЙТИ В КОМНАТУ' : '▶ НАЧАТЬ ЗАБЕГ';
+  });
+
+  $('btn-classes').addEventListener('click', renderClassList);
+  $('btn-start').addEventListener('click', () => {
+    const mp = $('set-mp').value;
+    if (mp === 'host') startHostRoom();
+    else if (mp === 'join') joinRoom();
+    else startSolo();
+  });
+  $('btn-launch').addEventListener('click', hostLaunch);
+  $('btn-export').addEventListener('click', exportChronicle);
+  $('btn-restart').addEventListener('click', () => {
+    $('screen-death').classList.remove('active');
+    if (sessionMode === 'host' && hostSession) hostSession.stop();
+    backToSetup();
+  });
+  $('log').addEventListener('click', () => { typer && typer.skipAll(); });
+
+  const input = $('input');
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitInput();
+    else if (e.key === 'ArrowUp' && historyIdx > 0) { historyIdx--; input.value = inputHistory[historyIdx]; }
+    else if (e.key === 'ArrowDown') {
+      if (historyIdx < inputHistory.length - 1) { historyIdx++; input.value = inputHistory[historyIdx]; }
+      else { historyIdx = inputHistory.length; input.value = ''; }
+    }
+  });
+
+  renderClassList();
+  showScreen('screen-setup');
+}
+
+wire();
+
+</script>
+</body>
+</html>
