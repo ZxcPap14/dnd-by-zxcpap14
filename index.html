@@ -179,6 +179,34 @@
   .class-name { color: var(--bright); }
   .class-desc { color: var(--dim); }
   .class-loading { font-size: 17px; color: var(--dim); padding: 10px; }
+  /* ---------- предыстория ---------- */
+  #set-backstory {
+    width: 100%; box-sizing: border-box; min-height: 118px; resize: vertical;
+    background: #000; border: 1px solid var(--dim); color: var(--main);
+    font-family: var(--font-term); font-size: 17px; line-height: 1.55;
+    padding: 8px 10px; outline: none;
+  }
+  #set-backstory:focus { border-color: var(--bright); }
+  .bs-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
+  .bs-meta .hint { margin: 0; }
+  /* ---------- конструктор классов ---------- */
+  #custom-class-form { border: 1px dashed var(--dim); padding: 12px; margin: 8px 0; }
+  .cc-stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; flex: 1; }
+  .cc-stats label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--dim); }
+  .cc-stats input {
+    width: 100%; box-sizing: border-box; background: #000; border: 1px solid var(--dim);
+    color: var(--main); font-family: var(--font-term); font-size: 17px;
+    padding: 4px; text-align: center; outline: none;
+  }
+  .cc-stats input:focus { border-color: var(--bright); }
+  #custom-class-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  .cc-badge { font-size: 13px; color: var(--loot); letter-spacing: 1px; }
+  .cc-ability { font-size: 15px; color: var(--main); opacity: 0.85; }
+  .cc-del {
+    border-color: var(--red) !important; color: var(--red) !important;
+    font-size: 8px !important; padding: 3px 8px !important; align-self: flex-start; margin-top: 4px;
+  }
+  #btn-cc-cancel { border-color: var(--dim); color: var(--dim); }
   button {
     background: transparent;
     border: 1px solid var(--main);
@@ -331,6 +359,12 @@
   .kind-death { color: var(--red); font-weight: bold; text-shadow: 0 0 12px var(--red); }
 
   .input-row { display: flex; gap: 8px; flex-shrink: 0; }
+  #ability-btn {
+    flex-shrink: 0; font-size: 9px; padding: 0 12px; max-width: 200px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    border-color: var(--loot); color: var(--loot);
+  }
+  #ability-btn:disabled { border-color: var(--dim); color: var(--dim); cursor: default; }
   .prompt-ch { color: var(--bright); align-self: center; font-size: 20px; }
   #input {
     flex: 1;
@@ -532,6 +566,76 @@
 
     <h2>КЛАСС <button id="btn-classes" style="font-size:8px; padding:5px 10px; margin-left:8px">перегенерировать под мир</button></h2>
     <div id="class-list"></div>
+    <div class="hint" style="margin-left:0">Своя способность? Собери класс ниже — она будет реально работать в бою.</div>
+
+    <h2>СВОЙ КЛАСС <button id="btn-class-new" style="font-size:8px; padding:5px 10px; margin-left:8px">конструктор</button></h2>
+    <div id="custom-class-form" style="display:none">
+      <div class="field">
+        <label for="cc-name">Название</label>
+        <input id="cc-name" maxlength="24" placeholder="Пепельный жнец">
+      </div>
+      <div class="field">
+        <label for="cc-desc">Описание</label>
+        <input id="cc-desc" maxlength="80" placeholder="Собирает долги с мёртвых">
+      </div>
+      <div class="field">
+        <label>Статы</label>
+        <div class="cc-stats">
+          <label>СИЛ<input id="cc-str" type="number" min="6" max="18" value="12"></label>
+          <label>ЛОВ<input id="cc-dex" type="number" min="6" max="18" value="12"></label>
+          <label>ИНТ<input id="cc-int" type="number" min="6" max="18" value="12"></label>
+          <label>ВЫН<input id="cc-con" type="number" min="6" max="18" value="12"></label>
+          <label>ХАР<input id="cc-cha" type="number" min="6" max="18" value="12"></label>
+          <label>УДА<input id="cc-luck" type="number" min="6" max="18" value="12"></label>
+        </div>
+      </div>
+      <div class="field">
+        <label for="cc-aname">Способность</label>
+        <input id="cc-aname" maxlength="28" placeholder="Кара пепла">
+      </div>
+      <div class="field">
+        <label for="cc-active">Что делает</label>
+        <select id="cc-active">
+          <option value="smite">Кара — бьёт врага, +Сила урона</option>
+          <option value="heal">Лечение — восстанавливает Силу HP</option>
+          <option value="stun">Оглушение — враг пропускает ход</option>
+          <option value="dash">Рывок — 2 клетки, разрывает бой</option>
+          <option value="">Без актива</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cc-power">Сила / кулдаун</label>
+        <input id="cc-power" type="number" min="1" max="20" value="6">
+        <input id="cc-cd" type="number" min="1" max="20" value="3" style="max-width:78px">
+      </div>
+      <div class="field">
+        <label for="cc-passive">Пассивка</label>
+        <select id="cc-passive">
+          <option value="">Нет</option>
+          <option value="crit">Крит шире (16–20 при 5)</option>
+          <option value="lifesteal">Вампиризм (5–25% урона)</option>
+          <option value="regen">Регенерация (+HP за ход)</option>
+          <option value="gold">Жадность (+25% золота)</option>
+          <option value="ac">Толстая шкура (+AC)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cc-ppower">Сила пассивки</label>
+        <input id="cc-ppower" type="number" min="1" max="5" value="2">
+      </div>
+      <div class="btn-row">
+        <button id="btn-cc-save">СОХРАНИТЬ КЛАСС</button>
+        <button id="btn-cc-cancel">ОТМЕНА</button>
+      </div>
+    </div>
+    <div id="custom-class-list"></div>
+
+    <h2>ПРЕДЫСТОРИЯ <button id="btn-backstory" style="font-size:8px; padding:5px 10px; margin-left:8px">сгенерировать</button></h2>
+    <textarea id="set-backstory" maxlength="2400" placeholder="Кто он, откуда, за что попал сюда… Здесь можно писать что угодно — ДМ будет опираться на этот текст как на канон."></textarea>
+    <div class="bs-meta">
+      <span class="hint">Правь руками сколько угодно — ДМ обязан соблюдать написанное.</span>
+      <span class="hint" id="backstory-count">0 / 2400</span>
+    </div>
 
     <h2>ВИЗУАЛ И ЗВУК</h2>
     <div class="field">
@@ -610,6 +714,7 @@
       <div class="input-row">
         <span class="prompt-ch">&gt;</span>
         <input id="input" type="text" autocomplete="off" placeholder="что ты делаешь? (пиши свободно) · ↑ история · попробуй «кофе»">
+        <button id="ability-btn" style="display:none" title="Применить способность класса"></button>
       </div>
     </div>
   </div>

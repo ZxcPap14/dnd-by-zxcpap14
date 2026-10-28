@@ -6,7 +6,8 @@ import { createRng, makeDice, mod } from './rng.js';
 import { generateDungeon, randomFloor, computeFov, dist, TILE } from './map.js';
 import {
   createPlayer, gainXp, addItem, removeItem, findItem, equipItem,
-  playerAc, playerWeapon, makeItem
+  playerAc, playerWeapon, makeItem,
+  abilityCritRange, abilityLifesteal, abilityRegen, abilityGoldMult
 } from './player.js';
 import {
   rollInitiative, attackRoll, damageRoll, monsterAttack, rollDrop, BASIC_DROP_TABLE
@@ -100,6 +101,8 @@ export function newGame(opts) {
     dice: null,
     mode: opts.mode || 'story',
     worldDesc: opts.worldDesc || 'Классическое тёмное фэнтези',
+    // предыстория — канон партии: игрок правит её до старта, ДМ обязан её соблюдать
+    backstory: String(opts.backstory || '').slice(0, 2400).trim(),
     depth: 1,
     over: false,
     epitaph: null,
@@ -173,15 +176,28 @@ function W(word, suffix = false) {
   return new RegExp(`(?:^|[^а-яёa-z])(?:${word})${tail}(?![а-яёa-z])`, 'i');
 }
 
+/** Экранирование пользовательского текста для регэкспа (имена способностей). */
+function escapeRe(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Парсер свободного текста → интент. Всё, что не распознано, уходит ИИ как 'free'.
  * Каждый интент несёт raw — исходный текст: если движок не справится,
  * ДМ получит оригинальную формулировку игрока, а не заглушку.
  */
-export function parseCommand(text) {
+export function parseCommand(text, abilityName = null) {
   const t = (text || '').toLowerCase().trim();
   if (!t) return { intent: 'none' };
   const raw = text;
+
+  // способность класса — раньше всего: собственное имя способности важнее общих глаголов
+  if (abilityName && W(escapeRe(abilityName), true).test(t)) {
+    return { intent: 'ability', target: abilityName, raw };
+  }
+  if (W('способност|умени|кастую|кастани|скилл|ability|skill|юзаю скилл|призываю силу|юзаю способность', true).test(t)) {
+    return { intent: 'ability', target: '', raw };
+  }
 
   // побег раньше движения: «убегаю на север» — это побег, а не прогулка
   if (W('убега|убеж|отступа|сбежа|уносим ноги|бегу от|бегу прочь|flee|retreat', true).test(t)) return { intent: 'flee', raw };
@@ -260,6 +276,110 @@ export function engagedEnemies(state, heroIdx = state.activeIdx) {
 export function allOnStairs(state) {
   const s = state.dungeon.stairs;
   return state.heroes.filter(h => h.alive).every(h => h.pos.x === s.x && h.pos.y === s.y);
+}
+
+/** Сколько ходов осталось до готовности активной способности (0 — можно жать). */
+export function abilityCooldownLeft(state, hero) {
+  if (!hero?.ability?.active) return 0;
+  return Math.max(0, (hero.abilityReady || 0) - state.turn);
+}
+
+/** Направление из текста игрока (для рывка «рвусь на север»). */
+function dirFromText(text) {
+  const t = (text || '').toLowerCase();
+  for (const [word, d] of Object.entries(DIRS)) {
+    if (W(word).test(t)) return d;
+  }
+  return null;
+}
+
+/**
+ * Активная способность класса. Возвращает { events, ok }.
+ * ok=false — действие не состоялось (движок передаст его ДМу, ход не сгорит).
+ */
+function useActiveAbility(state, hero, intent, heroIdx) {
+  const a = hero.ability;
+  const events = [];
+  const push = (kind, text) => events.push(ev(kind, text));
+  const dice = state.dice;
+  const power = a.power || 5;
+
+  // --- лечение ---
+  if (a.active === 'heal') {
+    const before = hero.hp;
+    hero.hp = Math.min(hero.maxHp, hero.hp + power);
+    const healed = hero.hp - before;
+    push('loot', healed > 0
+      ? `${hero.name} применяет «${a.name}»: +${healed} HP (${hero.hp}/${hero.maxHp}). Раны затягиваются с неприличным хлюпаньем.`
+      : `${hero.name} применяет «${a.name}», но лечить нечего — здоровье и так на максимуме. Сила уходит в воздух.`);
+    return { events, ok: true };
+  }
+
+  // --- рывок ---
+  if (a.active === 'dash') {
+    const foes = visibleMonsters(state, heroIdx);
+    let dirVec = dirFromText(intent.raw);
+    if (!dirVec && foes.length) {
+      // без направления — прочь от ближайшего врага
+      const foe = foes[0];
+      dirVec = [Math.sign(hero.pos.x - foe.x), Math.sign(hero.pos.y - foe.y)];
+      if (!dirVec[0] && !dirVec[1]) dirVec = [1, 0];
+    }
+    dirVec = dirVec || [1, 0];
+    let moved = 0;
+    for (let step = 0; step < 2; step++) {
+      const nx = hero.pos.x + dirVec[0], ny = hero.pos.y + dirVec[1];
+      if (nx < 0 || ny < 0 || nx >= state.dungeon.w || ny >= state.dungeon.h) break;
+      if (state.dungeon.grid[ny][nx] === TILE.WALL) break;
+      if (state.monsters.some(m => m.hp > 0 && m.x === nx && m.y === ny)) break; // не влетаем в монстра
+      hero.pos = { x: nx, y: ny };
+      moved++;
+    }
+    if (!moved) {
+      push('unhandled', `${hero.name} разбегается для рывка и врезается в стену. Впечатляюще, но нет.`);
+      return { events, ok: false };
+    }
+    hero.combat = {}; // рывок разрывает бой — боевое окно гаснет
+    hero.fov = computeFov(state.dungeon, hero.pos.x, hero.pos.y);
+    gainXp(hero, 2);
+    push('system', `${hero.name} использует «${a.name}» и перемахивает ${moved === 1 ? 'клетку' : 'клетки'} — только пыль осталась.`);
+    return { events, ok: true };
+  }
+
+  // --- кара и оглушение требуют врага перед глазами ---
+  const foes = visibleMonsters(state, heroIdx);
+  if (!foes.length) {
+    push('unhandled', `«${a.name}» требует врага перед глазами, а перед глазами только пустота и твои сожаления.`);
+    return { events, ok: false };
+  }
+  const wanted = (intent.target || '').toLowerCase();
+  const target = (wanted && foes.find(m => m.name.toLowerCase().includes(wanted))) || foes[0];
+
+  if (a.active === 'smite') {
+    push('system', `${hero.name} обрушивает «${a.name}» на ${target.name} (+${power} урона).`);
+    events.push(...resolveCombatRound(state, hero, target, dice, { bonusDmg: power }));
+    return { events, ok: true };
+  }
+
+  // --- оглушение ---
+  const dmg = Math.max(1, Math.ceil(power / 2));
+  target.hp -= dmg;
+  markCombat(state, hero, target);
+  if (target.hp <= 0) {
+    push('combat', `${hero.name} бьёт «${a.name}» по ${target.name}: -${dmg} HP, и ${target.name} разваливается.`);
+    const levels = gainXp(hero, target.xp);
+    push('loot', `${hero.name} получает ${target.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
+    const drop = rollDrop(dice, BASIC_DROP_TABLE, state.depth);
+    if (drop) {
+      state.floorItems.push({ ...drop, x: target.x, y: target.y });
+      push('loot', `${target.name} роняет: ${drop.name}.`);
+    }
+    if (target.isBoss) grantVictory(state, hero, push);
+  } else {
+    target.stun = 1; // пропустит ближайший ход монстров
+    push('combat', `${hero.name} бьёт «${a.name}» по ${target.name}: -${dmg} HP. ${target.name} оглушён и пропустит ход (осталось ${target.hp} HP).`);
+  }
+  return { events, ok: true };
 }
 
 /**
@@ -448,6 +568,26 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       break;
     }
 
+    case 'ability': {
+      const a = hero.ability;
+      if (!a || !a.active) {
+        push('unhandled', `${hero.name} не владеет активными способностями — только обаянием и наглостью.`);
+        break;
+      }
+      const left = abilityCooldownLeft(state, hero);
+      if (left > 0) {
+        push('system', `«${a.name}» ещё восстанавливается: ${left} ${left === 1 ? 'ход' : 'хода'}. Пока — только кулаки и надежда.`);
+        state.turn--; // ход не тратим: способность просто не готова
+        rememberEvents(state, events);
+        return events;
+      }
+      const res = useActiveAbility(state, hero, intent, heroIdx);
+      events.push(...res.events);
+      if (!res.ok) break; // тупик → уйдёт ДМу, ход не сгорит
+      hero.abilityReady = state.turn + a.cd;
+      break;
+    }
+
     case 'free':
       // свободный текст — обрабатывает ИИ-слой (или офлайн-заглушка)
       push('dm', `__FREE__${intent.text}`);
@@ -464,6 +604,14 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
     state.turn--;
     rememberEvents(state, events);
     return events;
+  }
+
+  // пассивка «регенерация»: организм сам латает дырки после каждого действия
+  const regen = abilityRegen(hero);
+  if (regen > 0 && hero.alive && hero.hp > 0 && hero.hp < hero.maxHp) {
+    const before = hero.hp;
+    hero.hp = Math.min(hero.maxHp, hero.hp + regen);
+    if (hero.hp > before) push('system', `${hero.name} регенерирует: +${hero.hp - before} HP (${hero.hp}/${hero.maxHp}).`);
   }
 
   // мир живёт: монстры ходят и нападают после действия героя
@@ -490,8 +638,9 @@ function pickupItem(state, hero, item) {
   const events = [];
   state.floorItems = state.floorItems.filter(it => it !== item);
   if (item.type === 'gold') {
-    hero.gold += item.qty;
-    events.push(ev('loot', `${hero.name} подбирает ${item.qty} золота. Капиталист внутри доволен.`));
+    const amount = Math.max(1, Math.round(item.qty * abilityGoldMult(hero)));
+    hero.gold += amount;
+    events.push(ev('loot', `${hero.name} подбирает ${amount} золота. Капиталист внутри доволен.`));
   } else {
     addItem(hero, item);
     events.push(ev('loot', `${hero.name} подбирает: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`));
@@ -500,11 +649,17 @@ function pickupItem(state, hero, item) {
   return events;
 }
 
-/** Один раунд боя: герой бьёт, если враг жив — враг отвечает ближайшему видимому герою. */
-export function resolveCombatRound(state, hero, monster, dice) {
+/**
+ * Один раунд боя: герой бьёт, если враг жив — враг отвечает ближайшему видимому герою.
+ * opts.bonusDmg — добавка к урону (карательный удар способности класса).
+ */
+export function resolveCombatRound(state, hero, monster, dice, opts = {}) {
   const events = [];
   const push = (kind, text) => events.push(ev(kind, text));
   const weapon = playerWeapon(hero);
+  const critRange = abilityCritRange(hero);        // пассивка «крит»
+  const lifesteal = abilityLifesteal(hero);        // пассивка «вампиризм»
+  const bonusDmg = Math.max(0, opts.bonusDmg | 0);
   markCombat(state, hero, monster); // бой начался — враг появляется в боевом окне
 
   const pInit = rollInitiative(dice, hero.stats.dex).total;
@@ -512,15 +667,23 @@ export function resolveCombatRound(state, hero, monster, dice) {
   const playerFirst = pInit >= mInit;
 
   const playerStrike = () => {
-    const atk = attackRoll(dice, hero.stats, weapon, 10 + (monster.toHit || 0));
+    const atk = attackRoll(dice, hero.stats, weapon, 10 + (monster.toHit || 0), critRange);
     events.push(ev('roll', `${hero.name}: d20 [${atk.raw}]${atk.crit ? ' КРИТ!' : atk.fumble ? ' провал...' : ''} → атака ${atk.total}`));
     if (!atk.hit) {
       push('combat', `${hero.name} промахивается по ${monster.name}. ${atk.fumble ? 'Очень зрелищно промахивается.' : ''}`);
       return;
     }
     const dmg = damageRoll(dice, weapon, hero.stats.str, atk.crit);
-    monster.hp -= dmg.total;
-    push('combat', `${atk.crit ? 'КРИТИЧЕСКИЙ УДАР! ' : ''}${hero.name} наносит ${dmg.total} урона ${monster.name} ${dmg.rolls.map(r => `[${r}]`).join('')}. ${monster.hp <= 0 ? `${monster.name} повержен!` : `У него осталось ${monster.hp} HP.`}`);
+    const total = dmg.total + bonusDmg;
+    monster.hp -= total;
+    push('combat', `${atk.crit ? 'КРИТИЧЕСКИЙ УДАР! ' : ''}${hero.name} наносит ${total} урона ${monster.name} ${dmg.rolls.map(r => `[${r}]`).join('')}${bonusDmg ? ` (+${bonusDmg} от способности)` : ''}. ${monster.hp <= 0 ? `${monster.name} повержен!` : `У него осталось ${monster.hp} HP.`}`);
+    // пассивка «вампиризм»: часть нанесённого урона возвращается здоровьем
+    if (lifesteal > 0 && hero.hp > 0) {
+      const sip = Math.max(1, Math.round(total * lifesteal / 100));
+      const before = hero.hp;
+      hero.hp = Math.min(hero.maxHp, hero.hp + sip);
+      if (hero.hp > before) push('loot', `${hero.name} впитывает ${hero.hp - before} HP из чужой боли (${hero.hp}/${hero.maxHp}).`);
+    }
     if (monster.hp <= 0) {
       const levels = gainXp(hero, monster.xp);
       push('loot', `${hero.name} получает ${monster.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
@@ -729,6 +892,12 @@ export function monsterTurns(state) {
 
   for (const m of state.monsters) {
     if (m.hp <= 0 || m.lastActedTurn === state.turn) continue;
+    // оглушён способностью класса — пропускает ход
+    if (m.stun > 0) {
+      m.stun--;
+      push('system', `${m.name} оглушён и пропускает ход, обиженно покачиваясь.`);
+      continue;
+    }
 
     // цель: ближайший живой герой, который видит монстра (= взаимная видимость)
     let target = null, bestD = Infinity;
@@ -812,7 +981,9 @@ export function buildSnapshot(state, heroIdx = state.activeIdx) {
         weapon: hero.equipment.weapon && { ...hero.equipment.weapon },
         armor: hero.equipment.armor && { ...hero.equipment.armor }
       },
-      ac: playerAc(hero)
+      ac: playerAc(hero),
+      ability: hero.ability ? { ...hero.ability } : null,
+      abilityCd: abilityCooldownLeft(state, hero)
     },
     map: { w: state.dungeon.w, h: state.dungeon.h, cells, monsters, items },
     combat: engagedEnemies(state, heroIdx)
@@ -881,8 +1052,9 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
   }
 
   if (effects.goldGain) {
-    hero.gold += clamp(effects.goldGain, 1, 500);
-    push('loot', `${hero.name} получает ${clamp(effects.goldGain, 1, 500)} золота.`);
+    const amount = Math.max(1, Math.round(clamp(effects.goldGain, 1, 500) * abilityGoldMult(hero)));
+    hero.gold += amount;
+    push('loot', `${hero.name} получает ${amount} золота.`);
   }
 
   if (effects.heal && !state.over) {

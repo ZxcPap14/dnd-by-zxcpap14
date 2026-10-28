@@ -97,7 +97,7 @@ export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }
       emit('events', echo);
     }
     // кулдаун на свободный текст — ДО проверки хода: он защищает ключ хоста
-    const intent = parseCommand(command);
+    const intent = parseCommand(command, game?.heroes[heroIdx]?.ability?.name || null);
     if (intent.intent === 'free') {
       const now = Date.now();
       const last = lastFree.get(cooldownKey) || 0;
@@ -194,16 +194,17 @@ export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }
     onOver(fn) { ui.over.push(fn); },
 
     /**
-     * Старт игры. classAssignments: [{name, className, stats}] для ВСЕЙ партии,
+     * Старт игры. classAssignments: [{name, className, stats, ability}] для ВСЕЙ партии,
      * хост первый. intro — асинхронный эффект вступления (ИИ или заглушка).
+     * backstory — отредактированная игроком предыстория (канон для ДМа).
      */
-    startGame({ worldDesc, mode, classAssignments, intro = null }) {
+    startGame({ worldDesc, mode, classAssignments, backstory = '', intro = null }) {
       if (started) return;
       resetStub();
       const playersCfg = classAssignments.map((c, i) => ({ ...c, name: i === 0 ? hostName : (players.get([...players.keys()][i - 1])?.name || c.name) }));
       game = newGame({
         seed: (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
-        mode, worldDesc, players: playersCfg
+        mode, worldDesc, players: playersCfg, backstory
       });
       let i = 1;
       for (const p of players.values()) p.heroIdx = i++;

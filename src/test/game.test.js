@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame, parseCommand, applyIntent, applyDmEffects, visibleMonsters, engagedEnemies, buildSnapshot, DIRS } from '../engine/game.js';
+import { newGame, parseCommand, applyIntent, applyDmEffects, visibleMonsters, engagedEnemies, buildSnapshot, monsterTurns, DIRS } from '../engine/game.js';
+import { attackRoll } from '../engine/combat.js';
+import { sanitizeAbility, abilityGoldMult, abilityLifesteal, abilityCritRange } from '../engine/player.js';
 import { TILE } from '../engine/map.js';
 
 function freshGame(seed = 42) {
@@ -308,4 +310,140 @@ test('applyDmEffects: enemyDamage открывает боевое окно', () 
   const engaged = engagedEnemies(s);
   assert.equal(engaged.length, 1);
   assert.equal(engaged[0].hp, 6);
+});
+
+// ---------- кастомные классы: способности должны реально работать ----------
+
+function abilityGame(ability, seed = 42) {
+  return newGame({
+    seed, worldDesc: 'Пепел', mode: 'sandbox',
+    backstory: 'Иван должен кузнецу три монеты.',
+    players: [{
+      name: 'Иван', className: 'Пепельный жнец',
+      stats: { str: 14, dex: 12, int: 12, con: 12, cha: 12, luck: 12 },
+      ability
+    }]
+  });
+}
+
+test('sanitizeAbility: мусор отбрасывается, числа зажимаются', () => {
+  assert.equal(sanitizeAbility(null), null);
+  assert.equal(sanitizeAbility({ active: 'телепорт в тронный зал' }), null);
+  const a = sanitizeAbility({ name: '  Кара  ', active: 'heal', power: 999, cd: -5, passive: 'crit', passivePower: 99 });
+  assert.equal(a.name, 'Кара');
+  assert.equal(a.power, 20);
+  assert.equal(a.cd, 1, 'отрицательный кулдаун зажимается в 1');
+  assert.equal(a.passivePower, 5);
+});
+
+test('парсер: способность по имени и по ключевым словам', () => {
+  assert.equal(parseCommand('кара пепла', 'Кара пепла').intent, 'ability');
+  assert.equal(parseCommand('применяю способность', 'Кара пепла').intent, 'ability');
+  assert.equal(parseCommand('кастую', 'Кара пепла').intent, 'ability');
+  assert.equal(parseCommand('иду на север', 'Кара пепла').intent, 'move', 'обычное движение не должно съедаться');
+});
+
+test('способность heal: лечит, ставит кулдаун, кулдаун не спамится', () => {
+  const s = abilityGame({ name: 'Слово заживления', active: 'heal', power: 6, cd: 3 });
+  s.monsters = [];
+  s.player.hp = 5;
+  const ev = applyIntent(s, { intent: 'ability', raw: 'слово заживления' });
+  assert.equal(s.player.hp, 11);
+  assert.ok(ev.some(e => /применяет «Слово заживления»/.test(e.text)));
+  assert.ok(s.player.abilityReady > s.turn, 'кулдаун выставлен');
+
+  const t0 = s.turn;
+  const ev2 = applyIntent(s, { intent: 'ability', raw: 'слово заживления' });
+  assert.equal(s.turn, t0, 'неудачная попытка не тратит ход');
+  assert.ok(ev2.some(e => /восстанавливается/.test(e.text)));
+});
+
+test('способность smite: бьёт врага бонусным уроном', () => {
+  const s = abilityGame({ name: 'Кара', active: 'smite', power: 7, cd: 3 });
+  const mon = { id: 'mt', name: 'скелет', x: s.pos.x + 1, y: s.pos.y, hp: 200, maxHp: 200, toHit: -5, dmg: 1, xp: 5 };
+  s.monsters = [mon];
+  s.fov.add(`${s.pos.x + 1},${s.pos.y}`);
+  const ev = applyIntent(s, { intent: 'ability', raw: 'кара' });
+  assert.ok(ev.some(e => /обрушивает «Кара»/.test(e.text)));
+  assert.ok(mon.hp < 200, 'враг получил урон');
+  assert.equal(engagedEnemies(s).length, 1, 'враг попал в боевое окно');
+});
+
+test('способность stun: враг бьёт на power/2 и пропускает ход', () => {
+  const s = abilityGame({ name: 'Гроза', active: 'stun', power: 6, cd: 3 });
+  const mon = { id: 'mu', name: 'гоблин', x: s.pos.x + 1, y: s.pos.y, hp: 50, maxHp: 50, toHit: 9, dmg: 4, xp: 5 };
+  s.monsters = [mon];
+  s.fov.add(`${s.pos.x + 1},${s.pos.y}`);
+  const hpBefore = s.player.hp;
+  const ev = applyIntent(s, { intent: 'ability', raw: 'гроза' });
+  assert.equal(mon.hp, 47, 'урон = ceil(6/2)');
+  assert.equal(s.player.hp, hpBefore, 'оглушённый враг не бьёт');
+  assert.ok(ev.some(e => /оглушён/.test(e.text)));
+});
+
+test('способность dash: уводит на 2 клетки и рвёт бой', () => {
+  const s = abilityGame({ name: 'Тень', active: 'dash', power: 5, cd: 3 });
+  s.monsters = [];
+  s.player.combat = { ghost: 0 };
+  const WORDS = { '0,-1': 'север', '0,1': 'юг', '1,0': 'восток', '-1,0': 'запад' };
+  let word = null;
+  for (const [dx, dy] of [[0, -1], [0, 1], [1, 0], [-1, 0]]) {
+    const nx = s.pos.x + dx, ny = s.pos.y + dy;
+    if (nx >= 0 && ny >= 0 && nx < s.dungeon.w && ny < s.dungeon.h && s.dungeon.grid[ny][nx] !== TILE.WALL) {
+      word = WORDS[`${dx},${dy}`];
+      break;
+    }
+  }
+  assert.ok(word, 'рядом есть свободная клетка');
+  const before = { ...s.pos };
+  const ev = applyIntent(s, { intent: 'ability', raw: `тень на ${word}` });
+  assert.notDeepEqual([s.pos.x, s.pos.y], [before.x, before.y], 'герой сдвинулся');
+  assert.equal(Object.keys(s.player.combat).length, 0, 'рывок разорвал бой');
+  assert.ok(ev.some(e => /перемахивает/.test(e.text)));
+});
+
+test('пассивка crit: расширяет диапазон крита', () => {
+  const hero = { ability: { passive: 'crit', passivePower: 5 } };
+  assert.equal(abilityCritRange(hero), 5);
+  const fake = { d20: () => 16 };
+  const r = attackRoll(fake, { str: 12, dex: 12 }, { type: 'weapon', dmg: 2 }, 30, abilityCritRange(hero));
+  assert.equal(r.crit, true, '16 при диапазоне 5 — крит');
+  const r2 = attackRoll(fake, { str: 12, dex: 12 }, { type: 'weapon', dmg: 2 }, 30, 1);
+  assert.equal(r2.crit, false, 'без пассивки 16 — не крит');
+});
+
+test('пассивка lifesteal: лечит от нанесённого урона', () => {
+  const s = abilityGame({ name: 'Пиявка', passive: 'lifesteal', passivePower: 5 });
+  assert.equal(abilityLifesteal(s.player), 25);
+  const mon = { id: 'ml', name: 'крыса', x: s.pos.x + 1, y: s.pos.y, hp: 1, maxHp: 1, toHit: -5, dmg: 1, xp: 5 };
+  s.monsters = [mon];
+  s.fov.add(`${s.pos.x + 1},${s.pos.y}`);
+  s.player.hp = 5;
+  applyIntent(s, { intent: 'attack', raw: 'атакую' });
+  assert.ok(s.player.hp > 5, 'вампиризм вернул здоровье');
+});
+
+test('пассивка regen: капает HP за каждый ход', () => {
+  const s = abilityGame({ name: 'Живучесть', passive: 'regen', passivePower: 2 });
+  s.monsters = [];
+  s.player.hp = 5;
+  applyIntent(s, { intent: 'wait', raw: 'жду' });
+  assert.equal(s.player.hp, 7);
+});
+
+test('пассивка gold: множитель золота', () => {
+  assert.equal(abilityGoldMult({ ability: { passive: 'gold', passivePower: 4 } }), 2);
+  assert.equal(abilityGoldMult({ ability: null }), 1);
+  const s = abilityGame({ name: 'Жадина', passive: 'gold', passivePower: 4 });
+  s.monsters = [];
+  s.floorItems.push({ id: 'g1', name: 'монеты', type: 'gold', qty: 10, x: s.pos.x, y: s.pos.y });
+  applyIntent(s, { intent: 'pickup', raw: 'подбираю' });
+  assert.equal(s.player.gold, 20, '10 золота × 2');
+});
+
+test('способность в снапшоте: клиент коопа видит её и кулдаун', () => {
+  const s = abilityGame({ name: 'Кара', active: 'smite', power: 7, cd: 3 });
+  const snap = buildSnapshot(s);
+  assert.equal(snap.self.ability.name, 'Кара');
+  assert.equal(snap.self.abilityCd, 0);
 });

@@ -18,9 +18,10 @@ export function makeItem({ name, type, dmg = 0, ac = 0, heal = 0, bonus = 0, qty
 
 /**
  * Создание героя.
- * @param {{name: string, className: string, stats?: Record<string,number>}} opts
+ * @param {{name: string, className: string, stats?: Record<string,number>,
+ *           ability?: {name?: string, active: string, power: number, cd: number, passive: string, passivePower: number}}} opts
  */
-export function createPlayer({ name, className, stats }) {
+export function createPlayer({ name, className, stats, ability }) {
   const s = { str: 12, dex: 12, int: 12, con: 12, cha: 12, luck: 12, ...stats };
   const player = {
     name: name || 'Безымянный',
@@ -34,8 +35,58 @@ export function createPlayer({ name, className, stats }) {
     inventory: [],
     equipment: { weapon: null, armor: null }
   };
+  // способность класса (кастомные классы): актив + пассивка
+  player.ability = sanitizeAbility(ability);
+  // ход, с которого актив снова доступен (кулдаун считается по номеру хода —
+  // так его нельзя «протикнуть» неудачными попытками)
+  player.abilityReady = 0;
   player.hp = player.maxHp;
   return player;
+}
+
+const ACTIVE_TYPES = ['heal', 'smite', 'stun', 'dash'];
+const PASSIVE_TYPES = ['crit', 'lifesteal', 'regen', 'gold', 'ac'];
+
+/** Нормализация способности класса: мусор отбрасывается, числа зажимаются. */
+export function sanitizeAbility(a) {
+  if (!a || typeof a !== 'object') return null;
+  const out = {};
+  if (ACTIVE_TYPES.includes(a.active)) out.active = a.active;
+  if (PASSIVE_TYPES.includes(a.passive)) out.passive = a.passive;
+  if (!out.active && !out.passive) return null;
+  out.name = String(a.name || '').slice(0, 30).trim() || 'Способность';
+  if (out.active) {
+    out.power = Math.max(1, Math.min(20, (a.power | 0) || 5));
+    out.cd = Math.max(1, Math.min(20, (a.cd | 0) || 3));
+  }
+  if (out.passive) {
+    out.passivePower = Math.max(1, Math.min(5, (a.passivePower | 0) || 2));
+  }
+  return out;
+}
+
+/** Диапазон крита пассивки: 1 = только nat20, 5 = 16-20. */
+export function abilityCritRange(player) {
+  const a = player?.ability;
+  return a?.passive === 'crit' ? Math.max(1, Math.min(5, a.passivePower | 0)) : 1;
+}
+
+/** Вампиризм в процентах: 5..25. */
+export function abilityLifesteal(player) {
+  const a = player?.ability;
+  return a?.passive === 'lifesteal' ? Math.max(0, Math.min(25, (a.passivePower | 0) * 5)) : 0;
+}
+
+/** Регенерация за свой ход: 0..3 HP. */
+export function abilityRegen(player) {
+  const a = player?.ability;
+  return a?.passive === 'regen' ? Math.max(0, Math.min(3, a.passivePower | 0)) : 0;
+}
+
+/** Множитель золота: 1..2.25. */
+export function abilityGoldMult(player) {
+  const a = player?.ability;
+  return a?.passive === 'gold' ? 1 + Math.max(0, Math.min(5, a.passivePower | 0)) * 0.25 : 1;
 }
 
 /** Сколько XP нужно для перехода на следующий уровень. */
@@ -61,10 +112,12 @@ export function gainXp(player, amount) {
   return levels;
 }
 
-/** Защита: 10 + ловкость + броня. */
+/** Защита: 10 + ловкость + броня (+ пассивка класса). */
 export function playerAc(player) {
   let ac = 10 + mod(player.stats.dex);
   if (player.equipment.armor) ac += player.equipment.armor.ac;
+  const a = player.ability;
+  if (a?.passive === 'ac') ac += Math.max(1, Math.min(3, a.passivePower | 0));
   return ac;
 }
 

@@ -194,3 +194,44 @@ test('stubDmTurn: ирония на сомнительные идеи', () => {
   const eff = stubDmTurn(s, 'пытаюсь обмануть богов');
   assert.ok(eff.narrative.length > 10);
 });
+
+// ---------- предыстория как канон ----------
+
+test('предыстория: хранится, обрезается и уходит ДМу в контексте и интро', () => {
+  const s = newGame({ seed: 5, worldDesc: 'Пепел', backstory: 'Иван должен кузнецу три монеты.' });
+  assert.match(s.backstory, /кузнецу/);
+
+  const ctx = buildContext(s, 'иду вниз').map(m => m.content).join('\n');
+  assert.match(ctx, /ПРЕДЫСТОРИЯ/);
+  assert.match(ctx, /кузнецу/);
+
+  const intro = introMessages(s).map(m => m.content).join('\n');
+  assert.match(intro, /кузнецу/);
+});
+
+test('предыстория: слишком длинная обрезается, пустая — не мусорит контекст', () => {
+  const long = newGame({ seed: 5, worldDesc: 'Пепел', backstory: 'а'.repeat(5000) });
+  assert.equal(long.backstory.length, 2400);
+
+  const empty = newGame({ seed: 5, worldDesc: 'Пепел' });
+  assert.equal(empty.backstory, '');
+  const ctx = buildContext(empty, 'иду').map(m => m.content).join('\n');
+  assert.ok(!ctx.includes('ПРЕДЫСТОРИЯ (канон игрока'), 'пустой блок не появляется');
+});
+
+test('контекст знает способность героя и её кулдаун', () => {
+  const s = newGame({
+    seed: 5, worldDesc: 'Пепел',
+    players: [{ name: 'Иван', className: 'Жнец', stats: { str: 12, dex: 12, int: 12, con: 12, cha: 12, luck: 12 }, ability: { name: 'Кара пепла', active: 'smite', power: 7, cd: 3 } }]
+  });
+  const ctx = buildContext(s, 'бью').map(m => m.content).join('\n');
+  assert.match(ctx, /СПОСОБНОСТЬ Иван: Кара пепла/);
+  assert.match(ctx, /готова к применению/);
+});
+
+test('classMessages просит способности, а не только статы', () => {
+  const txt = classMessages('Киберпанк')[1].content;
+  assert.match(txt, /ability/);
+  assert.match(txt, /active/);
+  assert.match(txt, /passive/);
+});

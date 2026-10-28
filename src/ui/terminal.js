@@ -121,6 +121,10 @@ function escGlyph(ch) {
   return ch === '>' ? '&gt;' : ch;
 }
 
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
 /** Полоска HP из блоков. */
 export function hpBar(player, width = 10) {
   const filled = Math.round((Math.max(0, player.hp) / player.maxHp) * width);
@@ -129,6 +133,10 @@ export function hpBar(player, width = 10) {
 
 export function renderStats(el, state) {
   const p = state.player;
+  const cd = p.ability?.active ? Math.max(0, (p.abilityReady || 0) - state.turn) : 0;
+  const abilityRow = p.ability
+    ? `<div class="stat-row"><span class="stat-label">Способность</span><span>${escHtml(p.ability.name)}${p.ability.active ? (cd > 0 ? ` · КД ${cd}` : ' · <span style="color:var(--loot)">ГОТОВО</span>') : ''}</span></div>`
+    : '';
   el.innerHTML = `
     <div class="stat-row stat-hero">
       <pre class="avatar avatar-sm">${asciiAvatar(p.name)}</pre>
@@ -138,6 +146,7 @@ export function renderStats(el, state) {
     <div class="stat-row"><span class="stat-label">AC / XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${p.equipment.weapon ? p.equipment.weapon.name : 'кулаки'}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${p.equipment.armor ? p.equipment.armor.name : 'нет'}</span></div>
+    ${abilityRow}
     <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
   `;
 }
@@ -190,6 +199,7 @@ export function renderStatsSnap(el, snap) {
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${bar} ${s.hp}/${s.maxHp}</span></div>
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${s.equipment.weapon ? s.equipment.weapon.name : 'кулаки'}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${s.equipment.armor ? s.equipment.armor.name : 'нет'} (AC ${s.ac})</span></div>
+    ${s.ability ? `<div class="stat-row"><span class="stat-label">Способность</span><span>${escHtml(s.ability.name)}${s.ability.active ? (s.abilityCd > 0 ? ` · КД ${s.abilityCd}` : ' · <span style="color:var(--loot)">ГОТОВО</span>') : ''}</span></div>` : ''}
     <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
     ${party}
   `;

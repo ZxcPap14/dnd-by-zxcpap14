@@ -179,6 +179,34 @@
   .class-name { color: var(--bright); }
   .class-desc { color: var(--dim); }
   .class-loading { font-size: 17px; color: var(--dim); padding: 10px; }
+  /* ---------- предыстория ---------- */
+  #set-backstory {
+    width: 100%; box-sizing: border-box; min-height: 118px; resize: vertical;
+    background: #000; border: 1px solid var(--dim); color: var(--main);
+    font-family: var(--font-term); font-size: 17px; line-height: 1.55;
+    padding: 8px 10px; outline: none;
+  }
+  #set-backstory:focus { border-color: var(--bright); }
+  .bs-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
+  .bs-meta .hint { margin: 0; }
+  /* ---------- конструктор классов ---------- */
+  #custom-class-form { border: 1px dashed var(--dim); padding: 12px; margin: 8px 0; }
+  .cc-stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; flex: 1; }
+  .cc-stats label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--dim); }
+  .cc-stats input {
+    width: 100%; box-sizing: border-box; background: #000; border: 1px solid var(--dim);
+    color: var(--main); font-family: var(--font-term); font-size: 17px;
+    padding: 4px; text-align: center; outline: none;
+  }
+  .cc-stats input:focus { border-color: var(--bright); }
+  #custom-class-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  .cc-badge { font-size: 13px; color: var(--loot); letter-spacing: 1px; }
+  .cc-ability { font-size: 15px; color: var(--main); opacity: 0.85; }
+  .cc-del {
+    border-color: var(--red) !important; color: var(--red) !important;
+    font-size: 8px !important; padding: 3px 8px !important; align-self: flex-start; margin-top: 4px;
+  }
+  #btn-cc-cancel { border-color: var(--dim); color: var(--dim); }
   button {
     background: transparent;
     border: 1px solid var(--main);
@@ -331,6 +359,12 @@
   .kind-death { color: var(--red); font-weight: bold; text-shadow: 0 0 12px var(--red); }
 
   .input-row { display: flex; gap: 8px; flex-shrink: 0; }
+  #ability-btn {
+    flex-shrink: 0; font-size: 9px; padding: 0 12px; max-width: 200px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    border-color: var(--loot); color: var(--loot);
+  }
+  #ability-btn:disabled { border-color: var(--dim); color: var(--dim); cursor: default; }
   .prompt-ch { color: var(--bright); align-self: center; font-size: 20px; }
   #input {
     flex: 1;
@@ -532,6 +566,76 @@
 
     <h2>КЛАСС <button id="btn-classes" style="font-size:8px; padding:5px 10px; margin-left:8px">перегенерировать под мир</button></h2>
     <div id="class-list"></div>
+    <div class="hint" style="margin-left:0">Своя способность? Собери класс ниже — она будет реально работать в бою.</div>
+
+    <h2>СВОЙ КЛАСС <button id="btn-class-new" style="font-size:8px; padding:5px 10px; margin-left:8px">конструктор</button></h2>
+    <div id="custom-class-form" style="display:none">
+      <div class="field">
+        <label for="cc-name">Название</label>
+        <input id="cc-name" maxlength="24" placeholder="Пепельный жнец">
+      </div>
+      <div class="field">
+        <label for="cc-desc">Описание</label>
+        <input id="cc-desc" maxlength="80" placeholder="Собирает долги с мёртвых">
+      </div>
+      <div class="field">
+        <label>Статы</label>
+        <div class="cc-stats">
+          <label>СИЛ<input id="cc-str" type="number" min="6" max="18" value="12"></label>
+          <label>ЛОВ<input id="cc-dex" type="number" min="6" max="18" value="12"></label>
+          <label>ИНТ<input id="cc-int" type="number" min="6" max="18" value="12"></label>
+          <label>ВЫН<input id="cc-con" type="number" min="6" max="18" value="12"></label>
+          <label>ХАР<input id="cc-cha" type="number" min="6" max="18" value="12"></label>
+          <label>УДА<input id="cc-luck" type="number" min="6" max="18" value="12"></label>
+        </div>
+      </div>
+      <div class="field">
+        <label for="cc-aname">Способность</label>
+        <input id="cc-aname" maxlength="28" placeholder="Кара пепла">
+      </div>
+      <div class="field">
+        <label for="cc-active">Что делает</label>
+        <select id="cc-active">
+          <option value="smite">Кара — бьёт врага, +Сила урона</option>
+          <option value="heal">Лечение — восстанавливает Силу HP</option>
+          <option value="stun">Оглушение — враг пропускает ход</option>
+          <option value="dash">Рывок — 2 клетки, разрывает бой</option>
+          <option value="">Без актива</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cc-power">Сила / кулдаун</label>
+        <input id="cc-power" type="number" min="1" max="20" value="6">
+        <input id="cc-cd" type="number" min="1" max="20" value="3" style="max-width:78px">
+      </div>
+      <div class="field">
+        <label for="cc-passive">Пассивка</label>
+        <select id="cc-passive">
+          <option value="">Нет</option>
+          <option value="crit">Крит шире (16–20 при 5)</option>
+          <option value="lifesteal">Вампиризм (5–25% урона)</option>
+          <option value="regen">Регенерация (+HP за ход)</option>
+          <option value="gold">Жадность (+25% золота)</option>
+          <option value="ac">Толстая шкура (+AC)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cc-ppower">Сила пассивки</label>
+        <input id="cc-ppower" type="number" min="1" max="5" value="2">
+      </div>
+      <div class="btn-row">
+        <button id="btn-cc-save">СОХРАНИТЬ КЛАСС</button>
+        <button id="btn-cc-cancel">ОТМЕНА</button>
+      </div>
+    </div>
+    <div id="custom-class-list"></div>
+
+    <h2>ПРЕДЫСТОРИЯ <button id="btn-backstory" style="font-size:8px; padding:5px 10px; margin-left:8px">сгенерировать</button></h2>
+    <textarea id="set-backstory" maxlength="2400" placeholder="Кто он, откуда, за что попал сюда… Здесь можно писать что угодно — ДМ будет опираться на этот текст как на канон."></textarea>
+    <div class="bs-meta">
+      <span class="hint">Правь руками сколько угодно — ДМ обязан соблюдать написанное.</span>
+      <span class="hint" id="backstory-count">0 / 2400</span>
+    </div>
 
     <h2>ВИЗУАЛ И ЗВУК</h2>
     <div class="field">
@@ -610,6 +714,7 @@
       <div class="input-row">
         <span class="prompt-ch">&gt;</span>
         <input id="input" type="text" autocomplete="off" placeholder="что ты делаешь? (пиши свободно) · ↑ история · попробуй «кофе»">
+        <button id="ability-btn" style="display:none" title="Применить способность класса"></button>
       </div>
     </div>
   </div>
@@ -863,9 +968,10 @@ function makeItem({ name, type, dmg = 0, ac = 0, heal = 0, bonus = 0, qty = 1 })
 
 /**
  * Создание героя.
- * @param {{name: string, className: string, stats?: Record<string,number>}} opts
+ * @param {{name: string, className: string, stats?: Record<string,number>,
+ *           ability?: {name?: string, active: string, power: number, cd: number, passive: string, passivePower: number}}} opts
  */
-function createPlayer({ name, className, stats }) {
+function createPlayer({ name, className, stats, ability }) {
   const s = { str: 12, dex: 12, int: 12, con: 12, cha: 12, luck: 12, ...stats };
   const player = {
     name: name || 'Безымянный',
@@ -879,8 +985,58 @@ function createPlayer({ name, className, stats }) {
     inventory: [],
     equipment: { weapon: null, armor: null }
   };
+  // способность класса (кастомные классы): актив + пассивка
+  player.ability = sanitizeAbility(ability);
+  // ход, с которого актив снова доступен (кулдаун считается по номеру хода —
+  // так его нельзя «протикнуть» неудачными попытками)
+  player.abilityReady = 0;
   player.hp = player.maxHp;
   return player;
+}
+
+const ACTIVE_TYPES = ['heal', 'smite', 'stun', 'dash'];
+const PASSIVE_TYPES = ['crit', 'lifesteal', 'regen', 'gold', 'ac'];
+
+/** Нормализация способности класса: мусор отбрасывается, числа зажимаются. */
+function sanitizeAbility(a) {
+  if (!a || typeof a !== 'object') return null;
+  const out = {};
+  if (ACTIVE_TYPES.includes(a.active)) out.active = a.active;
+  if (PASSIVE_TYPES.includes(a.passive)) out.passive = a.passive;
+  if (!out.active && !out.passive) return null;
+  out.name = String(a.name || '').slice(0, 30).trim() || 'Способность';
+  if (out.active) {
+    out.power = Math.max(1, Math.min(20, (a.power | 0) || 5));
+    out.cd = Math.max(1, Math.min(20, (a.cd | 0) || 3));
+  }
+  if (out.passive) {
+    out.passivePower = Math.max(1, Math.min(5, (a.passivePower | 0) || 2));
+  }
+  return out;
+}
+
+/** Диапазон крита пассивки: 1 = только nat20, 5 = 16-20. */
+function abilityCritRange(player) {
+  const a = player?.ability;
+  return a?.passive === 'crit' ? Math.max(1, Math.min(5, a.passivePower | 0)) : 1;
+}
+
+/** Вампиризм в процентах: 5..25. */
+function abilityLifesteal(player) {
+  const a = player?.ability;
+  return a?.passive === 'lifesteal' ? Math.max(0, Math.min(25, (a.passivePower | 0) * 5)) : 0;
+}
+
+/** Регенерация за свой ход: 0..3 HP. */
+function abilityRegen(player) {
+  const a = player?.ability;
+  return a?.passive === 'regen' ? Math.max(0, Math.min(3, a.passivePower | 0)) : 0;
+}
+
+/** Множитель золота: 1..2.25. */
+function abilityGoldMult(player) {
+  const a = player?.ability;
+  return a?.passive === 'gold' ? 1 + Math.max(0, Math.min(5, a.passivePower | 0)) * 0.25 : 1;
 }
 
 /** Сколько XP нужно для перехода на следующий уровень. */
@@ -906,10 +1062,12 @@ function gainXp(player, amount) {
   return levels;
 }
 
-/** Защита: 10 + ловкость + броня. */
+/** Защита: 10 + ловкость + броня (+ пассивка класса). */
 function playerAc(player) {
   let ac = 10 + mod(player.stats.dex);
   if (player.equipment.armor) ac += player.equipment.armor.ac;
+  const a = player.ability;
+  if (a?.passive === 'ac') ac += Math.max(1, Math.min(3, a.passivePower | 0));
   return ac;
 }
 
@@ -971,19 +1129,21 @@ function rollInitiative(dice, dexStat) {
 
 /**
  * Атака игрока.
+ * @param critRange {number} размер диапазона крита (1 = только nat20, 5 = 16-20) — пассивка класса
  * @returns {{raw:number, total:number, hit:boolean, crit:boolean, fumble:boolean}}
  */
-function attackRoll(dice, attackerStats, weapon, targetAc) {
+function attackRoll(dice, attackerStats, weapon, targetAc, critRange = 1) {
   const ability = weapon.type === 'weapon' && weapon.finesse ? 'dex' : 'str';
   const m = mod(attackerStats[ability]) + (weapon.bonus || 0);
   const raw = dice.d20();
   const total = raw + m;
+  const cr = Math.max(1, Math.min(5, critRange | 0));
   return {
     raw,
     total,
-    crit: raw === 20,
+    crit: raw === 20 || (raw !== 1 && cr > 1 && raw >= 21 - cr),
     fumble: raw === 1,
-    hit: raw === 20 || (raw !== 1 && total >= targetAc)
+    hit: raw === 20 || (cr > 1 && raw >= 21 - cr) || (raw !== 1 && total >= targetAc)
   };
 }
 
@@ -1140,6 +1300,8 @@ function newGame(opts) {
     dice: null,
     mode: opts.mode || 'story',
     worldDesc: opts.worldDesc || 'Классическое тёмное фэнтези',
+    // предыстория — канон партии: игрок правит её до старта, ДМ обязан её соблюдать
+    backstory: String(opts.backstory || '').slice(0, 2400).trim(),
     depth: 1,
     over: false,
     epitaph: null,
@@ -1213,15 +1375,28 @@ function W(word, suffix = false) {
   return new RegExp(`(?:^|[^а-яёa-z])(?:${word})${tail}(?![а-яёa-z])`, 'i');
 }
 
+/** Экранирование пользовательского текста для регэкспа (имена способностей). */
+function escapeRe(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Парсер свободного текста → интент. Всё, что не распознано, уходит ИИ как 'free'.
  * Каждый интент несёт raw — исходный текст: если движок не справится,
  * ДМ получит оригинальную формулировку игрока, а не заглушку.
  */
-function parseCommand(text) {
+function parseCommand(text, abilityName = null) {
   const t = (text || '').toLowerCase().trim();
   if (!t) return { intent: 'none' };
   const raw = text;
+
+  // способность класса — раньше всего: собственное имя способности важнее общих глаголов
+  if (abilityName && W(escapeRe(abilityName), true).test(t)) {
+    return { intent: 'ability', target: abilityName, raw };
+  }
+  if (W('способност|умени|кастую|кастани|скилл|ability|skill|юзаю скилл|призываю силу|юзаю способность', true).test(t)) {
+    return { intent: 'ability', target: '', raw };
+  }
 
   // побег раньше движения: «убегаю на север» — это побег, а не прогулка
   if (W('убега|убеж|отступа|сбежа|уносим ноги|бегу от|бегу прочь|flee|retreat', true).test(t)) return { intent: 'flee', raw };
@@ -1300,6 +1475,110 @@ function engagedEnemies(state, heroIdx = state.activeIdx) {
 function allOnStairs(state) {
   const s = state.dungeon.stairs;
   return state.heroes.filter(h => h.alive).every(h => h.pos.x === s.x && h.pos.y === s.y);
+}
+
+/** Сколько ходов осталось до готовности активной способности (0 — можно жать). */
+function abilityCooldownLeft(state, hero) {
+  if (!hero?.ability?.active) return 0;
+  return Math.max(0, (hero.abilityReady || 0) - state.turn);
+}
+
+/** Направление из текста игрока (для рывка «рвусь на север»). */
+function dirFromText(text) {
+  const t = (text || '').toLowerCase();
+  for (const [word, d] of Object.entries(DIRS)) {
+    if (W(word).test(t)) return d;
+  }
+  return null;
+}
+
+/**
+ * Активная способность класса. Возвращает { events, ok }.
+ * ok=false — действие не состоялось (движок передаст его ДМу, ход не сгорит).
+ */
+function useActiveAbility(state, hero, intent, heroIdx) {
+  const a = hero.ability;
+  const events = [];
+  const push = (kind, text) => events.push(ev(kind, text));
+  const dice = state.dice;
+  const power = a.power || 5;
+
+  // --- лечение ---
+  if (a.active === 'heal') {
+    const before = hero.hp;
+    hero.hp = Math.min(hero.maxHp, hero.hp + power);
+    const healed = hero.hp - before;
+    push('loot', healed > 0
+      ? `${hero.name} применяет «${a.name}»: +${healed} HP (${hero.hp}/${hero.maxHp}). Раны затягиваются с неприличным хлюпаньем.`
+      : `${hero.name} применяет «${a.name}», но лечить нечего — здоровье и так на максимуме. Сила уходит в воздух.`);
+    return { events, ok: true };
+  }
+
+  // --- рывок ---
+  if (a.active === 'dash') {
+    const foes = visibleMonsters(state, heroIdx);
+    let dirVec = dirFromText(intent.raw);
+    if (!dirVec && foes.length) {
+      // без направления — прочь от ближайшего врага
+      const foe = foes[0];
+      dirVec = [Math.sign(hero.pos.x - foe.x), Math.sign(hero.pos.y - foe.y)];
+      if (!dirVec[0] && !dirVec[1]) dirVec = [1, 0];
+    }
+    dirVec = dirVec || [1, 0];
+    let moved = 0;
+    for (let step = 0; step < 2; step++) {
+      const nx = hero.pos.x + dirVec[0], ny = hero.pos.y + dirVec[1];
+      if (nx < 0 || ny < 0 || nx >= state.dungeon.w || ny >= state.dungeon.h) break;
+      if (state.dungeon.grid[ny][nx] === TILE.WALL) break;
+      if (state.monsters.some(m => m.hp > 0 && m.x === nx && m.y === ny)) break; // не влетаем в монстра
+      hero.pos = { x: nx, y: ny };
+      moved++;
+    }
+    if (!moved) {
+      push('unhandled', `${hero.name} разбегается для рывка и врезается в стену. Впечатляюще, но нет.`);
+      return { events, ok: false };
+    }
+    hero.combat = {}; // рывок разрывает бой — боевое окно гаснет
+    hero.fov = computeFov(state.dungeon, hero.pos.x, hero.pos.y);
+    gainXp(hero, 2);
+    push('system', `${hero.name} использует «${a.name}» и перемахивает ${moved === 1 ? 'клетку' : 'клетки'} — только пыль осталась.`);
+    return { events, ok: true };
+  }
+
+  // --- кара и оглушение требуют врага перед глазами ---
+  const foes = visibleMonsters(state, heroIdx);
+  if (!foes.length) {
+    push('unhandled', `«${a.name}» требует врага перед глазами, а перед глазами только пустота и твои сожаления.`);
+    return { events, ok: false };
+  }
+  const wanted = (intent.target || '').toLowerCase();
+  const target = (wanted && foes.find(m => m.name.toLowerCase().includes(wanted))) || foes[0];
+
+  if (a.active === 'smite') {
+    push('system', `${hero.name} обрушивает «${a.name}» на ${target.name} (+${power} урона).`);
+    events.push(...resolveCombatRound(state, hero, target, dice, { bonusDmg: power }));
+    return { events, ok: true };
+  }
+
+  // --- оглушение ---
+  const dmg = Math.max(1, Math.ceil(power / 2));
+  target.hp -= dmg;
+  markCombat(state, hero, target);
+  if (target.hp <= 0) {
+    push('combat', `${hero.name} бьёт «${a.name}» по ${target.name}: -${dmg} HP, и ${target.name} разваливается.`);
+    const levels = gainXp(hero, target.xp);
+    push('loot', `${hero.name} получает ${target.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
+    const drop = rollDrop(dice, BASIC_DROP_TABLE, state.depth);
+    if (drop) {
+      state.floorItems.push({ ...drop, x: target.x, y: target.y });
+      push('loot', `${target.name} роняет: ${drop.name}.`);
+    }
+    if (target.isBoss) grantVictory(state, hero, push);
+  } else {
+    target.stun = 1; // пропустит ближайший ход монстров
+    push('combat', `${hero.name} бьёт «${a.name}» по ${target.name}: -${dmg} HP. ${target.name} оглушён и пропустит ход (осталось ${target.hp} HP).`);
+  }
+  return { events, ok: true };
 }
 
 /**
@@ -1488,6 +1767,26 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
       break;
     }
 
+    case 'ability': {
+      const a = hero.ability;
+      if (!a || !a.active) {
+        push('unhandled', `${hero.name} не владеет активными способностями — только обаянием и наглостью.`);
+        break;
+      }
+      const left = abilityCooldownLeft(state, hero);
+      if (left > 0) {
+        push('system', `«${a.name}» ещё восстанавливается: ${left} ${left === 1 ? 'ход' : 'хода'}. Пока — только кулаки и надежда.`);
+        state.turn--; // ход не тратим: способность просто не готова
+        rememberEvents(state, events);
+        return events;
+      }
+      const res = useActiveAbility(state, hero, intent, heroIdx);
+      events.push(...res.events);
+      if (!res.ok) break; // тупик → уйдёт ДМу, ход не сгорит
+      hero.abilityReady = state.turn + a.cd;
+      break;
+    }
+
     case 'free':
       // свободный текст — обрабатывает ИИ-слой (или офлайн-заглушка)
       push('dm', `__FREE__${intent.text}`);
@@ -1504,6 +1803,14 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
     state.turn--;
     rememberEvents(state, events);
     return events;
+  }
+
+  // пассивка «регенерация»: организм сам латает дырки после каждого действия
+  const regen = abilityRegen(hero);
+  if (regen > 0 && hero.alive && hero.hp > 0 && hero.hp < hero.maxHp) {
+    const before = hero.hp;
+    hero.hp = Math.min(hero.maxHp, hero.hp + regen);
+    if (hero.hp > before) push('system', `${hero.name} регенерирует: +${hero.hp - before} HP (${hero.hp}/${hero.maxHp}).`);
   }
 
   // мир живёт: монстры ходят и нападают после действия героя
@@ -1530,8 +1837,9 @@ function pickupItem(state, hero, item) {
   const events = [];
   state.floorItems = state.floorItems.filter(it => it !== item);
   if (item.type === 'gold') {
-    hero.gold += item.qty;
-    events.push(ev('loot', `${hero.name} подбирает ${item.qty} золота. Капиталист внутри доволен.`));
+    const amount = Math.max(1, Math.round(item.qty * abilityGoldMult(hero)));
+    hero.gold += amount;
+    events.push(ev('loot', `${hero.name} подбирает ${amount} золота. Капиталист внутри доволен.`));
   } else {
     addItem(hero, item);
     events.push(ev('loot', `${hero.name} подбирает: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`));
@@ -1540,11 +1848,17 @@ function pickupItem(state, hero, item) {
   return events;
 }
 
-/** Один раунд боя: герой бьёт, если враг жив — враг отвечает ближайшему видимому герою. */
-function resolveCombatRound(state, hero, monster, dice) {
+/**
+ * Один раунд боя: герой бьёт, если враг жив — враг отвечает ближайшему видимому герою.
+ * opts.bonusDmg — добавка к урону (карательный удар способности класса).
+ */
+function resolveCombatRound(state, hero, monster, dice, opts = {}) {
   const events = [];
   const push = (kind, text) => events.push(ev(kind, text));
   const weapon = playerWeapon(hero);
+  const critRange = abilityCritRange(hero);        // пассивка «крит»
+  const lifesteal = abilityLifesteal(hero);        // пассивка «вампиризм»
+  const bonusDmg = Math.max(0, opts.bonusDmg | 0);
   markCombat(state, hero, monster); // бой начался — враг появляется в боевом окне
 
   const pInit = rollInitiative(dice, hero.stats.dex).total;
@@ -1552,15 +1866,23 @@ function resolveCombatRound(state, hero, monster, dice) {
   const playerFirst = pInit >= mInit;
 
   const playerStrike = () => {
-    const atk = attackRoll(dice, hero.stats, weapon, 10 + (monster.toHit || 0));
+    const atk = attackRoll(dice, hero.stats, weapon, 10 + (monster.toHit || 0), critRange);
     events.push(ev('roll', `${hero.name}: d20 [${atk.raw}]${atk.crit ? ' КРИТ!' : atk.fumble ? ' провал...' : ''} → атака ${atk.total}`));
     if (!atk.hit) {
       push('combat', `${hero.name} промахивается по ${monster.name}. ${atk.fumble ? 'Очень зрелищно промахивается.' : ''}`);
       return;
     }
     const dmg = damageRoll(dice, weapon, hero.stats.str, atk.crit);
-    monster.hp -= dmg.total;
-    push('combat', `${atk.crit ? 'КРИТИЧЕСКИЙ УДАР! ' : ''}${hero.name} наносит ${dmg.total} урона ${monster.name} ${dmg.rolls.map(r => `[${r}]`).join('')}. ${monster.hp <= 0 ? `${monster.name} повержен!` : `У него осталось ${monster.hp} HP.`}`);
+    const total = dmg.total + bonusDmg;
+    monster.hp -= total;
+    push('combat', `${atk.crit ? 'КРИТИЧЕСКИЙ УДАР! ' : ''}${hero.name} наносит ${total} урона ${monster.name} ${dmg.rolls.map(r => `[${r}]`).join('')}${bonusDmg ? ` (+${bonusDmg} от способности)` : ''}. ${monster.hp <= 0 ? `${monster.name} повержен!` : `У него осталось ${monster.hp} HP.`}`);
+    // пассивка «вампиризм»: часть нанесённого урона возвращается здоровьем
+    if (lifesteal > 0 && hero.hp > 0) {
+      const sip = Math.max(1, Math.round(total * lifesteal / 100));
+      const before = hero.hp;
+      hero.hp = Math.min(hero.maxHp, hero.hp + sip);
+      if (hero.hp > before) push('loot', `${hero.name} впитывает ${hero.hp - before} HP из чужой боли (${hero.hp}/${hero.maxHp}).`);
+    }
     if (monster.hp <= 0) {
       const levels = gainXp(hero, monster.xp);
       push('loot', `${hero.name} получает ${monster.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
@@ -1769,6 +2091,12 @@ function monsterTurns(state) {
 
   for (const m of state.monsters) {
     if (m.hp <= 0 || m.lastActedTurn === state.turn) continue;
+    // оглушён способностью класса — пропускает ход
+    if (m.stun > 0) {
+      m.stun--;
+      push('system', `${m.name} оглушён и пропускает ход, обиженно покачиваясь.`);
+      continue;
+    }
 
     // цель: ближайший живой герой, который видит монстра (= взаимная видимость)
     let target = null, bestD = Infinity;
@@ -1852,7 +2180,9 @@ function buildSnapshot(state, heroIdx = state.activeIdx) {
         weapon: hero.equipment.weapon && { ...hero.equipment.weapon },
         armor: hero.equipment.armor && { ...hero.equipment.armor }
       },
-      ac: playerAc(hero)
+      ac: playerAc(hero),
+      ability: hero.ability ? { ...hero.ability } : null,
+      abilityCd: abilityCooldownLeft(state, hero)
     },
     map: { w: state.dungeon.w, h: state.dungeon.h, cells, monsters, items },
     combat: engagedEnemies(state, heroIdx)
@@ -1921,8 +2251,9 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
   }
 
   if (effects.goldGain) {
-    hero.gold += clamp(effects.goldGain, 1, 500);
-    push('loot', `${hero.name} получает ${clamp(effects.goldGain, 1, 500)} золота.`);
+    const amount = Math.max(1, Math.round(clamp(effects.goldGain, 1, 500) * abilityGoldMult(hero)));
+    hero.gold += amount;
+    push('loot', `${hero.name} получает ${amount} золота.`);
   }
 
   if (effects.heal && !state.over) {
@@ -2128,6 +2459,8 @@ const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-�
 - ЕСЛИ есть блок «СЮЖЕТ» — ты ведёшь историю с аркой: в акте I намекай на злодея и его планы, в акте II нагнетай и ставь выбор, в акте III веди к финальной схватке. Держи одну линию, эскалируй ставки.
 - Свободные действия игрока — твоя главная работа. Игрок может попытаться ЛЮБОЕ: залезть куда-то, притвориться кем-то, использовать предмет не по назначению, договориться, обмануть, сбежать. Обыгрывай попытку в контексте сцены: чаще давай ей шанс (особенно при подходящих статтах или инвентаре), а неудачу превращай в смешную и логичную развязку, а не в «не получилось». Если действие меняет сцену — опиши новое место так, чтобы игрок понимал, где он теперь и что видит вокруг.
 - Если игрок спрашивает «что делать?» — не издевайся бесконечно, а дай 1-2 КОНКРЕТНЫХ варианта, исходя из текущей сцены и сюжета.
+- ПРЕДЫСТОРИЯ — КАНОН. Если в контексте есть блок «ПРЕДЫСТОРИЯ», это написанная игроком правда о герое(ях): имена, родня, долги, враги, шрамы, обещания. НЕ противоречь ей, НЕ переписывай её и НЕ «забывай»: подхватывай детали (упоминай их в описаниях, строй на них зацепки, приводи в действие упомянутых NPC). Если игрок сам противоречит своей предыстории — заметь это ехидно, но не отменяй канон.
+- СПОСОБНОСТИ: у героя может быть классовая способность (блок «СПОСОБНОСТЬ»). Она уже сработала в движке — просто опиши её эффект ярко и в стиле класса. Не выдумывай герою новых способностей и не отбирай имеющуюся.
 - КООП: в партии НЕСКОЛЬКО героев, и за каждого играет ОТДЕЛЬНЫЙ живой человек. Действие в строке «ДЕЙСТВИЕ (Имя)» принадлежит ИМЕННО этому герою — обращайся к нему ПО ИМЕНИ, реагируй на ЕГО статы, инвентарь и характер. Реплики и действия других игроков лежат в памяти строками вида «player: Имя: …» — помни, кто что сделал и кто где. Герои — разные личности: НЕ сливай их в одно существо, не отвечай за них, не двигай их без их действия. В коопе распределяй внимание между героями: у каждого должна быть своя роль в истории, свои моменты славы и свои неприятности.
 - Ты НЕ кидаешь кубики и НЕ решаешь исходы атак сам — это делает движок. Ты только описываешь и предлагаешь.
 - Ты можешь предлагать только эти эффекты, в пределах разумного: playerDamage (0-15), heal (0-20), xpGain (0-50), goldGain (1-200), enemyDamage (0-25), enemySpawn, itemGain (слабые предметы), questAdd.
@@ -2162,13 +2495,21 @@ function buildContext(state, playerInput, heroIdx = null) {
     `${h.name} (${h.className}, HP ${h.hp}/${h.maxHp}${h.alive ? '' : ', МЁРТВ'}${h === p ? ' — ХОДИТ СЕЙЧАС' : ''})`
   ).join('; ');
   const others = (state.heroes || []).filter(h => h !== p).map(h => h.name);
+  const abilityCdLeft = p.ability?.active ? Math.max(0, (p.abilityReady || 0) - state.turn) : 0;
+  const ability = p.ability
+    ? `${p.ability.name} — актив: ${p.ability.active} (сила ${p.ability.power}, кулдаун ${p.ability.cd})` +
+      (p.ability.passive ? `, пассив: ${p.ability.passive} (${p.ability.passivePower})` : '') +
+      (abilityCdLeft > 0 ? `; сейчас восстанавливается ${abilityCdLeft} ход.` : '; готова к применению.')
+    : 'нет';
   return [
     { role: 'system', content: SYSTEM_PROMPT },
     {
       role: 'user',
       content: [
         `МИР: ${state.worldDesc}. Режим: ${state.mode}. ${state.floorName}.`,
+        state.backstory ? `ПРЕДЫСТОРИЯ (канон игрока, соблюдай и используй как зацепки): ${state.backstory}` : '',
         `ТЕКУЩИЙ ХОД: ${p.name} (${p.className}) — действие ниже принадлежит ЕМУ. Отвечай ему, обращайся по имени.`,
+        `СПОСОБНОСТЬ ${p.name}: ${ability}.`,
         `СТАТЫ ${p.name}: ${Object.entries(p.stats).map(([k, v]) => `${k} ${v}`).join(', ')}, ур.${p.level}, HP ${p.hp}/${p.maxHp}, AC ${playerAc(p)}, золото ${p.gold}.`,
         `ИНВЕНТАРЬ ${p.name}: ${p.inventory.map(i => i.name).join(', ') || 'пуст'}; оружие: ${p.equipment.weapon?.name || 'кулаки'}; броня: ${p.equipment.armor?.name || 'нет'}.`,
         `ПАРТИЯ: ${party}.`,
@@ -2198,11 +2539,36 @@ function introMessages(state) {
   const storyAsk = state.mode === 'story'
     ? ` Это СЮЖЕТНЫЙ режим: придумай злодея (villain) и его страшную цель (villainGoal), намекни на него во вступлении, добавь первичный квест (questAdd).`
     : '';
+  const backAsk = state.backstory
+    ? ` ПРЕДЫСТОРИЯ ОТ ИГРОКА (канон — соблюдай дословно, вплети в сцену и используй как зацепки, ничего не переписывай): ${state.backstory}`
+    : '';
+  const skillsLine = heroes
+    .filter(h => h.ability?.name)
+    .map(h => `${h.name} — «${h.ability.name}»`)
+    .join('; ');
   return [
     { role: 'system', content: SYSTEM_PROMPT },
     {
       role: 'user',
-      content: `Сгенерируй вступление новой игры. МИР: ${state.worldDesc}. Режим: ${state.mode}.${storyAsk} ГЕРОИ: ${partyLine}.${coopAsk} Опиши место, где герои очнулись, и шутку в свой стиль. ${state.floorName}.`
+      content: `Сгенерируй вступление новой игры. МИР: ${state.worldDesc}. Режим: ${state.mode}.${storyAsk} ГЕРОИ: ${partyLine}.${coopAsk}${backAsk}${skillsLine ? ` Способности героев: ${skillsLine}.` : ''} Опиши место, где герои очнулись, и шутку в свой стиль. ${state.floorName}.`
+    }
+  ];
+}
+
+/**
+ * Предыстория героя/партии под сеттинг — то, что игрок потом правит руками.
+ */
+function backstoryMessages(worldDesc, name, className, mode = 'story') {
+  return [
+    {
+      role: 'system',
+      content: 'Ты пишешь предысторию героя для тёмного фэнтези-роглайка. Отвечай ТОЛЬКО JSON без markdown. Тон — мрачный, но с чёрной иронией. Без воды и пафоса.'
+    },
+    {
+      role: 'user',
+      content: `МИР: ${worldDesc}. Герой: ${name}, класс ${className}. Режим: ${mode}.
+Напиши предысторию на 90-140 слов, от третьего лица. Внутри должны быть: 1) откуда герой и чем жил до подземелья; 2) конкретная причина, по которой он здесь оказался (долг, вина, поиск, шантаж — выбери одно); 3) одна живая деталь-крючок (имя родственника/врага, вещь, шрам, обещание), за которую ДМ сможет тянуть сюжет. Без списков, без заголовков — связный текст.
+JSON: {"backstory":"..."}`
     }
   ];
 }
@@ -2215,7 +2581,13 @@ function classMessages(worldDesc) {
     { role: 'system', content: 'Ты генератор классов для D&D-игры. Отвечай ТОЛЬКО JSON без markdown.' },
     {
       role: 'user',
-      content: `МИР: ${worldDesc}. Придумай 4 класса под этот мир. JSON: {"classes":[{"name":"...","desc":"1 предложение","stats":{"str":12,"dex":14,"int":10,"con":12,"cha":12,"luck":12}}]} — статы от 8 до 16, сумма около 72.`
+      content: `МИР: ${worldDesc}. Придумай 4 класса под этот мир.
+Каждому дай ОДНУ активную способность (поле ability) и ОДНУ пассивку.
+Активные (active): "heal" — лечит на power HP; "smite" — карательный удар, +power урона по врагу; "stun" — оглушает врага на ход и бьёт на power/2; "dash" — рывок на 2 клетки, разрывает бой.
+Пассивки (passive): "crit" — расширяет крит-диапазон (passivePower 1..5, где 5 = крит с 16); "lifesteal" — вампиризм passivePower*5% урона; "regen" — +passivePower HP за ход; "gold" — +passivePower*25% золота; "ac" — +passivePower к защите (1..3).
+Название способности — 2-4 слова в стиле класса и мира, по-русски.
+JSON: {"classes":[{"name":"...","desc":"1 предложение","stats":{"str":12,"dex":14,"int":10,"con":12,"cha":12,"luck":12},"ability":{"name":"...","active":"heal","power":6,"cd":3,"passive":"crit","passivePower":2}}]}
+Статы от 8 до 16, сумма около 72. power 4..12, cd 2..5, passivePower 1..3.`
     }
   ];
 }
@@ -2489,7 +2861,7 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
       emit('events', echo);
     }
     // кулдаун на свободный текст — ДО проверки хода: он защищает ключ хоста
-    const intent = parseCommand(command);
+    const intent = parseCommand(command, game?.heroes[heroIdx]?.ability?.name || null);
     if (intent.intent === 'free') {
       const now = Date.now();
       const last = lastFree.get(cooldownKey) || 0;
@@ -2586,16 +2958,17 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
     onOver(fn) { ui.over.push(fn); },
 
     /**
-     * Старт игры. classAssignments: [{name, className, stats}] для ВСЕЙ партии,
+     * Старт игры. classAssignments: [{name, className, stats, ability}] для ВСЕЙ партии,
      * хост первый. intro — асинхронный эффект вступления (ИИ или заглушка).
+     * backstory — отредактированная игроком предыстория (канон для ДМа).
      */
-    startGame({ worldDesc, mode, classAssignments, intro = null }) {
+    startGame({ worldDesc, mode, classAssignments, backstory = '', intro = null }) {
       if (started) return;
       resetStub();
       const playersCfg = classAssignments.map((c, i) => ({ ...c, name: i === 0 ? hostName : (players.get([...players.keys()][i - 1])?.name || c.name) }));
       game = newGame({
         seed: (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
-        mode, worldDesc, players: playersCfg
+        mode, worldDesc, players: playersCfg, backstory
       });
       let i = 1;
       for (const p of players.values()) p.heroIdx = i++;
@@ -3352,6 +3725,10 @@ function escGlyph(ch) {
   return ch === '>' ? '&gt;' : ch;
 }
 
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
 /** Полоска HP из блоков. */
 function hpBar(player, width = 10) {
   const filled = Math.round((Math.max(0, player.hp) / player.maxHp) * width);
@@ -3360,6 +3737,10 @@ function hpBar(player, width = 10) {
 
 function renderStats(el, state) {
   const p = state.player;
+  const cd = p.ability?.active ? Math.max(0, (p.abilityReady || 0) - state.turn) : 0;
+  const abilityRow = p.ability
+    ? `<div class="stat-row"><span class="stat-label">Способность</span><span>${escHtml(p.ability.name)}${p.ability.active ? (cd > 0 ? ` · КД ${cd}` : ' · <span style="color:var(--loot)">ГОТОВО</span>') : ''}</span></div>`
+    : '';
   el.innerHTML = `
     <div class="stat-row stat-hero">
       <pre class="avatar avatar-sm">${asciiAvatar(p.name)}</pre>
@@ -3369,6 +3750,7 @@ function renderStats(el, state) {
     <div class="stat-row"><span class="stat-label">AC / XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${p.equipment.weapon ? p.equipment.weapon.name : 'кулаки'}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${p.equipment.armor ? p.equipment.armor.name : 'нет'}</span></div>
+    ${abilityRow}
     <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
   `;
 }
@@ -3421,6 +3803,7 @@ function renderStatsSnap(el, snap) {
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${bar} ${s.hp}/${s.maxHp}</span></div>
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${s.equipment.weapon ? s.equipment.weapon.name : 'кулаки'}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${s.equipment.armor ? s.equipment.armor.name : 'нет'} (AC ${s.ac})</span></div>
+    ${s.ability ? `<div class="stat-row"><span class="stat-label">Способность</span><span>${escHtml(s.ability.name)}${s.ability.active ? (s.abilityCd > 0 ? ` · КД ${s.abilityCd}` : ' · <span style="color:var(--loot)">ГОТОВО</span>') : ''}</span></div>` : ''}
     <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
     ${party}
   `;
@@ -3466,13 +3849,38 @@ function renderCombat(el, list) {
 
 
 
+
 const $ = (id) => document.getElementById(id);
 
 const STUB_CLASSES = [
-  { name: 'Плут', desc: 'Кривые руки, быстрые ноги', stats: { str: 10, dex: 16, int: 12, con: 10, cha: 14, luck: 10 } },
-  { name: 'Воин', desc: 'Стена мяса с мечом', stats: { str: 16, dex: 12, int: 8, con: 14, cha: 10, luck: 12 } },
-  { name: 'Волхв', desc: 'Магия и высокомерие', stats: { str: 8, dex: 10, int: 16, con: 12, cha: 14, luck: 12 } }
+  {
+    name: 'Плут', desc: 'Кривые руки, быстрые ноги',
+    stats: { str: 10, dex: 16, int: 12, con: 10, cha: 14, luck: 10 },
+    ability: { name: 'Тень за спиной', active: 'dash', power: 5, cd: 3, passive: 'crit', passivePower: 2 }
+  },
+  {
+    name: 'Воин', desc: 'Стена мяса с мечом',
+    stats: { str: 16, dex: 12, int: 8, con: 14, cha: 10, luck: 12 },
+    ability: { name: 'Кровавый замах', active: 'smite', power: 7, cd: 3, passive: 'ac', passivePower: 1 }
+  },
+  {
+    name: 'Волхв', desc: 'Магия и высокомерие',
+    stats: { str: 8, dex: 10, int: 16, con: 12, cha: 14, luck: 12 },
+    ability: { name: 'Слово заживления', active: 'heal', power: 8, cd: 4, passive: 'regen', passivePower: 1 }
+  }
 ];
+
+const ACTIVE_LABELS = { heal: 'лечение', smite: 'кара', stun: 'оглушение', dash: 'рывок' };
+const PASSIVE_LABELS = { crit: 'крит', lifesteal: 'вампиризм', regen: 'регенерация', gold: 'жадность', ac: 'защита' };
+
+/** Человеческая строка про способность класса — для карточек и лога. */
+function abilityLine(a) {
+  if (!a) return 'без способностей';
+  const parts = [];
+  if (a.active) parts.push(`«${a.name}»: ${ACTIVE_LABELS[a.active] || a.active}, сила ${a.power}, КД ${a.cd}`);
+  if (a.passive) parts.push(`пассив ${PASSIVE_LABELS[a.passive] || a.passive} ${a.passivePower}`);
+  return parts.join(' · ');
+}
 
 let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini' };
 let vis = loadVis();        // визуальные настройки (тема, глифы, звук)
@@ -3548,26 +3956,161 @@ function currentClient() {
   return null;
 }
 
+// ---------- свои классы (localStorage) ----------
+
+function loadCustomClasses() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('dnd_custom_classes') || '[]');
+    return Array.isArray(raw) ? raw.filter(c => c && c.name) : [];
+  } catch { return []; }
+}
+function saveCustomClasses(list) {
+  localStorage.setItem('dnd_custom_classes', JSON.stringify(list.slice(0, 12)));
+}
+
+function renderCustomClasses() {
+  const box = $('custom-class-list');
+  if (!box) return;
+  const list = loadCustomClasses();
+  if (!list.length) { box.innerHTML = ''; return; }
+  box.innerHTML = list.map((c, i) => `
+    <div class="class-card" style="cursor:default">
+      <span class="cc-badge">◆ СВОЙ КЛАСС</span>
+      <span class="class-name">${esc(c.name)}</span>
+      <span class="class-desc">${esc(c.desc || '')}</span>
+      <span class="cc-ability">${esc(abilityLine(c.ability))}</span>
+      <button class="cc-del" data-i="${i}">УДАЛИТЬ</button>
+    </div>`).join('');
+  box.querySelectorAll('.cc-del').forEach(b => b.addEventListener('click', () => {
+    const l = loadCustomClasses();
+    l.splice(Number(b.dataset.i), 1);
+    saveCustomClasses(l);
+    renderCustomClasses();
+    renderClassList();
+  }));
+}
+
+/** Прочитать конструктор классов → объект класса (мусор зажимается). */
+function readCustomClassForm() {
+  const num = (id, lo, hi, def) => {
+    const v = Number($(id).value);
+    return Number.isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v))) : def;
+  };
+  const ability = sanitizeAbility({
+    name: $('cc-aname').value.trim() || 'Особый талант',
+    active: $('cc-active').value,
+    power: num('cc-power', 1, 20, 6),
+    cd: num('cc-cd', 1, 20, 3),
+    passive: $('cc-passive').value,
+    passivePower: num('cc-ppower', 1, 5, 2)
+  });
+  return {
+    name: ($('cc-name').value.trim() || 'Безымянный класс').slice(0, 24),
+    desc: $('cc-desc').value.trim().slice(0, 80),
+    stats: {
+      str: num('cc-str', 6, 18, 12), dex: num('cc-dex', 6, 18, 12), int: num('cc-int', 6, 18, 12),
+      con: num('cc-con', 6, 18, 12), cha: num('cc-cha', 6, 18, 12), luck: num('cc-luck', 6, 18, 12)
+    },
+    ability
+  };
+}
+
+function saveCustomClass() {
+  const cls = readCustomClassForm();
+  if (!$('cc-name').value.trim()) { addSetupNote('Классу нужно имя.'); return; }
+  if (!cls.ability) { addSetupNote('Нужна хотя бы одна способность — активная или пассивка.'); return; }
+  const list = loadCustomClasses();
+  list.unshift(cls);
+  saveCustomClasses(list);
+  $('custom-class-form').style.display = 'none';
+  addSetupNote(`Класс «${cls.name}» сохранён. Он есть в списке классов — и способность реально работает.`);
+  renderCustomClasses();
+  renderClassList();
+}
+
+// ---------- предыстория ----------
+
+function setBackstory(text) {
+  const el = $('set-backstory');
+  el.value = String(text || '').slice(0, 2400);
+  updateBackstoryCount();
+  try { localStorage.setItem('dnd_backstory', el.value); } catch { /*ignore*/ }
+}
+function updateBackstoryCount() {
+  const el = $('set-backstory');
+  const c = $('backstory-count');
+  if (el && c) c.textContent = `${el.value.length} / 2400`;
+}
+
+/** Офлайн-заготовка предыстории — работает без ключа и без сети. */
+function offlineBackstory(world, name, className) {
+  const w = world.toLowerCase();
+  const variants = [
+    `${name} не собирался становиться героем. ${className} из него вышел случайно: сначала он просто пытался выжить в мире, который называет себя «${world}», потом — просто не умирать. Долг перед человеком, чьё имя он до сих пор не может произнести вслух, привёл его к чёрному входу в подземелье. В кармане — чужая монета с пропиленным отверстием: то ли оберег, то ли расписка.`,
+    `Говорят, ${name} был ${className.toLowerCase()} до того, как всё пошло не так. Теперь он идёт вниз, потому что наверху его ждут либо кредиторы, либо палач — а внизу ждёт только темнота, и она хотя бы честна. С ним — обломок чужого клинка: он обещал вернуть его владельцу. Владелец обещания не дождался.`,
+    `${name} пришёл из мест, где ${w} ещё не добралось. Он был ${className.toLowerCase()} — пока однажды не нашёл на пороге корзину с чужой судьбой внутри. С тех пор он спускается в подземелья, потому что наверху слишком много людей, которые знают его в лицо. И слишком мало, кто знает, что он сделал.`
+  ];
+  let h = 0;
+  for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return variants[h % variants.length];
+}
+
+async function generateBackstory() {
+  const world = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
+  const name = $('set-name').value.trim() || 'Безымянный';
+  const mode = $('set-mode').value;
+  const cls = selectedClasses()[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
+  const btn = $('btn-backstory');
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'пишем…';
+  try {
+    const c = currentClient();
+    if (!c) {
+      setBackstory(offlineBackstory(world, name, cls.name));
+      addSetupNote('Без ключа ИИ — вот заготовка. Правь руками, она уйдёт ДМу как канон.');
+      return;
+    }
+    const raw = await c.chat(backstoryMessages(world, name, cls.name, mode), { maxTokens: 900, jsonMode: true });
+    const data = extractJson(raw);
+    const text = String(data?.backstory || '').trim();
+    if (!text) throw new Error('пустой ответ');
+    setBackstory(text);
+    addSetupNote('Предыстория готова — теперь можно править руками.');
+  } catch (e) {
+    setBackstory(offlineBackstory(world, name, cls.name));
+    addSetupNote(`ИИ не ответил (${e.message}) — вот заготовка, правь руками.`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prev;
+  }
+}
+
 async function renderClassList() {
   const world = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
   const list = $('class-list');
   list.innerHTML = '<div class="class-loading">Придумываем классы…</div>';
-  let classes = STUB_CLASSES;
+  let generated = STUB_CLASSES;
   const c = currentClient();
   if (c) {
     try {
       const raw = await c.chat(classMessages(world), { maxTokens: 1500, jsonMode: true });
       const data = extractJson(raw);
-      if (data?.classes?.length) classes = data.classes.slice(0, 4);
+      if (data?.classes?.length) generated = data.classes.slice(0, 4);
     } catch (e) {
       addSetupNote(`ИИ недоступен (${e.message}) — берём стандартные классы`);
     }
   }
+  // свои классы идут первыми: игрок их сам собрал, он их и хочет видеть
+  const custom = loadCustomClasses().map(x => ({ ...x, custom: true }));
+  const classes = [...custom, ...generated];
   list.innerHTML = classes.map((cl, i) => `
     <label class="class-card">
       <input type="radio" name="class" value="${i}" ${i === 0 ? 'checked' : ''}>
+      ${cl.custom ? '<span class="cc-badge">◆ СВОЙ</span>' : ''}
       <span class="class-name">${esc(cl.name)}</span>
       <span class="class-desc">${esc(cl.desc || '')}</span>
+      <span class="cc-ability">${esc(abilityLine(cl.ability))}</span>
     </label>`).join('');
   list.dataset.payload = JSON.stringify(classes);
 }
@@ -3582,7 +4125,8 @@ function readCommonConfig() {
   return {
     world: $('set-world').value.trim() || 'Классическое тёмное фэнтези',
     mode: $('set-mode').value,
-    name: $('set-name').value.trim() || 'Безымянный'
+    name: $('set-name').value.trim() || 'Безымянный',
+    backstory: $('set-backstory').value.trim().slice(0, 2400)
   };
 }
 
@@ -3615,7 +4159,7 @@ function startSolo() {
   saveCfg();
   initAudio();
   currentClient();
-  const { world, mode, name } = readCommonConfig();
+  const { world, mode, name, backstory } = readCommonConfig();
   const classes = selectedClasses();
   const cls = classes[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
 
@@ -3623,10 +4167,12 @@ function startSolo() {
   sessionMode = 'solo';
   state = newGame({
     seed: (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
-    mode, worldDesc: world,
-    players: [{ name, className: cls.name, stats: cls.stats }]
+    mode, worldDesc: world, backstory,
+    players: [{ name, className: cls.name, stats: cls.stats, ability: cls.ability }]
   });
   chronicle = [`МИР: ${world}`, `РЕЖИМ: ${mode === 'sandbox' ? 'песочница' : 'сюжет'}`, `ГЕРОЙ: ${name}, ${cls.name}`];
+  if (cls.ability) chronicle.push(`СПОСОБНОСТЬ: ${abilityLine(cls.ability)}`);
+  if (backstory) chronicle.push(`ПРЕДЫСТОРИЯ: ${backstory}`);
   typer = createTyper($('log'));
   showScreen('screen-game');
   refreshPanelsSolo();
@@ -3652,6 +4198,7 @@ function refreshPanelsSolo() {
   renderStats($('stats'), state);
   renderQuests($('quest-list'), state);
   renderCombat($('combat-panel'), engagedEnemies(state, state.activeIdx));
+  refreshAbilityBtn();
   $('floor-label').textContent = state.floorName
     + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
 }
@@ -3735,6 +4282,24 @@ function showSuggestions(events) {
     row.appendChild(b);
   });
   if (row.children.length) row.style.display = 'flex';
+}
+
+/**
+ * Кнопка способности у строки ввода: показывает имя и остаток кулдауна.
+ * Работает и в соло (state), и в коопе (снапшот).
+ */
+function refreshAbilityBtn() {
+  const btn = $('ability-btn');
+  if (!btn) return;
+  const a = sessionMode === 'solo' ? state?.player?.ability : mySnapshot?.self?.ability;
+  if (!a) { btn.style.display = 'none'; return; }
+  const cd = sessionMode === 'solo'
+    ? (a.active ? Math.max(0, (state.player.abilityReady || 0) - state.turn) : 0)
+    : (a.active ? (mySnapshot?.self?.abilityCd || 0) : 0);
+  btn.style.display = 'inline-block';
+  btn.disabled = !!a.active && cd > 0;
+  btn.textContent = !a.active ? a.name : cd > 0 ? `${a.name} · ${cd}` : `✦ ${a.name}`;
+  btn.title = a.active ? `Применить «${a.name}»` : `${a.name} (пассивная)`;
 }
 
 function handleEventsSolo(events) {
@@ -3821,15 +4386,18 @@ function renderLobby(players) {
 }
 
 async function hostLaunch() {
-  const { world, mode, name } = readCommonConfig();
+  const { world, mode, name, backstory } = readCommonConfig();
   const classes = selectedClasses();
   const lobby = hostSession.getLobby();
   const classAssignments = lobby.map((p, i) => ({
     name: p.name,
     className: classes[i % classes.length].name,
-    stats: classes[i % classes.length].stats
+    stats: classes[i % classes.length].stats,
+    ability: classes[i % classes.length].ability
   }));
   chronicle = [`МИР: ${world}`, `РЕЖИМ: ${mode === 'sandbox' ? 'песочница' : 'сюжет'} · КО-ОП`, `ПАРТИЯ: ${classAssignments.map(c => c.name).join(', ')}`];
+  classAssignments.forEach(c => { if (c.ability) chronicle.push(`${c.name} (${c.className}): ${abilityLine(c.ability)}`); });
+  if (backstory) chronicle.push(`ПРЕДЫСТОРИЯ: ${backstory}`);
   typer = createTyper($('log'));
   showScreen('screen-game');
   $('turn-banner').textContent = 'ЖДЁМ ХОДА…';
@@ -3845,7 +4413,7 @@ async function hostLaunch() {
       }
     }
   : async () => ({ narrative: `Вы все очнулись в темноте. ${name} претендует на роль лидера — подземелью это смешно.` });
-  hostSession.startGame({ worldDesc: world, mode, classAssignments, intro });
+  hostSession.startGame({ worldDesc: world, mode, classAssignments, backstory, intro });
 }
 
 // ---------- КОП: КЛИЕНТ ----------
@@ -3913,6 +4481,7 @@ function applySnapshot(snap) {
   mySnapshot = snap;
   renderStatsSnap($('stats'), snap);
   renderQuests($('quest-list'), snap);
+  refreshAbilityBtn();
   renderCombat($('combat-panel'), snap.combat || []);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
     + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
@@ -4040,7 +4609,7 @@ function submitInput() {
     blip(520);
     if (tryCoffee(text)) return;
     logEvent('player', `> ${text}`);
-    const events = applyIntent(state, parseCommand(text));
+    const events = applyIntent(state, parseCommand(text, state.player?.ability?.name || null));
     // свободное действие уходит ДМу, маркер игроку не показывается
     handleEventsSolo(events.filter(e => !(e.kind === 'dm' && String(e.text).startsWith('__FREE__'))));
     const freeEv = events.find(e => e.kind === 'dm' && String(e.text).startsWith('__FREE__'));
@@ -4138,6 +4707,36 @@ function wire() {
   });
 
   $('btn-classes').addEventListener('click', renderClassList);
+
+  // свои классы: конструктор
+  renderCustomClasses();
+  $('btn-class-new').addEventListener('click', () => {
+    const f = $('custom-class-form');
+    f.style.display = f.style.display === 'none' || !f.style.display ? 'block' : 'none';
+    if (f.style.display === 'block') $('cc-name').focus();
+  });
+  $('btn-cc-save').addEventListener('click', saveCustomClass);
+  $('btn-cc-cancel').addEventListener('click', () => { $('custom-class-form').style.display = 'none'; });
+
+  // предыстория: генерация + ручные правки (сохраняются локально)
+  try {
+    const savedBs = localStorage.getItem('dnd_backstory');
+    if (savedBs) $('set-backstory').value = savedBs.slice(0, 2400);
+  } catch { /*ignore*/ }
+  updateBackstoryCount();
+  $('set-backstory').addEventListener('input', () => {
+    updateBackstoryCount();
+    try { localStorage.setItem('dnd_backstory', $('set-backstory').value); } catch { /*ignore*/ }
+  });
+  $('btn-backstory').addEventListener('click', generateBackstory);
+
+  // кнопка способности: клик = применить умение класса
+  $('ability-btn').addEventListener('click', () => {
+    const a = sessionMode === 'solo' ? state?.player?.ability : mySnapshot?.self?.ability;
+    if (!a || !a.active) return;
+    $('input').value = a.name;
+    submitInput();
+  });
   $('btn-start').addEventListener('click', () => {
     const mp = $('set-mp').value;
     if (mp === 'host') startHostRoom();

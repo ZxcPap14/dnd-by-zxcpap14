@@ -14,19 +14,21 @@ export function rollInitiative(dice, dexStat) {
 
 /**
  * Атака игрока.
+ * @param critRange {number} размер диапазона крита (1 = только nat20, 5 = 16-20) — пассивка класса
  * @returns {{raw:number, total:number, hit:boolean, crit:boolean, fumble:boolean}}
  */
-export function attackRoll(dice, attackerStats, weapon, targetAc) {
+export function attackRoll(dice, attackerStats, weapon, targetAc, critRange = 1) {
   const ability = weapon.type === 'weapon' && weapon.finesse ? 'dex' : 'str';
   const m = mod(attackerStats[ability]) + (weapon.bonus || 0);
   const raw = dice.d20();
   const total = raw + m;
+  const cr = Math.max(1, Math.min(5, critRange | 0));
   return {
     raw,
     total,
-    crit: raw === 20,
+    crit: raw === 20 || (raw !== 1 && cr > 1 && raw >= 21 - cr),
     fumble: raw === 1,
-    hit: raw === 20 || (raw !== 1 && total >= targetAc)
+    hit: raw === 20 || (cr > 1 && raw >= 21 - cr) || (raw !== 1 && total >= targetAc)
   };
 }
 
