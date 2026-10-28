@@ -455,17 +455,17 @@ function submitInput() {
     if (!hostSession || !hostSession.isStarted()) return;
     $('input').value = '';
     inputHistory.push(text);
+    historyIdx = inputHistory.length;
     blip(520);
-    logEvent('player', `> ${text}`);
-    hostSession.localIntent(text);
+    hostSession.localIntent(text); // эхо придёт broadcast'ом — как всем
   } else if (sessionMode === 'client') {
     if (!clientSession || !mySnapshot) return;
     if (mySnapshot.turnOf !== mySnapshot.you) return;
     $('input').value = '';
     inputHistory.push(text);
+    historyIdx = inputHistory.length;
     blip(520);
-    logEvent('player', `> ${text}`);
-    clientSession.sendCommand(text);
+    clientSession.sendCommand(text); // эхо придёт broadcast'ом — как всем
   }
 }
 

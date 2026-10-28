@@ -88,6 +88,13 @@ export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }
       if (notifyId != null) net.sendTo(notifyId, msg);
       else emit('events', events);
     };
+    // эхо сообщения игрока — ВСЕМ: партия должна видеть, кто что написал
+    const speaker = heroIdx != null ? game.heroes[heroIdx] : null;
+    if (speaker && command.trim()) {
+      const echo = [{ kind: 'player', text: `${speaker.name}: ${command}` }];
+      net.broadcast({ t: 'events', seq: nextSeq(), events: echo });
+      emit('events', echo);
+    }
     // кулдаун на свободный текст — ДО проверки хода: он защищает ключ хоста
     const intent = parseCommand(command);
     if (intent.intent === 'free') {

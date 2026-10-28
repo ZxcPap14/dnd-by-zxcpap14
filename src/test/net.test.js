@@ -165,6 +165,28 @@ test('вышедший клиент: герой умирает с эпитафи
   assert.equal(host.getGame().over, false, 'партия жива, пока жив хост');
 });
 
+test('эхо сообщений видно ВСЕМ игрокам, с именем автора', async () => {
+  const { net, host } = setup();
+  const c1 = spawnClient(net, host, 'Катя');
+  const c2 = spawnClient(net, host, 'Саша');
+  await tick();
+  host.startGame({ worldDesc: 'X', mode: 'story', classAssignments: CLASSES, intro: async () => ({}) });
+  await tick(30);
+
+  host.localIntent('проверяю эхо');   // пишет хост (Дима)
+  await tick();
+  c1.client.sendCommand('и Катя пишет'); // пишет Катя (её ход)
+  await tick(30);
+
+  // у КАЖДОГО участника в событиях видны сообщения обоих
+  const c1Texts = c1.got.events.flat().map(e => `${e.kind}|${e.text}`).join('\n');
+  const c2Texts = c2.got.events.flat().map(e => `${e.kind}|${e.text}`).join('\n');
+  assert.match(c1Texts, /player\|Дима: проверяю эхо/, 'Катя видит сообщение Димы');
+  assert.match(c1Texts, /player\|Катя: и Катя пишет/, 'Катя видит своё');
+  assert.match(c2Texts, /player\|Дима: проверяю эхо/, 'Саша видит сообщение Димы');
+  assert.match(c2Texts, /player\|Катя: и Катя пишет/, 'Саша видит сообщение Кати');
+});
+
 test('стресс: 500 команд через сеть, seq монотонный, хост жив', async () => {
   const { net, host } = setup();
   const c1 = spawnClient(net, host, 'Катя');
