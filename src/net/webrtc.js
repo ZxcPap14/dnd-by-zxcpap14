@@ -10,7 +10,7 @@
 // Игровой протокол поверх не меняется: те же {broadcast, sendTo, ...} интерфейсы.
 
 import { ICE_SERVERS } from './ice.js';
-import { connectMqttBroker, roomTopic, clientTopic, parseEnvelope } from './mqtt-signal.js';
+import { connectMqttBroker, loadMqtt, roomTopic, clientTopic, parseEnvelope, netStatus, shortBroker, parseBrokerList, BROKER_TIMEOUT_MS } from './mqtt-signal.js';
 
 const randId = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(16).padStart(2, '0')).join('');
 
@@ -20,8 +20,8 @@ const QOS = 1; // QoS 1: публичные брокеры могут ронят
  * Подписки, переживающие переподключение. mqtt.js сам восстанавливает соединение,
  * но при clean:true подписки после обрыва ТЕРЯЮТСЯ — надо пересабскрайбиться.
  */
-function makeSubscriber(mqttClient) {
-  const topics = new Set();
+function makeSubscriber(mqttClient, initialTopics) {
+  const topics = new Set(initialTopics || []);
   mqttClient.on('connect', () => { if (topics.size) mqttClient.subscribe([...topics], { qos: QOS }); });
   return {
     subscribe(t) { const arr = Array.isArray(t) ? t : [t]; arr.forEach(x => topics.add(x)); mqttClient.subscribe(arr, { qos: QOS }); }
@@ -43,6 +43,7 @@ function makeIceQueue(pc) {
  */
 export async function createMqttHostNet(code, { brokerUrl } = {}) {
   const mqttClient = await connectMqttBroker(brokerUrl);
+  netStatus({ stage: 'host-broker', broker: shortBroker(mqttClient.__dndUrl || '?') });
   const sub = makeSubscriber(mqttClient);
   const hostId = 'h-' + randId();
   const room = roomTopic(code);
@@ -148,6 +149,50 @@ export async function createMqttHostNet(code, { brokerUrl } = {}) {
 }
 
 /**
+ * Подключиться ко ВСЕМ брокерам параллельно и пойти за тем, где реально виден хост.
+ * Почему так: у хоста и клиента сети разные (VPN/РФ/мобильный) — если перебирать
+ * брокеров по очереди независимо, они могут попасть на РАЗНЫХ брокеров и никогда
+ * не встретиться (плейтест: «лобби ОК, потом не смог зайти даже»).
+ * Возвращает { client, url, hostId } или null по таймауту.
+ */
+async function findHostOnBrokers({ urls, room, myTopic, myId, hostWaitMs }) {
+  netStatus({ stage: 'probe', brokers: urls.map(shortBroker) });
+  await loadMqtt(); // без этого globalThis.mqtt ещё не существует — все коннекты падают мгновенно
+  const deadline = Date.now() + hostWaitMs;
+  const attempts = urls.map(url => new Promise(resolve => {
+    let settled = false;
+    let client;
+    try {
+      client = globalThis.mqtt.connect(url, {
+        clientId: 'dnd-' + Math.random().toString(36).slice(2, 10),
+        connectTimeout: BROKER_TIMEOUT_MS,
+        keepalive: 30,
+        clean: true
+      });
+    } catch { resolve(null); return; }
+    const done = winner => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (!winner) { try { client.end(true); } catch { /* ignore */ } }
+      if (winner) { try { client.__dndUrl = url; } catch { /* ignore */ } }
+      resolve(winner ? { client, url, hostId: winner.hostId } : null);
+    };
+    const timer = setTimeout(() => done(false), Math.max(1000, deadline - Date.now()));
+    client.on('connect', () => client.subscribe([room, myTopic], { qos: QOS }));
+    client.on('message', (topic, raw) => {
+      const env = parseEnvelope(raw.toString());
+      if (env && env.kind === 'host-here' && env.from !== myId) done({ hostId: env.from });
+    });
+    client.on('error', () => done(false));
+  }));
+  const results = await Promise.all(attempts);
+  const winner = results.find(Boolean);
+  results.forEach(r => { if (r && r !== winner) { try { r.client.end(true); } catch { /* ignore */ } } });
+  return winner;
+}
+
+/**
  * Линк клиента через MQTT. mode: 'webrtc' (P2P, приоритет) | 'relay' (через брокера).
  */
 export async function createMqttClientLink(code, { brokerUrl, mode = 'webrtc', hostWaitMs = 12000, webrtcMs = 18000 } = {}) {
@@ -155,32 +200,23 @@ export async function createMqttClientLink(code, { brokerUrl, mode = 'webrtc', h
   const room = roomTopic(code);
   const myTopic = clientTopic(myId);
 
-  const mqttClient = await connectMqttBroker(brokerUrl);
-  const sub = makeSubscriber(mqttClient);
-
-  let hostId = null;
-  let onClose = null;
-
-  // 1) ждём host-here (retained приходит сразу после subscribe, либо живой)
-  try {
-    await new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('host-wait-timeout')), hostWaitMs);
-      const onPresence = (topic, raw) => {
-        const env = parseEnvelope(raw.toString());
-        if (env && env.kind === 'host-here' && env.from !== myId) { clearTimeout(t); hostId = env.from; resolve(); }
-      };
-      mqttClient.on('message', onPresence);
-      sub.subscribe([room, myTopic]);
-    });
-  } catch {
-    mqttClient.end(true);
-    const err = new Error('Хост не вышел на связь через MQTT-канал — возможно, комната не существует или хост на старой версии игры');
+  // 1) параллельный опрос всех брокеров: побеждает тот, где реально виден хост
+  const urls = parseBrokerList(brokerUrl);
+  const found = await findHostOnBrokers({ urls, room, myTopic, myId, hostWaitMs });
+  if (!found) {
+    const err = new Error('Хост не вышел на связь через MQTT-канал (проверил: ' + urls.map(shortBroker).join(', ') + ') — возможно, комната не существует или хост на старой версии игры');
     err.peerType = 'no-host';
     throw err;
   }
+  const mqttClient = found.client;
+  const sub = makeSubscriber(mqttClient, [room, myTopic]);
+  netStatus({ stage: 'broker', broker: shortBroker(found.url) });
+  const hostId = found.hostId;
+  let onClose = null;
 
   // 2а) relay-режим: трафик через брокера
   if (mode === 'relay') {
+    netStatus({ stage: 'transport', via: 'relay', broker: shortBroker(mqttClient.__dndUrl || '?') });
     let closed = false;
     let downTimer = null;
     let lastHostMsg = Date.now();
@@ -230,6 +266,7 @@ export async function createMqttClientLink(code, { brokerUrl, mode = 'webrtc', h
   }
 
   // 2б) webrtc-режим: сигналинг через MQTT, трафик P2P
+  netStatus({ stage: 'transport', via: 'webrtc', broker: shortBroker(mqttClient.__dndUrl || '?') });
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   const iceQ = makeIceQueue(pc);
   const dc = pc.createDataChannel('game', { ordered: true });

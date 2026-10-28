@@ -494,6 +494,7 @@
       </div>
       <div class="hint" style="margin-left:0; text-align:center">Друзья открывают эту же страницу → «Кооп: войти по коду» → вводят код</div>
       <div id="lobby-list" style="margin-top:8px"></div>
+      <div id="net-status" style="margin-top:6px; font-size:8px; color:var(--dim); text-align:center; min-height:12px"></div>
       <div class="btn-row">
         <button id="btn-launch" style="display:none">▶ НАЧАТЬ СПУСК</button>
       </div>
@@ -2268,6 +2269,23 @@ const MQTT_BROKERS = [
 
 const BROKER_TIMEOUT_MS = 7000;
 
+/** «wss://broker.emqx.io:8084/mqtt» → «emqx.io» — для статусной строки. */
+function shortBroker(url) {
+  try { return new URL(url).hostname.split('.').slice(-2).join('.'); } catch { return url; }
+}
+
+/** Оверрайд может быть списком через запятую (?mqtt=ws://a:8080,ws://b:8081). */
+function parseBrokerList(customUrl) {
+  if (customUrl) return customUrl.split(',').map(s => s.trim()).filter(Boolean);
+  return MQTT_BROKERS;
+}
+
+/** Статус сетевого слоя: CustomEvent в UI + console.info. */
+function netStatus(detail) {
+  try { console.info('[net]', JSON.stringify(detail)); } catch { /* ignore */ }
+  try { document.dispatchEvent(new CustomEvent('dnd-net-status', { detail })); } catch { /* ignore */ }
+}
+
 const NS = 'dndzxc14/v1';
 const roomTopic = code => `${NS}/r/${String(code).toLowerCase()}`;
 const clientTopic = id => `${NS}/c/${id}`;
@@ -2325,7 +2343,7 @@ async function connectMqttBroker(customUrl, opts = {}) {
           ...(opts.will ? { will: { qos: 0, retain: false, ...opts.will } } : {})
         });
         const t = setTimeout(() => { try { client.end(true); } catch { /* ignore */ } reject(new Error('timeout ' + url)); }, BROKER_TIMEOUT_MS);
-        client.on('connect', () => { clearTimeout(t); resolve(client); });
+        client.on('connect', () => { clearTimeout(t); try { client.__dndUrl = url; } catch { /* ignore */ } resolve(client); });
         client.on('error', e => { clearTimeout(t); try { client.end(true); } catch { /* ignore */ } reject(e); });
       });
     } catch (e) {
@@ -2358,8 +2376,8 @@ const QOS = 1; // QoS 1: публичные брокеры могут ронят
  * Подписки, переживающие переподключение. mqtt.js сам восстанавливает соединение,
  * но при clean:true подписки после обрыва ТЕРЯЮТСЯ — надо пересабскрайбиться.
  */
-function makeSubscriber(mqttClient) {
-  const topics = new Set();
+function makeSubscriber(mqttClient, initialTopics) {
+  const topics = new Set(initialTopics || []);
   mqttClient.on('connect', () => { if (topics.size) mqttClient.subscribe([...topics], { qos: QOS }); });
   return {
     subscribe(t) { const arr = Array.isArray(t) ? t : [t]; arr.forEach(x => topics.add(x)); mqttClient.subscribe(arr, { qos: QOS }); }
@@ -2381,6 +2399,7 @@ function makeIceQueue(pc) {
  */
 async function createMqttHostNet(code, { brokerUrl } = {}) {
   const mqttClient = await connectMqttBroker(brokerUrl);
+  netStatus({ stage: 'host-broker', broker: shortBroker(mqttClient.__dndUrl || '?') });
   const sub = makeSubscriber(mqttClient);
   const hostId = 'h-' + randId();
   const room = roomTopic(code);
@@ -2486,6 +2505,50 @@ async function createMqttHostNet(code, { brokerUrl } = {}) {
 }
 
 /**
+ * Подключиться ко ВСЕМ брокерам параллельно и пойти за тем, где реально виден хост.
+ * Почему так: у хоста и клиента сети разные (VPN/РФ/мобильный) — если перебирать
+ * брокеров по очереди независимо, они могут попасть на РАЗНЫХ брокеров и никогда
+ * не встретиться (плейтест: «лобби ОК, потом не смог зайти даже»).
+ * Возвращает { client, url, hostId } или null по таймауту.
+ */
+async function findHostOnBrokers({ urls, room, myTopic, myId, hostWaitMs }) {
+  netStatus({ stage: 'probe', brokers: urls.map(shortBroker) });
+  await loadMqtt(); // без этого globalThis.mqtt ещё не существует — все коннекты падают мгновенно
+  const deadline = Date.now() + hostWaitMs;
+  const attempts = urls.map(url => new Promise(resolve => {
+    let settled = false;
+    let client;
+    try {
+      client = globalThis.mqtt.connect(url, {
+        clientId: 'dnd-' + Math.random().toString(36).slice(2, 10),
+        connectTimeout: BROKER_TIMEOUT_MS,
+        keepalive: 30,
+        clean: true
+      });
+    } catch { resolve(null); return; }
+    const done = winner => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (!winner) { try { client.end(true); } catch { /* ignore */ } }
+      if (winner) { try { client.__dndUrl = url; } catch { /* ignore */ } }
+      resolve(winner ? { client, url, hostId: winner.hostId } : null);
+    };
+    const timer = setTimeout(() => done(false), Math.max(1000, deadline - Date.now()));
+    client.on('connect', () => client.subscribe([room, myTopic], { qos: QOS }));
+    client.on('message', (topic, raw) => {
+      const env = parseEnvelope(raw.toString());
+      if (env && env.kind === 'host-here' && env.from !== myId) done({ hostId: env.from });
+    });
+    client.on('error', () => done(false));
+  }));
+  const results = await Promise.all(attempts);
+  const winner = results.find(Boolean);
+  results.forEach(r => { if (r && r !== winner) { try { r.client.end(true); } catch { /* ignore */ } } });
+  return winner;
+}
+
+/**
  * Линк клиента через MQTT. mode: 'webrtc' (P2P, приоритет) | 'relay' (через брокера).
  */
 async function createMqttClientLink(code, { brokerUrl, mode = 'webrtc', hostWaitMs = 12000, webrtcMs = 18000 } = {}) {
@@ -2493,32 +2556,23 @@ async function createMqttClientLink(code, { brokerUrl, mode = 'webrtc', hostWait
   const room = roomTopic(code);
   const myTopic = clientTopic(myId);
 
-  const mqttClient = await connectMqttBroker(brokerUrl);
-  const sub = makeSubscriber(mqttClient);
-
-  let hostId = null;
-  let onClose = null;
-
-  // 1) ждём host-here (retained приходит сразу после subscribe, либо живой)
-  try {
-    await new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('host-wait-timeout')), hostWaitMs);
-      const onPresence = (topic, raw) => {
-        const env = parseEnvelope(raw.toString());
-        if (env && env.kind === 'host-here' && env.from !== myId) { clearTimeout(t); hostId = env.from; resolve(); }
-      };
-      mqttClient.on('message', onPresence);
-      sub.subscribe([room, myTopic]);
-    });
-  } catch {
-    mqttClient.end(true);
-    const err = new Error('Хост не вышел на связь через MQTT-канал — возможно, комната не существует или хост на старой версии игры');
+  // 1) параллельный опрос всех брокеров: побеждает тот, где реально виден хост
+  const urls = parseBrokerList(brokerUrl);
+  const found = await findHostOnBrokers({ urls, room, myTopic, myId, hostWaitMs });
+  if (!found) {
+    const err = new Error('Хост не вышел на связь через MQTT-канал (проверил: ' + urls.map(shortBroker).join(', ') + ') — возможно, комната не существует или хост на старой версии игры');
     err.peerType = 'no-host';
     throw err;
   }
+  const mqttClient = found.client;
+  const sub = makeSubscriber(mqttClient, [room, myTopic]);
+  netStatus({ stage: 'broker', broker: shortBroker(found.url) });
+  const hostId = found.hostId;
+  let onClose = null;
 
   // 2а) relay-режим: трафик через брокера
   if (mode === 'relay') {
+    netStatus({ stage: 'transport', via: 'relay', broker: shortBroker(mqttClient.__dndUrl || '?') });
     let closed = false;
     let downTimer = null;
     let lastHostMsg = Date.now();
@@ -2568,6 +2622,7 @@ async function createMqttClientLink(code, { brokerUrl, mode = 'webrtc', hostWait
   }
 
   // 2б) webrtc-режим: сигналинг через MQTT, трафик P2P
+  netStatus({ stage: 'transport', via: 'webrtc', broker: shortBroker(mqttClient.__dndUrl || '?') });
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   const iceQ = makeIceQueue(pc);
   const dc = pc.createDataChannel('game', { ordered: true });
@@ -2960,6 +3015,7 @@ function createClientSession({ link, name }) {
 
 
 
+
 const PEER_NAMESPACE = 'dndzxc14-';
 const PEER_CDNS = [
   'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js',
@@ -3177,23 +3233,29 @@ async function createPeerClientLink(code) {
 
   if (mode !== 'relay') {
     try {
+      netStatus({ stage: 'attempt', via: 'mqtt-webrtc' });
       return await createMqttClientLink(code, { ...opts, mode: 'webrtc' });
     } catch (e) {
       errs.push(e.message);
+      netStatus({ stage: 'attempt-failed', via: 'mqtt-webrtc', error: e.message });
       if (mode === 'webrtc') throw e;
     }
   }
   if (mode !== 'webrtc') {
     try {
+      netStatus({ stage: 'attempt', via: 'mqtt-relay' });
       return await createMqttClientLink(code, { ...opts, mode: 'relay' });
     } catch (e) {
       errs.push(e.message);
+      netStatus({ stage: 'attempt-failed', via: 'mqtt-relay', error: e.message });
     }
   }
   try {
+    netStatus({ stage: 'attempt', via: 'peerjs' });
     return await createPeerJsClientLink(code);
   } catch (peerErr) {
     // room-not-found — самый полезный ответ (хост действительно нигде не живёт)
+    netStatus({ stage: 'attempt-failed', via: 'peerjs', error: peerErr.message });
     if (peerErr.peerType === 'peer-unavailable') throw peerErr;
     throw new Error('Не удалось подключиться: ' + [...errs, peerErr.message].filter(Boolean).join(' / '));
   }
@@ -4402,6 +4464,28 @@ function wire() {
     backToSetup();
   });
   $('log').addEventListener('click', () => { typer && typer.skipAll(); });
+
+  // статусная строка сетевого слоя (какой брокер/транспорт реально используются)
+  const NET_LABELS = {
+    'host-broker': 'хост на брокере',
+    'probe': 'проверяю брокеров',
+    'broker': 'брокер',
+    'transport': 'канал',
+    'attempt': 'путь',
+    'attempt-failed': 'не вышел'
+  };
+  document.addEventListener('dnd-net-status', e => {
+    const el = $('net-status');
+    if (!el) return;
+    const d = e.detail || {};
+    const label = NET_LABELS[d.stage] || d.stage;
+    let text = '';
+    if (d.stage === 'attempt') text = 'путь: ' + d.via + '…';
+    else if (d.stage === 'attempt-failed') text = 'путь ' + d.via + ' не удался, пробую следующий…';
+    else if (d.stage === 'transport') text = 'канал: ' + d.via + (d.broker ? ' · ' + d.broker : '');
+    else text = label + (d.broker ? ': ' + d.broker : '') + (d.brokers ? ': ' + d.brokers.join(', ') : '');
+    el.textContent = text;
+  });
 
   const input = $('input');
   input.addEventListener('keydown', (e) => {

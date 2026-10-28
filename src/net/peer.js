@@ -11,6 +11,7 @@
 
 import { ICE_SERVERS } from './ice.js';
 import { createMqttHostNet, createMqttClientLink } from './webrtc.js';
+import { netStatus } from './mqtt-signal.js';
 
 const PEER_NAMESPACE = 'dndzxc14-';
 const PEER_CDNS = [
@@ -229,23 +230,29 @@ export async function createPeerClientLink(code) {
 
   if (mode !== 'relay') {
     try {
+      netStatus({ stage: 'attempt', via: 'mqtt-webrtc' });
       return await createMqttClientLink(code, { ...opts, mode: 'webrtc' });
     } catch (e) {
       errs.push(e.message);
+      netStatus({ stage: 'attempt-failed', via: 'mqtt-webrtc', error: e.message });
       if (mode === 'webrtc') throw e;
     }
   }
   if (mode !== 'webrtc') {
     try {
+      netStatus({ stage: 'attempt', via: 'mqtt-relay' });
       return await createMqttClientLink(code, { ...opts, mode: 'relay' });
     } catch (e) {
       errs.push(e.message);
+      netStatus({ stage: 'attempt-failed', via: 'mqtt-relay', error: e.message });
     }
   }
   try {
+    netStatus({ stage: 'attempt', via: 'peerjs' });
     return await createPeerJsClientLink(code);
   } catch (peerErr) {
     // room-not-found — самый полезный ответ (хост действительно нигде не живёт)
+    netStatus({ stage: 'attempt-failed', via: 'peerjs', error: peerErr.message });
     if (peerErr.peerType === 'peer-unavailable') throw peerErr;
     throw new Error('Не удалось подключиться: ' + [...errs, peerErr.message].filter(Boolean).join(' / '));
   }

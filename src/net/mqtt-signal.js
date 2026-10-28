@@ -15,6 +15,24 @@ export const MQTT_BROKERS = [
 ];
 
 const BROKER_TIMEOUT_MS = 7000;
+export { BROKER_TIMEOUT_MS };
+
+/** «wss://broker.emqx.io:8084/mqtt» → «emqx.io» — для статусной строки. */
+export function shortBroker(url) {
+  try { return new URL(url).hostname.split('.').slice(-2).join('.'); } catch { return url; }
+}
+
+/** Оверрайд может быть списком через запятую (?mqtt=ws://a:8080,ws://b:8081). */
+export function parseBrokerList(customUrl) {
+  if (customUrl) return customUrl.split(',').map(s => s.trim()).filter(Boolean);
+  return MQTT_BROKERS;
+}
+
+/** Статус сетевого слоя: CustomEvent в UI + console.info. */
+export function netStatus(detail) {
+  try { console.info('[net]', JSON.stringify(detail)); } catch { /* ignore */ }
+  try { document.dispatchEvent(new CustomEvent('dnd-net-status', { detail })); } catch { /* ignore */ }
+}
 
 export const NS = 'dndzxc14/v1';
 export const roomTopic = code => `${NS}/r/${String(code).toLowerCase()}`;
@@ -73,7 +91,7 @@ export async function connectMqttBroker(customUrl, opts = {}) {
           ...(opts.will ? { will: { qos: 0, retain: false, ...opts.will } } : {})
         });
         const t = setTimeout(() => { try { client.end(true); } catch { /* ignore */ } reject(new Error('timeout ' + url)); }, BROKER_TIMEOUT_MS);
-        client.on('connect', () => { clearTimeout(t); resolve(client); });
+        client.on('connect', () => { clearTimeout(t); try { client.__dndUrl = url; } catch { /* ignore */ } resolve(client); });
         client.on('error', e => { clearTimeout(t); try { client.end(true); } catch { /* ignore */ } reject(e); });
       });
     } catch (e) {
