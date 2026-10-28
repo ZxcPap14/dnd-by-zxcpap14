@@ -279,11 +279,30 @@ function logEvent(kind, text) {
 
 function handleEventsSolo(events) {
   for (const e of events) {
+    if (e.kind === 'dm' && String(e.text).startsWith('__FREE__')) continue; // служебный маркер — не для игрока
     if (e.kind === 'loot' && /УРОВЕНЬ/.test(e.text)) levelUpSound();
+    if (e.kind === 'victory') levelUpSound();
     logEvent(e.kind, e.text);
   }
   refreshPanelsSolo();
-  if (state.over) typer.onFinish(showDeathSolo);
+  if (state.over) typer.onFinish(state.story?.won ? () => showDeathCommon(state.epitaph || '', soloStatsLine(), true) : showDeathSolo);
+}
+
+function soloStatsLine() {
+  return `${state.player.name}, ${state.player.className}, ур.${state.player.level}. Дошёл до этажа ${state.depth}. Ходов: ${state.turn}.`;
+}
+
+/**
+ * Свободное действие в соло: маркер __FREE__ → ДМ (ИИ или заглушка) → эффекты.
+ */
+async function resolveFreeSolo(text) {
+  const resolver = makeDmResolver();
+  try {
+    const eff = await resolver.resolveFree(state, text);
+    handleEventsSolo(applyDmEffects(state, eff, state.activeIdx));
+  } catch (e) {
+    handleEventsSolo(applyDmEffects(state, { narrative: `ДМ замолк (${e.message}). Тьма вежливо молчит.` }, state.activeIdx));
+  }
 }
 
 // ---------- КОП: ХОСТ ----------
@@ -561,7 +580,11 @@ function submitInput() {
     blip(520);
     if (tryCoffee(text)) return;
     logEvent('player', `> ${text}`);
-    handleEventsSolo(applyIntent(state, parseCommand(text)));
+    const events = applyIntent(state, parseCommand(text));
+    // свободное действие уходит ДМу, маркер игроку не показывается
+    handleEventsSolo(events.filter(e => !(e.kind === 'dm' && String(e.text).startsWith('__FREE__'))));
+    const freeEv = events.find(e => e.kind === 'dm' && String(e.text).startsWith('__FREE__'));
+    if (freeEv && !state.over) resolveFreeSolo(freeEv.text.slice(8));
   } else if (sessionMode === 'host') {
     if (!hostSession || !hostSession.isStarted()) return;
     $('input').value = '';
