@@ -128,7 +128,7 @@ export function newGame(opts) {
   const taken = new Set();
   state.dungeon = generateDungeon(state.rng);
   state.heroes = players.map(pd => {
-    const hero = { ...createPlayer(pd), pos: { x: 0, y: 0 }, fov: new Set(), alive: true, epitaph: null };
+    const hero = { ...createPlayer(pd), pos: { x: 0, y: 0 }, fov: new Set(), alive: true, epitaph: null, combat: {} };
     let spot = randomFloor(state.rng, state.dungeon);
     let tries = 0;
     while (taken.has(`${spot.x},${spot.y}`) && tries++ < 50) spot = randomFloor(state.rng, state.dungeon);
@@ -183,6 +183,9 @@ export function parseCommand(text) {
   if (!t) return { intent: 'none' };
   const raw = text;
 
+  // побег раньше движения: «убегаю на север» — это побег, а не прогулка
+  if (W('убега|убеж|отступа|сбежа|уносим ноги|бегу от|бегу прочь|flee|retreat', true).test(t)) return { intent: 'flee', raw };
+
   // движение (только целые слова: «с» не должно матчиться внутри «стражу»)
   for (const [word, d] of Object.entries(DIRS)) {
     if (W(word).test(t)) {
@@ -230,6 +233,27 @@ export function visibleMonsters(state, heroIdx = state.activeIdx) {
   const hero = state.heroes[heroIdx];
   if (!hero) return [];
   return state.monsters.filter(m => hero.fov.has(`${m.x},${m.y}`) && m.hp > 0);
+}
+
+/** Пометить: этот герой сейчас дерётся с этим монстром (для боевого окна UI). */
+function markCombat(state, hero, monster) {
+  if (!hero || !monster?.id) return;
+  if (!hero.combat) hero.combat = {};
+  hero.combat[monster.id] = state.turn;
+}
+
+/**
+ * Враги в бою с героем: те, с кем была драка за последние 2 хода.
+ * Мёртвые пропадают сразу, уцелевшие — через 2 хода без драки.
+ */
+export function engagedEnemies(state, heroIdx = state.activeIdx) {
+  const hero = state.heroes[heroIdx];
+  if (!hero || !hero.combat) return [];
+  return Object.entries(hero.combat)
+    .map(([id, turn]) => ({ id, turn, mon: state.monsters.find(m => m.id === id) }))
+    .filter(e => e.mon && e.mon.hp > 0 && state.turn - e.turn <= 2)
+    .sort((a, b) => b.turn - a.turn)
+    .map(e => ({ id: e.mon.id, name: e.mon.name, hp: Math.max(0, e.mon.hp), maxHp: e.mon.maxHp, boss: !!e.mon.isBoss }));
 }
 
 /** Все живые герои на лестнице? (правило общего спуска) */
@@ -345,6 +369,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       state.dungeon = generateDungeon(state.rng);
       const taken = new Set();
       state.heroes.forEach(h => {
+        h.combat = {}; // новый этаж — старые драки остались наверху
         let spot = randomFloor(state.rng, state.dungeon);
         let tries = 0;
         while (taken.has(`${spot.x},${spot.y}`) && tries++ < 50) spot = randomFloor(state.rng, state.dungeon);
@@ -393,6 +418,35 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
     case 'wait':
       push('system', 'Ты стоишь и слушаешь тишину. Тишина слушает в ответ.');
       break;
+
+    case 'flee': {
+      const foes = visibleMonsters(state, heroIdx);
+      // игрок может указать направление («убегаю на север») — уважаем выбор
+      let dirVec = null;
+      for (const [word, d] of Object.entries(DIRS)) {
+        if (W(word).test((intent.raw || '').toLowerCase())) { dirVec = d; break; }
+      }
+      let best = null, bestScore = -Infinity;
+      for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+        const nx = hero.pos.x + dx, ny = hero.pos.y + dy;
+        if (nx < 0 || ny < 0 || nx >= state.dungeon.w || ny >= state.dungeon.h ||
+            state.dungeon.grid[ny][nx] === TILE.WALL) continue;
+        if (state.monsters.some(m => m.hp > 0 && m.x === nx && m.y === ny)) continue; // не убегаем В пасть
+        const minFoe = foes.length ? Math.min(...foes.map(f => dist(nx, ny, f.x, f.y))) : 99;
+        const score = (dirVec && dirVec[0] === dx && dirVec[1] === dy ? 100 : 0) + minFoe + state.rng() * 0.5;
+        if (score > bestScore) { bestScore = score; best = { x: nx, y: ny }; }
+      }
+      if (!best) {
+        push('unhandled', 'Бежать некуда: стены и зубы со всех сторон.');
+        break;
+      }
+      hero.pos = { x: best.x, y: best.y };
+      hero.fov = computeFov(state.dungeon, best.x, best.y);
+      gainXp(hero, 1);
+      const foeName = foes.length ? foes[0].name : null;
+      push('system', `${hero.name} ретируется${foeName ? ` от ${foeName}` : ''} со скоростью, достойной легенды. Дерзость — тоже тактика.`);
+      break;
+    }
 
     case 'free':
       // свободный текст — обрабатывает ИИ-слой (или офлайн-заглушка)
@@ -451,6 +505,7 @@ export function resolveCombatRound(state, hero, monster, dice) {
   const events = [];
   const push = (kind, text) => events.push(ev(kind, text));
   const weapon = playerWeapon(hero);
+  markCombat(state, hero, monster); // бой начался — враг появляется в боевом окне
 
   const pInit = rollInitiative(dice, hero.stats.dex).total;
   const mInit = rollInitiative(dice, hero.stats.dex).total + 1;
@@ -484,6 +539,7 @@ export function resolveCombatRound(state, hero, monster, dice) {
       .filter(h => h.alive && h.fov.has(`${monster.x},${monster.y}`))
       .sort((a, b) => dist(a.pos.x, a.pos.y, monster.x, monster.y) - dist(b.pos.x, b.pos.y, monster.x, monster.y));
     const target = candidates[0] || hero;
+    markCombat(state, target, monster); // цель тоже видит врага в боевом окне
     const atk = monsterAttack(dice, monster, playerAc(target));
     if (!atk.hit) {
       push('combat', `${monster.name} бьёт мимо ${target.name} ${atk.crit ? '(а ведь чуть не кританул)' : ''}.`);
@@ -648,6 +704,7 @@ function monsterStrikeAdjacent(state, m, push) {
     .sort((a, b) => dist(a.pos.x, a.pos.y, m.x, m.y) - dist(b.pos.x, b.pos.y, m.x, m.y));
   const target = candidates[0];
   if (!target) return events;
+  markCombat(state, target, m); // враг напал — появляется в боевом окне жертвы
   const atk = monsterAttack(state.dice, m, playerAc(target));
   if (!atk.hit) {
     push('combat', `${m.name} настигает ${target.name}, но бьёт мимо.`);
@@ -757,7 +814,8 @@ export function buildSnapshot(state, heroIdx = state.activeIdx) {
       },
       ac: playerAc(hero)
     },
-    map: { w: state.dungeon.w, h: state.dungeon.h, cells, monsters, items }
+    map: { w: state.dungeon.w, h: state.dungeon.h, cells, monsters, items },
+    combat: engagedEnemies(state, heroIdx)
   };
 }
 
@@ -792,6 +850,7 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       mons.find(m => m.name.toLowerCase().includes(String(effects.enemyName).toLowerCase()))) || mons[0];
     if (target) {
       const dmg = clamp(effects.enemyDamage, 0, 30);
+      markCombat(state, hero, target); // ДМ-атака тоже открывает боевое окно
       target.hp -= dmg;
       push('combat', `${target.name} получает ${dmg} урона. ${target.hp <= 0 ? 'Повержен!' : `Осталось ${target.hp} HP.`}`);
       if (target.hp <= 0) {
@@ -835,6 +894,10 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
     const dmg = clamp(effects.playerDamage, 0, 15);
     hero.hp -= dmg;
     state.deathCause = effects.causeOfDeath ? String(effects.causeOfDeath).slice(0, 80) : 'мир оказался хуже игрока';
+    // если ДМ назвал врага, который нас бьёт — покажем его в боевом окне
+    const named = effects.enemyName &&
+      visibleMonsters(state, heroIdx).find(m => m.name.toLowerCase().includes(String(effects.enemyName).toLowerCase()));
+    if (named) markCombat(state, hero, named);
     push('combat', `${hero.name} получает ${dmg} урона (осталось ${Math.max(0, hero.hp)} HP).`);
   }
 

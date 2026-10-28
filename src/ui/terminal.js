@@ -194,3 +194,26 @@ export function renderStatsSnap(el, snap) {
     ${party}
   `;
 }
+
+/**
+ * Боевое окно: враги, с которыми герой дерётся прямо сейчас.
+ * Пустой список → панель скрыта (появляется после первой атаки, исчезает после боя).
+ */
+export function renderCombat(el, list) {
+  if (!el) return;
+  const foes = Array.isArray(list) ? list : [];
+  if (!foes.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div class="combat-title">⚔ БОЙ</div>' +
+    foes.map(foe => {
+      const pct = Math.max(0, Math.min(100, Math.round((foe.hp / (foe.maxHp || 1)) * 100)));
+      const cls = pct > 60 ? '' : pct > 30 ? ' mid' : ' low';
+      const label = foe.boss ? `☠ ${foe.name}` : foe.name;
+      return `<div class="combat-row${foe.boss ? ' boss' : ''}">` +
+        `<span class="combat-name">${label}</span>` +
+        `<div class="combat-bar"><div class="combat-fill${cls}" style="width:${pct}%"></div></div>` +
+        `<span class="combat-hp">${foe.hp}/${foe.maxHp} HP</span>` +
+        '</div>';
+    }).join('');
+}

@@ -269,6 +269,29 @@
     border-color: var(--bright); box-shadow: 0 0 8px var(--tint);
   }
   #suggest-row .chip::before { content: '▸ '; color: var(--dim); }
+
+  /* боевое окно: кто тебя бьёт / кого бьёшь ты — HP-бары врагов */
+  #combat-panel {
+    display: none; flex-shrink: 0; margin-bottom: 6px;
+    border: 1px solid var(--red); background: var(--panel);
+    padding: 8px 10px; animation: pulse 1.4s ease-in-out infinite;
+  }
+  #combat-panel .combat-title {
+    font-size: 10px; letter-spacing: 2px; color: var(--red); margin-bottom: 6px;
+  }
+  #combat-panel .combat-row {
+    display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: 16px;
+  }
+  #combat-panel .combat-name { color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+  #combat-panel .combat-row.boss .combat-name { color: var(--red); text-shadow: 0 0 8px var(--red); }
+  #combat-panel .combat-bar {
+    flex: 1; height: 10px; background: rgba(255,255,255,.08); border: 1px solid var(--dim); position: relative;
+  }
+  #combat-panel .combat-fill { height: 100%; background: var(--red); transition: width .3s; }
+  #combat-panel .combat-fill.mid { background: var(--gold, #c9a227); }
+  #combat-panel .combat-fill.low { background: #3fbf5f; }
+  #combat-panel .combat-hp { color: var(--dim); font-size: 13px; white-space: nowrap; }
+
   .m-item { color: var(--bright); text-shadow: 0 0 8px var(--glow2); }
   .m-stair { color: var(--stair); text-shadow: 0 0 8px var(--stair); font-weight: bold; }
 
@@ -578,6 +601,7 @@
       </div>
     </div>
     <div class="col">
+      <div id="combat-panel"></div>
       <div class="panel" id="log-panel" style="flex:1; display:flex; flex-direction:column; min-height:0">
         <div class="panel-title">ХРОНИКА · клик — промотать</div>
         <div id="log" style="flex:1; overflow-y:auto; min-height:0"></div>

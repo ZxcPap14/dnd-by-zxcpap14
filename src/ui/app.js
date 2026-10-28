@@ -1,6 +1,6 @@
 // app.js — склейка всего: экраны, игровой цикл, ввод, кооп (хост/клиент), смерть, зал славы, экспорт.
 
-import { newGame, parseCommand, applyIntent, applyDmEffects } from '../engine/game.js';
+import { newGame, parseCommand, applyIntent, applyDmEffects, engagedEnemies } from '../engine/game.js';
 import { createClient, extractJson } from '../ai/client.js';
 import { buildContext, introMessages, classMessages } from '../ai/dm.js';
 import { stubDmTurn, resetStub } from '../ai/stub.js';
@@ -11,7 +11,7 @@ import { createPeerHostNet, createPeerClientLink } from '../net/peer.js';
 import { PROTOCOL_VER } from '../net/protocol.js';
 import {
   createTyper, renderStats, renderQuests,
-  renderStatsSnap, GLYPH_SETS
+  renderStatsSnap, renderCombat, GLYPH_SETS
 } from './terminal.js';
 import {
   initAudio, rollSound, hitSound, lootSound, levelUpSound,
@@ -209,6 +209,7 @@ function startSolo() {
 function refreshPanelsSolo() {
   renderStats($('stats'), state);
   renderQuests($('quest-list'), state);
+  renderCombat($('combat-panel'), engagedEnemies(state, state.activeIdx));
   $('floor-label').textContent = state.floorName
     + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
 }
@@ -470,6 +471,7 @@ function applySnapshot(snap) {
   mySnapshot = snap;
   renderStatsSnap($('stats'), snap);
   renderQuests($('quest-list'), snap);
+  renderCombat($('combat-panel'), snap.combat || []);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
     + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
   const hero = snap.heroes[snap.you];
@@ -724,3 +726,6 @@ function wire() {
 }
 
 wire();
+
+// отладочный хук для e2e-тестов: доступ к живому состоянию соло
+if (typeof window !== 'undefined') window.__dndState = () => state || null;

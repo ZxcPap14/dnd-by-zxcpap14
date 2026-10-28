@@ -269,6 +269,29 @@
     border-color: var(--bright); box-shadow: 0 0 8px var(--tint);
   }
   #suggest-row .chip::before { content: '▸ '; color: var(--dim); }
+
+  /* боевое окно: кто тебя бьёт / кого бьёшь ты — HP-бары врагов */
+  #combat-panel {
+    display: none; flex-shrink: 0; margin-bottom: 6px;
+    border: 1px solid var(--red); background: var(--panel);
+    padding: 8px 10px; animation: pulse 1.4s ease-in-out infinite;
+  }
+  #combat-panel .combat-title {
+    font-size: 10px; letter-spacing: 2px; color: var(--red); margin-bottom: 6px;
+  }
+  #combat-panel .combat-row {
+    display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: 16px;
+  }
+  #combat-panel .combat-name { color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+  #combat-panel .combat-row.boss .combat-name { color: var(--red); text-shadow: 0 0 8px var(--red); }
+  #combat-panel .combat-bar {
+    flex: 1; height: 10px; background: rgba(255,255,255,.08); border: 1px solid var(--dim); position: relative;
+  }
+  #combat-panel .combat-fill { height: 100%; background: var(--red); transition: width .3s; }
+  #combat-panel .combat-fill.mid { background: var(--gold, #c9a227); }
+  #combat-panel .combat-fill.low { background: #3fbf5f; }
+  #combat-panel .combat-hp { color: var(--dim); font-size: 13px; white-space: nowrap; }
+
   .m-item { color: var(--bright); text-shadow: 0 0 8px var(--glow2); }
   .m-stair { color: var(--stair); text-shadow: 0 0 8px var(--stair); font-weight: bold; }
 
@@ -578,6 +601,7 @@
       </div>
     </div>
     <div class="col">
+      <div id="combat-panel"></div>
       <div class="panel" id="log-panel" style="flex:1; display:flex; flex-direction:column; min-height:0">
         <div class="panel-title">ХРОНИКА · клик — промотать</div>
         <div id="log" style="flex:1; overflow-y:auto; min-height:0"></div>
@@ -1144,7 +1168,7 @@ function newGame(opts) {
   const taken = new Set();
   state.dungeon = generateDungeon(state.rng);
   state.heroes = players.map(pd => {
-    const hero = { ...createPlayer(pd), pos: { x: 0, y: 0 }, fov: new Set(), alive: true, epitaph: null };
+    const hero = { ...createPlayer(pd), pos: { x: 0, y: 0 }, fov: new Set(), alive: true, epitaph: null, combat: {} };
     let spot = randomFloor(state.rng, state.dungeon);
     let tries = 0;
     while (taken.has(`${spot.x},${spot.y}`) && tries++ < 50) spot = randomFloor(state.rng, state.dungeon);
@@ -1199,6 +1223,9 @@ function parseCommand(text) {
   if (!t) return { intent: 'none' };
   const raw = text;
 
+  // побег раньше движения: «убегаю на север» — это побег, а не прогулка
+  if (W('убега|убеж|отступа|сбежа|уносим ноги|бегу от|бегу прочь|flee|retreat', true).test(t)) return { intent: 'flee', raw };
+
   // движение (только целые слова: «с» не должно матчиться внутри «стражу»)
   for (const [word, d] of Object.entries(DIRS)) {
     if (W(word).test(t)) {
@@ -1246,6 +1273,27 @@ function visibleMonsters(state, heroIdx = state.activeIdx) {
   const hero = state.heroes[heroIdx];
   if (!hero) return [];
   return state.monsters.filter(m => hero.fov.has(`${m.x},${m.y}`) && m.hp > 0);
+}
+
+/** Пометить: этот герой сейчас дерётся с этим монстром (для боевого окна UI). */
+function markCombat(state, hero, monster) {
+  if (!hero || !monster?.id) return;
+  if (!hero.combat) hero.combat = {};
+  hero.combat[monster.id] = state.turn;
+}
+
+/**
+ * Враги в бою с героем: те, с кем была драка за последние 2 хода.
+ * Мёртвые пропадают сразу, уцелевшие — через 2 хода без драки.
+ */
+function engagedEnemies(state, heroIdx = state.activeIdx) {
+  const hero = state.heroes[heroIdx];
+  if (!hero || !hero.combat) return [];
+  return Object.entries(hero.combat)
+    .map(([id, turn]) => ({ id, turn, mon: state.monsters.find(m => m.id === id) }))
+    .filter(e => e.mon && e.mon.hp > 0 && state.turn - e.turn <= 2)
+    .sort((a, b) => b.turn - a.turn)
+    .map(e => ({ id: e.mon.id, name: e.mon.name, hp: Math.max(0, e.mon.hp), maxHp: e.mon.maxHp, boss: !!e.mon.isBoss }));
 }
 
 /** Все живые герои на лестнице? (правило общего спуска) */
@@ -1361,6 +1409,7 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
       state.dungeon = generateDungeon(state.rng);
       const taken = new Set();
       state.heroes.forEach(h => {
+        h.combat = {}; // новый этаж — старые драки остались наверху
         let spot = randomFloor(state.rng, state.dungeon);
         let tries = 0;
         while (taken.has(`${spot.x},${spot.y}`) && tries++ < 50) spot = randomFloor(state.rng, state.dungeon);
@@ -1409,6 +1458,35 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
     case 'wait':
       push('system', 'Ты стоишь и слушаешь тишину. Тишина слушает в ответ.');
       break;
+
+    case 'flee': {
+      const foes = visibleMonsters(state, heroIdx);
+      // игрок может указать направление («убегаю на север») — уважаем выбор
+      let dirVec = null;
+      for (const [word, d] of Object.entries(DIRS)) {
+        if (W(word).test((intent.raw || '').toLowerCase())) { dirVec = d; break; }
+      }
+      let best = null, bestScore = -Infinity;
+      for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+        const nx = hero.pos.x + dx, ny = hero.pos.y + dy;
+        if (nx < 0 || ny < 0 || nx >= state.dungeon.w || ny >= state.dungeon.h ||
+            state.dungeon.grid[ny][nx] === TILE.WALL) continue;
+        if (state.monsters.some(m => m.hp > 0 && m.x === nx && m.y === ny)) continue; // не убегаем В пасть
+        const minFoe = foes.length ? Math.min(...foes.map(f => dist(nx, ny, f.x, f.y))) : 99;
+        const score = (dirVec && dirVec[0] === dx && dirVec[1] === dy ? 100 : 0) + minFoe + state.rng() * 0.5;
+        if (score > bestScore) { bestScore = score; best = { x: nx, y: ny }; }
+      }
+      if (!best) {
+        push('unhandled', 'Бежать некуда: стены и зубы со всех сторон.');
+        break;
+      }
+      hero.pos = { x: best.x, y: best.y };
+      hero.fov = computeFov(state.dungeon, best.x, best.y);
+      gainXp(hero, 1);
+      const foeName = foes.length ? foes[0].name : null;
+      push('system', `${hero.name} ретируется${foeName ? ` от ${foeName}` : ''} со скоростью, достойной легенды. Дерзость — тоже тактика.`);
+      break;
+    }
 
     case 'free':
       // свободный текст — обрабатывает ИИ-слой (или офлайн-заглушка)
@@ -1467,6 +1545,7 @@ function resolveCombatRound(state, hero, monster, dice) {
   const events = [];
   const push = (kind, text) => events.push(ev(kind, text));
   const weapon = playerWeapon(hero);
+  markCombat(state, hero, monster); // бой начался — враг появляется в боевом окне
 
   const pInit = rollInitiative(dice, hero.stats.dex).total;
   const mInit = rollInitiative(dice, hero.stats.dex).total + 1;
@@ -1500,6 +1579,7 @@ function resolveCombatRound(state, hero, monster, dice) {
       .filter(h => h.alive && h.fov.has(`${monster.x},${monster.y}`))
       .sort((a, b) => dist(a.pos.x, a.pos.y, monster.x, monster.y) - dist(b.pos.x, b.pos.y, monster.x, monster.y));
     const target = candidates[0] || hero;
+    markCombat(state, target, monster); // цель тоже видит врага в боевом окне
     const atk = monsterAttack(dice, monster, playerAc(target));
     if (!atk.hit) {
       push('combat', `${monster.name} бьёт мимо ${target.name} ${atk.crit ? '(а ведь чуть не кританул)' : ''}.`);
@@ -1664,6 +1744,7 @@ function monsterStrikeAdjacent(state, m, push) {
     .sort((a, b) => dist(a.pos.x, a.pos.y, m.x, m.y) - dist(b.pos.x, b.pos.y, m.x, m.y));
   const target = candidates[0];
   if (!target) return events;
+  markCombat(state, target, m); // враг напал — появляется в боевом окне жертвы
   const atk = monsterAttack(state.dice, m, playerAc(target));
   if (!atk.hit) {
     push('combat', `${m.name} настигает ${target.name}, но бьёт мимо.`);
@@ -1773,7 +1854,8 @@ function buildSnapshot(state, heroIdx = state.activeIdx) {
       },
       ac: playerAc(hero)
     },
-    map: { w: state.dungeon.w, h: state.dungeon.h, cells, monsters, items }
+    map: { w: state.dungeon.w, h: state.dungeon.h, cells, monsters, items },
+    combat: engagedEnemies(state, heroIdx)
   };
 }
 
@@ -1808,6 +1890,7 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       mons.find(m => m.name.toLowerCase().includes(String(effects.enemyName).toLowerCase()))) || mons[0];
     if (target) {
       const dmg = clamp(effects.enemyDamage, 0, 30);
+      markCombat(state, hero, target); // ДМ-атака тоже открывает боевое окно
       target.hp -= dmg;
       push('combat', `${target.name} получает ${dmg} урона. ${target.hp <= 0 ? 'Повержен!' : `Осталось ${target.hp} HP.`}`);
       if (target.hp <= 0) {
@@ -1851,6 +1934,10 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
     const dmg = clamp(effects.playerDamage, 0, 15);
     hero.hp -= dmg;
     state.deathCause = effects.causeOfDeath ? String(effects.causeOfDeath).slice(0, 80) : 'мир оказался хуже игрока';
+    // если ДМ назвал врага, который нас бьёт — покажем его в боевом окне
+    const named = effects.enemyName &&
+      visibleMonsters(state, heroIdx).find(m => m.name.toLowerCase().includes(String(effects.enemyName).toLowerCase()));
+    if (named) markCombat(state, hero, named);
     push('combat', `${hero.name} получает ${dmg} урона (осталось ${Math.max(0, hero.hp)} HP).`);
   }
 
@@ -2242,7 +2329,7 @@ function stubDmTurn(state, input) {
 
 const PROTOCOL_VER = 'mp1';
 const TURN_MS = 60000;          // таймер хода (0 = выключен)
-const FREE_COOLDOWN_MS = 10000; // антиспам свободного текста (ключ хоста!)
+const FREE_COOLDOWN_MS = 5000; // антиспам свободного текста (ключ хоста!) — 5с: свобода важнее паранойи
 const MAX_PLAYERS = 4;
 
 
@@ -3339,6 +3426,29 @@ function renderStatsSnap(el, snap) {
   `;
 }
 
+/**
+ * Боевое окно: враги, с которыми герой дерётся прямо сейчас.
+ * Пустой список → панель скрыта (появляется после первой атаки, исчезает после боя).
+ */
+function renderCombat(el, list) {
+  if (!el) return;
+  const foes = Array.isArray(list) ? list : [];
+  if (!foes.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'block';
+  el.innerHTML =
+    '<div class="combat-title">⚔ БОЙ</div>' +
+    foes.map(foe => {
+      const pct = Math.max(0, Math.min(100, Math.round((foe.hp / (foe.maxHp || 1)) * 100)));
+      const cls = pct > 60 ? '' : pct > 30 ? ' mid' : ' low';
+      const label = foe.boss ? `☠ ${foe.name}` : foe.name;
+      return `<div class="combat-row${foe.boss ? ' boss' : ''}">` +
+        `<span class="combat-name">${label}</span>` +
+        `<div class="combat-bar"><div class="combat-fill${cls}" style="width:${pct}%"></div></div>` +
+        `<span class="combat-hp">${foe.hp}/${foe.maxHp} HP</span>` +
+        '</div>';
+    }).join('');
+}
+
 
 // app.js — склейка всего: экраны, игровой цикл, ввод, кооп (хост/клиент), смерть, зал славы, экспорт.
 
@@ -3541,6 +3651,7 @@ function startSolo() {
 function refreshPanelsSolo() {
   renderStats($('stats'), state);
   renderQuests($('quest-list'), state);
+  renderCombat($('combat-panel'), engagedEnemies(state, state.activeIdx));
   $('floor-label').textContent = state.floorName
     + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
 }
@@ -3802,6 +3913,7 @@ function applySnapshot(snap) {
   mySnapshot = snap;
   renderStatsSnap($('stats'), snap);
   renderQuests($('quest-list'), snap);
+  renderCombat($('combat-panel'), snap.combat || []);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
     + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
   const hero = snap.heroes[snap.you];
@@ -4056,6 +4168,9 @@ function wire() {
 }
 
 wire();
+
+// отладочный хук для e2e-тестов: доступ к живому состоянию соло
+if (typeof window !== 'undefined') window.__dndState = () => state || null;
 
 </script>
 </body>

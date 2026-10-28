@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame, parseCommand, applyIntent, applyDmEffects, visibleMonsters, DIRS } from '../engine/game.js';
+import { newGame, parseCommand, applyIntent, applyDmEffects, visibleMonsters, engagedEnemies, buildSnapshot, DIRS } from '../engine/game.js';
 import { TILE } from '../engine/map.js';
 
 function freshGame(seed = 42) {
@@ -236,4 +236,76 @@ test('память ДМа не засоряется suggest-событиями',
   applyDmEffects(s, { narrative: 'Сцена.', suggestions: ['Сделать шаг'] });
   assert.equal(s.memory.length, memBefore + 1, 'в памяти только narrative, без подсказки');
   assert.ok(!s.memory.some(l => l.includes('suggest')));
+});
+
+// ---------- боевое окно (враги с HP) и побег ----------
+
+test('парсер: побег — не движение', () => {
+  assert.equal(parseCommand('убегаю').intent, 'flee');
+  assert.equal(parseCommand('отступаю!').intent, 'flee');
+  assert.equal(parseCommand('бегу от гоблина').intent, 'flee');
+  assert.equal(parseCommand('убегаю на север').intent, 'flee', 'побег с направлением не должен стать обычным движением');
+});
+
+test('flee: герой уходит, ход сгорает, без тупика в открытом поле', () => {
+  const s = freshGame();
+  s.monsters.push({ id: 'mf', name: 'гоблин', x: s.pos.x + 1, y: s.pos.y, hp: 10, maxHp: 10, toHit: 2, dmg: 1, xp: 10 });
+  s.fov.add(`${s.pos.x + 1},${s.pos.y}`);
+  const before = { ...s.pos };
+  const t0 = s.turn;
+  const events = applyIntent(s, { intent: 'flee', raw: 'убегаю' });
+  assert.notDeepEqual([s.pos.x, s.pos.y], [before.x, before.y], 'позиция изменилась');
+  assert.ok(events.some(e => /ретируется/.test(e.text)));
+  assert.equal(s.turn, t0 + 1, 'побег тратит ход');
+  assert.ok(!events.some(e => e.kind === 'unhandled'));
+});
+
+test('боевое окно: пусто до драки, появляется после атаки, гаснет через 2 хода', () => {
+  const s = freshGame();
+  const mon = { id: 'mc', name: 'скелет', x: s.pos.x + 1, y: s.pos.y, hp: 20, maxHp: 20, toHit: 0, dmg: 1, xp: 10 };
+  s.monsters.push(mon);
+  s.fov.add(`${s.pos.x + 1},${s.pos.y}`);
+  assert.deepEqual(engagedEnemies(s), [], 'до первой атаки окна нет');
+  applyIntent(s, { intent: 'attack', raw: 'атакую скелета' });
+  let engaged = engagedEnemies(s);
+  assert.equal(engaged.length, 1);
+  assert.equal(engaged[0].name, 'скелет');
+  assert.equal(engaged[0].maxHp, 20);
+  s.turn += 2;
+  assert.equal(engagedEnemies(s).length, 1, '2 хода тишины — ещё виден');
+  s.turn += 1;
+  assert.equal(engagedEnemies(s).length, 0, '3 хода тишины — исчез');
+});
+
+test('боевое окно: убитый враг пропадает сразу', () => {
+  const s = freshGame();
+  const mon = { id: 'md', name: 'слизь', x: s.pos.x + 1, y: s.pos.y, hp: 1, maxHp: 1, toHit: 0, dmg: 1, xp: 5 };
+  s.monsters.push(mon);
+  s.fov.add(`${s.pos.x + 1},${s.pos.y}`);
+  applyIntent(s, { intent: 'attack', raw: 'атакую' });
+  mon.hp = 0; // добили (руками, чтобы тест не зависел от кубиков)
+  assert.equal(engagedEnemies(s).length, 0);
+});
+
+test('снапшот несёт боевое окно для коопа', () => {
+  const s = freshGame();
+  const mon = { id: 'ms', name: 'крыса-мутант', x: s.pos.x + 1, y: s.pos.y, hp: 20, maxHp: 20, toHit: 0, dmg: 1, xp: 5 };
+  s.monsters.push(mon);
+  s.fov.add(`${s.pos.x + 1},${s.pos.y}`);
+  applyIntent(s, { intent: 'attack', raw: 'атакую' });
+  const snap = buildSnapshot(s);
+  assert.ok(Array.isArray(snap.combat));
+  assert.equal(snap.combat.length, 1);
+  assert.equal(snap.combat[0].name, 'крыса-мутант');
+});
+
+test('applyDmEffects: enemyDamage открывает боевое окно', () => {
+  const s = freshGame();
+  const mon = { id: 'mx2', name: 'озлобленный гоблин', x: s.pos.x + 2, y: s.pos.y, hp: 8, maxHp: 8, toHit: 0, dmg: 1, xp: 5 };
+  s.monsters.push(mon);
+  s.fov.add(`${s.pos.x + 2},${s.pos.y}`);
+  applyDmEffects(s, { narrative: 'Ты швыряешь камень.', enemyName: 'гоблин', enemyDamage: 2 });
+  const engaged = engagedEnemies(s);
+  assert.equal(engaged.length, 1);
+  assert.equal(engaged[0].hp, 6);
 });
