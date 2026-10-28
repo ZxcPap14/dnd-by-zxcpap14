@@ -1,0 +1,175 @@
+// trystero.js — WebRTC-транспорт поверх Trystero (публичные Nostr-релеи).
+// Зачем: 0.peerjs.com в РФ заблокирован, и кооп без VPN не работал вообще.
+// Trystero «знакомит» игроков через децентрализованную сеть релеев —
+// единой точки отказа (одного сервера) нет.
+//
+// Интерфейс 1:1 как у peer.js, поэтому host.js/client.js о нём не знают.
+
+const TRYSTERO_CDNS = [
+  'https://cdn.jsdelivr.net/npm/trystero@0.26.0/+esm',
+  'https://esm.run/trystero@0.26.0'
+];
+const TRYSTERO_APP_ID = 'dnd-zxcpap14';
+const ROOM_PREFIX = 'dndzxc14-';
+const RELAY_WAIT_MS = 14000;  // сколько ждём первый живой релей
+const HOST_WAIT_MS = 18000;   // сколько клиент ждёт, пока хост объявится
+const ANNOUNCE_MS = 1200;     // как часто клиент напоминает о себе
+
+// TURN переиспользуем тот же, что в peer.js: без него symmetric NAT не пробить
+const TRYSTERO_TURN = [
+  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+];
+
+// Префикс tSleep, а не sleep: build.mjs склеивает модули в одну область,
+// и одинаковые имена (как const sleep в peer.js) роняют весь бандл.
+const tSleep = ms => new Promise(r => setTimeout(r, ms));
+
+let trysteroPromise = null;
+
+/** Ленивая загрузка Trystero с CDN (два зеркала — одно может быть заблокировано). */
+export function loadTrystero() {
+  if (trysteroPromise) return trysteroPromise;
+  trysteroPromise = (async () => {
+    for (const url of TRYSTERO_CDNS) {
+      try {
+        const mod = await import(url);
+        if (mod && typeof mod.joinRoom === 'function') return mod;
+      } catch { /* пробуем следующее зеркало */ }
+    }
+    throw new Error('Не удалось загрузить сетевой модуль (CDN недоступен)');
+  })();
+  return trysteroPromise;
+}
+
+function roomConfig() {
+  return {
+    appId: TRYSTERO_APP_ID,
+    turnConfig: TRYSTERO_TURN,
+    rtcConfig: {
+      iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }]
+    }
+  };
+}
+
+/** Ждём хотя бы один открытый сокет релея: без него нас никто не найдёт. */
+async function waitForRelay(getRelaySockets, ms) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    try {
+      const socks = getRelaySockets ? getRelaySockets() : null;
+      if (socks && Object.values(socks).some(s => s && s.readyState === 1)) return true;
+    } catch { /* ignore */ }
+    await tSleep(250);
+  }
+  return false;
+}
+
+/**
+ * Сеть хоста поверх Trystero.
+ * Интерфейс: { broadcast, sendTo, onClientMessage, onClientJoin, onClientLeave, close }
+ */
+export async function createTrysteroHostNet(code) {
+  const T = await loadTrystero();
+  const room = T.joinRoom(roomConfig(), ROOM_PREFIX + String(code).toLowerCase());
+
+  // 'hi' — рукопожатие ролей, 'msg' — полезная нагрузка игры
+  const hi = room.makeAction('hi');
+  const msg = room.makeAction('msg');
+
+  const clients = new Set();
+  let onMsg = null, onJoin = null, onLeave = null;
+
+  hi.onMessage = (data, ctx) => {
+    if (!data || data.r !== 'c' || clients.has(ctx.peerId)) return;
+    clients.add(ctx.peerId);
+    if (onJoin) onJoin(ctx.peerId);
+  };
+  msg.onMessage = (data, ctx) => {
+    if (onMsg && clients.has(ctx.peerId)) onMsg(ctx.peerId, data);
+  };
+
+  room.onPeerJoin = id => {
+    // сразу объявляем себя хостом — клиенту не придётся гадать
+    try { hi.send({ r: 'h' }, { target: id }); } catch { /* ignore */ }
+  };
+  room.onPeerLeave = id => {
+    if (clients.delete(id) && onLeave) onLeave(id);
+  };
+
+  const relayOk = await waitForRelay(T.getRelaySockets, RELAY_WAIT_MS);
+  if (!relayOk) {
+    try { await room.leave(); } catch { /* ignore */ }
+    throw new Error('Релеи Trystero недоступны — сеть блокирует подключение');
+  }
+
+  return {
+    broadcast(m) { try { msg.send(m); } catch { /* ignore */ } },
+    sendTo(id, m) { try { msg.send(m, { target: id }); } catch { /* ignore */ } },
+    onClientMessage(cb) { onMsg = cb; },
+    onClientJoin(cb) { onJoin = cb; },
+    onClientLeave(cb) { onLeave = cb; },
+    close() { try { room.leave(); } catch { /* ignore */ } }
+  };
+}
+
+/**
+ * Линк клиента поверх Trystero. Ищет в комнате того, кто назвался хостом.
+ * Интерфейс: { send, onMessage, onClose, close }
+ */
+export async function createTrysteroClientLink(code) {
+  const T = await loadTrystero();
+  const room = T.joinRoom(roomConfig(), ROOM_PREFIX + String(code).toLowerCase());
+
+  const hi = room.makeAction('hi');
+  const msg = room.makeAction('msg');
+
+  let hostId = null, onMsg = null, onClose = null, closed = false;
+
+  const bail = () => {
+    if (closed) return;
+    closed = true;
+    try { room.leave(); } catch { /* ignore */ }
+    if (onClose) onClose();
+  };
+
+  hi.onMessage = (data, ctx) => {
+    if (data && data.r === 'h' && !hostId) hostId = ctx.peerId;
+  };
+  msg.onMessage = (data, ctx) => {
+    if (onMsg && hostId && ctx.peerId === hostId) onMsg(data);
+  };
+  room.onPeerJoin = () => announce();
+  room.onPeerLeave = id => { if (id === hostId) bail(); };
+
+  function announce() {
+    try { hi.send({ r: 'c' }); } catch { /* ignore */ }
+  }
+  announce();
+
+  // ждём хоста: он мог зайти раньше нас, тогда его 'h' уже в пути
+  const t0 = Date.now();
+  while (!hostId && Date.now() - t0 < HOST_WAIT_MS) {
+    await tSleep(ANNOUNCE_MS);
+    if (!hostId) announce();
+  }
+  if (!hostId) {
+    try { await room.leave(); } catch { /* ignore */ }
+    throw new Error('Хост не найден в комнате — проверь код или создай комнату заново');
+  }
+
+  return {
+    send(m) {
+      if (closed) return;
+      try { msg.send(m, { target: hostId }); } catch { /* ignore */ }
+    },
+    onMessage(cb) { onMsg = cb; },
+    onClose(cb) { onClose = cb; },
+    close() {
+      closed = true;
+      try { room.leave(); } catch { /* ignore */ }
+    },
+    transport: 'trystero'
+  };
+}

@@ -10,6 +10,7 @@ const ORDER = [
   'src/engine/map.js',
   'src/engine/player.js',
   'src/engine/combat.js',
+  'src/engine/parser.js',
   'src/engine/game.js',
   'src/ai/client.js',
   'src/ai/dm.js',
@@ -19,6 +20,8 @@ const ORDER = [
   'src/net/host.js',
   'src/net/client.js',
   'src/net/peer.js',
+  'src/net/trystero.js',
+  'src/net/hybrid.js',
   'src/ui/sound.js',
   'src/ui/avatar.js',
   'src/ui/theme.js',
@@ -29,6 +32,25 @@ const ORDER = [
 let code = ORDER
   .map(f => readFileSync(join(process.cwd(), f), 'utf8'))
   .join('\n\n');
+
+// 0) защита от коллизий имён. Модули склеиваются в ОДНУ область видимости:
+//    повторный const/let/class = SyntaxError, и весь бандл молча не запускается
+//    (ровно так сломался кооп, когда в peer.js и trystero.js оказались два sleep).
+const seen = new Map();
+const dupes = [];
+for (const f of ORDER) {
+  const src = readFileSync(join(process.cwd(), f), 'utf8');
+  for (const m of src.matchAll(/^(?:export\s+)?(?:async\s+)?(?:function|const|let|var|class)\s+([A-Za-z_$][\w$]*)/gm)) {
+    const name = m[1];
+    if (seen.has(name)) dupes.push(`${name} — ${seen.get(name)} ↔ ${f}`);
+    else seen.set(name, f);
+  }
+}
+if (dupes.length) {
+  console.error('КОЛЛИЗИИ ИМЁН (бандл не запустится):');
+  dupes.forEach(d => console.error('  ' + d));
+  process.exit(1);
+}
 
 // 1) вырезать import- statements (в т.ч. многострочные)
 code = code.replace(/import\s+[^;']*?from\s*['"][^'"]*['"];?/g, '');

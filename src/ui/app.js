@@ -8,10 +8,10 @@ import { stubDmTurn, resetStub } from '../ai/stub.js';
 import { createHostSession } from '../net/host.js';
 import { createClientSession } from '../net/client.js';
 import { makeRoomCode } from '../net/loopback.js';
-import { createPeerHostNet, createPeerClientLink } from '../net/peer.js';
+import { createHybridHostNet, createHybridClientLink } from '../net/hybrid.js';
 import { PROTOCOL_VER } from '../net/protocol.js';
 import {
-  createTyper, renderStats, renderQuests,
+  createTyper, renderStats, renderQuests, renderInventoryPanel,
   renderStatsSnap, renderCombat, GLYPH_SETS
 } from './terminal.js';
 import {
@@ -374,6 +374,7 @@ function refreshPanelsSolo() {
   renderQuests($('quest-list'), state);
   renderCombat($('combat-panel'), engagedEnemies(state, state.activeIdx));
   refreshAbilityBtn();
+  refreshInventory();
   $('floor-label').textContent = state.floorName
     + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
 }
@@ -477,6 +478,22 @@ function refreshAbilityBtn() {
   btn.title = a.active ? `Применить «${a.name}»` : `${a.name} (пассивная)`;
 }
 
+/**
+ * Рюкзак: список предметов с кнопками «выпить» / «надеть».
+ * В коопе кнопки гаснут, пока не твой ход — движок всё равно отклонит чужой ход,
+ * но лучше не дразнить игрока.
+ */
+function refreshInventory() {
+  const el = $('inv-list');
+  if (!el) return;
+  const items = sessionMode === 'solo' ? state?.player?.inventory : mySnapshot?.self?.inventory;
+  renderInventoryPanel(el, items);
+  const myTurn = sessionMode === 'solo'
+    ? !!state && !state.over
+    : !!mySnapshot && mySnapshot.turnOf === mySnapshot.you;
+  el.querySelectorAll('.inv-btn').forEach(b => { b.disabled = !myTurn; });
+}
+
 function handleEventsSolo(events) {
   for (const e of events) {
     if (e.kind === 'dm' && String(e.text).startsWith('__FREE__')) continue; // служебный маркер — не для игрока
@@ -521,13 +538,15 @@ async function startHostRoom() {
 
   let net;
   try {
-    net = await createPeerHostNet(roomCode);
+    net = await createHybridHostNet(roomCode);
   } catch (e) {
     $('btn-start').disabled = false;
     $('lobby-panel').style.display = 'none';
     addSetupNote(`Не удалось создать комнату: ${e.message}`);
     return;
   }
+  window.__transport = net.transport;
+  window.__channels = () => (net.channels ? net.channels() : [net.transport]);
 
   sessionMode = 'host';
   hostSession = createHostSession({
@@ -607,13 +626,14 @@ async function joinRoom() {
 
   let link;
   try {
-    link = await createPeerClientLink(code);
+    link = await createHybridClientLink(code, note => addSetupNote(note));
   } catch (e) {
     $('btn-start').disabled = false;
     $('lobby-panel').style.display = 'none';
     addSetupNote(`Не удалось подключиться: ${e.message}`);
     return;
   }
+  window.__transport = link.transport;
 
   sessionMode = 'client';
   clientSession = createClientSession({ link, name });
@@ -657,6 +677,7 @@ function applySnapshot(snap) {
   renderStatsSnap($('stats'), snap);
   renderQuests($('quest-list'), snap);
   refreshAbilityBtn();
+  refreshInventory();
   renderCombat($('combat-panel'), snap.combat || []);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
     + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
@@ -910,6 +931,17 @@ function wire() {
     const a = sessionMode === 'solo' ? state?.player?.ability : mySnapshot?.self?.ability;
     if (!a || !a.active) return;
     $('input').value = a.name;
+    submitInput();
+  });
+
+  // рюкзак: клик по кнопке = обычная команда «выпить …» / «надеть …»
+  $('inv-list').addEventListener('click', e => {
+    const btn = e.target.closest('.inv-btn');
+    if (!btn) return;
+    const items = sessionMode === 'solo' ? state?.player?.inventory : mySnapshot?.self?.inventory;
+    const item = items && items[Number(btn.dataset.i)];
+    if (!item) return;
+    $('input').value = `${btn.dataset.act} ${item.name}`;
     submitInput();
   });
   $('btn-start').addEventListener('click', () => {

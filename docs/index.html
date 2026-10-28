@@ -266,6 +266,23 @@
   }
   .col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 
+  /* рюкзак: предметы с кнопками, панель не разъезжается на весь экран */
+  #inv-panel { flex: 0 1 auto; max-height: 34%; }
+  .inv-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 3px 0; border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+    font-size: 17px;
+  }
+  .inv-row:last-child { border-bottom: none; }
+  .inv-name { color: var(--main); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .inv-meta { color: var(--dim); font-size: 15px; flex-shrink: 0; }
+  .inv-btn {
+    flex-shrink: 0; font-size: 8px; padding: 3px 8px;
+    border-color: var(--loot); color: var(--loot);
+  }
+  .inv-btn:disabled { border-color: var(--dim); color: var(--dim); cursor: default; }
+  .inv-empty { color: var(--dim); font-size: 16px; }
+
   .panel {
     border: 1px solid var(--dim);
     background: var(--panel);
@@ -699,6 +716,10 @@
   <div class="game-grid">
     <div class="col">
       <div class="panel" id="stats"></div>
+      <div class="panel" id="inv-panel">
+        <div class="panel-title">РЮКЗАК</div>
+        <div id="inv-list"></div>
+      </div>
       <div class="panel" id="quests">
         <div class="panel-title">ЖУРНАЛ ЗАДАЧ</div>
         <div id="quest-list"></div>
@@ -1203,14 +1224,9 @@ const BASIC_DROP_TABLE = [
 ];
 
 
-// game.js — оркестратор: состояние партии, парсер русских команд, применение интентов.
-// v0.5: мультигеройность — heroes[], очерёдность ходов, смерть партии.
-// Принцип «ИИ предлагает — код решает»: любые изменения состояния проходят отсюда.
-
-
-
-
-
+// parser.js — разбор свободного текста игрока в интенты.
+// Вынесено из game.js: это чистая функция без состояния, её удобно тестировать
+// и править отдельно от движка (и именно здесь исторически ломались «в/с/ю/з»).
 
 const DIRS = {
   // только ПОЛНЫЕ слова: однобуквенные «в/с/ю/з» — это предлоги русской речи,
@@ -1220,6 +1236,89 @@ const DIRS = {
   'восток': [1, 0], 'east': [1, 0], 'e': [1, 0],
   'запад': [-1, 0], 'west': [-1, 0], 'w': [-1, 0]
 };
+
+/** Граница слова для кириллицы: \b в JS не работает с не-ASCII. */
+function W(word, suffix = false) {
+  const tail = suffix ? '[а-яёa-z]*' : '';
+  return new RegExp(`(?:^|[^а-яёa-z])(?:${word})${tail}(?![а-яёa-z])`, 'i');
+}
+
+/** Экранирование пользовательского текста для регэкспа (имена способностей). */
+function escapeRe(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Слово(а) после глагола в исходной строке. */
+function afterVerb(t, m) {
+  const idx = t.indexOf(m[0]) + m[0].length;
+  return t.slice(idx).replace(/^[,\s]+/, '').trim();
+}
+
+/**
+ * Парсер свободного текста → интент. Всё, что не распознано, уходит ИИ как 'free'.
+ * Каждый интент несёт raw — исходный текст: если движок не справится,
+ * ДМ получит оригинальную формулировку игрока, а не заглушку.
+ * abilityName — имя активной способности класса: она матчится раньше общих глаголов.
+ */
+function parseCommand(text, abilityName = null) {
+  const t = (text || '').toLowerCase().trim();
+  if (!t) return { intent: 'none' };
+  const raw = text;
+
+  // способность класса — раньше всего: собственное имя способности важнее общих глаголов
+  if (abilityName && W(escapeRe(abilityName), true).test(t)) {
+    return { intent: 'ability', target: abilityName, raw };
+  }
+  if (W('способност|умени|кастую|кастани|скилл|ability|skill|юзаю скилл|призываю силу|юзаю способность', true).test(t)) {
+    return { intent: 'ability', target: '', raw };
+  }
+
+  // побег раньше движения: «убегаю на север» — это побег, а не прогулка
+  if (W('убега|убеж|отступа|сбежа|уносим ноги|бегу от|бегу прочь|flee|retreat', true).test(t)) return { intent: 'flee', raw };
+
+  // движение (только целые слова: «с» не должно матчиться внутри «стражу»)
+  for (const [word, d] of Object.entries(DIRS)) {
+    if (W(word).test(t)) {
+      return { intent: 'move', dir: word, dirVec: d, raw };
+    }
+  }
+  if (W('инвентарь|рюкзак|вещи|inv', true).test(t)) return { intent: 'inventory', raw };
+  if (W('карта|карту|map', true).test(t)) return { intent: 'map', raw };
+  if (W('задач|квест|quest|журнал', true).test(t)) return { intent: 'quests', raw };
+  // осмотр: без цели — дешёвое описание движка; с целью («осмотрел порт») — ДМ
+  let mLook;
+  if ((mLook = t.match(W('осмотр|огляде|look|где я', true)))) {
+    if (afterVerb(t, mLook)) return { intent: 'free', text, raw };
+    return { intent: 'look', raw };
+  }
+  if (W('ждать|постоять|wait|отдохну', true).test(t)) return { intent: 'wait', raw };
+  if (W('спус|лестниц|descend', true).test(t)) return { intent: 'descend', raw };
+
+  let m;
+  if ((m = t.match(W('выпей|выпить|пью|использ|примен|use|drink', true))))
+    return { intent: 'use', target: afterVerb(t, m), raw };
+  if ((m = t.match(W('надень|надеть|экипир|возьми|equip|wield', true))))
+    return { intent: 'equip', target: afterVerb(t, m), raw };
+  if ((m = t.match(W('атак|бей|бью|удар|убей|убить|attack|hit|kill', true))))
+    return { intent: 'attack', target: afterVerb(t, m), raw };
+  if ((m = t.match(W('подним|подобрать|взять|собер|pick|grab', true))))
+    return { intent: 'pickup', target: afterVerb(t, m), raw };
+
+  return { intent: 'free', text, raw };
+}
+
+
+// game.js — оркестратор: состояние партии, парсер русских команд, применение интентов.
+// v0.5: мультигеройность — heroes[], очерёдность ходов, смерть партии.
+// Принцип «ИИ предлагает — код решает»: любые изменения состояния проходят отсюда.
+
+
+
+
+
+
+
+// ре-экспорт: снаружи (host.js, тесты) парсер по-прежнему берут из game.js
 
 const HERO_GLYPHS = ['@', '#', 'Ω', 'Φ'];
 
@@ -1369,74 +1468,6 @@ function advanceTurn(state) {
   }
 }
 
-/** Граница слова для кириллицы: \b в JS не работает с не-ASCII. */
-function W(word, suffix = false) {
-  const tail = suffix ? '[а-яёa-z]*' : '';
-  return new RegExp(`(?:^|[^а-яёa-z])(?:${word})${tail}(?![а-яёa-z])`, 'i');
-}
-
-/** Экранирование пользовательского текста для регэкспа (имена способностей). */
-function escapeRe(s) {
-  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/**
- * Парсер свободного текста → интент. Всё, что не распознано, уходит ИИ как 'free'.
- * Каждый интент несёт raw — исходный текст: если движок не справится,
- * ДМ получит оригинальную формулировку игрока, а не заглушку.
- */
-function parseCommand(text, abilityName = null) {
-  const t = (text || '').toLowerCase().trim();
-  if (!t) return { intent: 'none' };
-  const raw = text;
-
-  // способность класса — раньше всего: собственное имя способности важнее общих глаголов
-  if (abilityName && W(escapeRe(abilityName), true).test(t)) {
-    return { intent: 'ability', target: abilityName, raw };
-  }
-  if (W('способност|умени|кастую|кастани|скилл|ability|skill|юзаю скилл|призываю силу|юзаю способность', true).test(t)) {
-    return { intent: 'ability', target: '', raw };
-  }
-
-  // побег раньше движения: «убегаю на север» — это побег, а не прогулка
-  if (W('убега|убеж|отступа|сбежа|уносим ноги|бегу от|бегу прочь|flee|retreat', true).test(t)) return { intent: 'flee', raw };
-
-  // движение (только целые слова: «с» не должно матчиться внутри «стражу»)
-  for (const [word, d] of Object.entries(DIRS)) {
-    if (W(word).test(t)) {
-      return { intent: 'move', dir: word, dirVec: d, raw };
-    }
-  }
-  if (W('инвентарь|рюкзак|вещи|inv', true).test(t)) return { intent: 'inventory', raw };
-  if (W('карта|карту|map', true).test(t)) return { intent: 'map', raw };
-  if (W('задач|квест|quest|журнал', true).test(t)) return { intent: 'quests', raw };
-  // осмотр: без цели — дешёвое описание движка; с целью («осмотрел порт») — ДМ
-  let mLook;
-  if ((mLook = t.match(W('осмотр|огляде|look|где я', true)))) {
-    if (afterVerb(t, mLook)) return { intent: 'free', text, raw };
-    return { intent: 'look', raw };
-  }
-  if (W('ждать|постоять|wait|отдохну', true).test(t)) return { intent: 'wait', raw };
-  if (W('спус|лестниц|descend', true).test(t)) return { intent: 'descend', raw };
-
-  let m;
-  if ((m = t.match(W('выпей|выпить|пью|использ|примен|use|drink', true))))
-    return { intent: 'use', target: afterVerb(t, m), raw };
-  if ((m = t.match(W('надень|надеть|экипир|возьми|equip|wield', true))))
-    return { intent: 'equip', target: afterVerb(t, m), raw };
-  if ((m = t.match(W('атак|бей|бью|удар|убей|убить|attack|hit|kill', true))))
-    return { intent: 'attack', target: afterVerb(t, m), raw };
-  if ((m = t.match(W('подним|подобрать|взять|собер|pick|grab', true))))
-    return { intent: 'pickup', target: afterVerb(t, m), raw };
-
-  return { intent: 'free', text, raw };
-}
-
-/** Слово(а) после глагола в исходной строке. */
-function afterVerb(t, m) {
-  const idx = t.indexOf(m[0]) + m[0].length;
-  return t.slice(idx).replace(/^[,\s]+/, '').trim();
-}
 
 /** Событие для лога/ИИ. kind: dm|system|roll|combat|loot|death|levelup */
 function ev(kind, text) {
@@ -3282,6 +3313,285 @@ async function createPeerClientLink(code) {
 }
 
 
+// trystero.js — WebRTC-транспорт поверх Trystero (публичные Nostr-релеи).
+// Зачем: 0.peerjs.com в РФ заблокирован, и кооп без VPN не работал вообще.
+// Trystero «знакомит» игроков через децентрализованную сеть релеев —
+// единой точки отказа (одного сервера) нет.
+//
+// Интерфейс 1:1 как у peer.js, поэтому host.js/client.js о нём не знают.
+
+const TRYSTERO_CDNS = [
+  'https://cdn.jsdelivr.net/npm/trystero@0.26.0/+esm',
+  'https://esm.run/trystero@0.26.0'
+];
+const TRYSTERO_APP_ID = 'dnd-zxcpap14';
+const ROOM_PREFIX = 'dndzxc14-';
+const RELAY_WAIT_MS = 14000;  // сколько ждём первый живой релей
+const HOST_WAIT_MS = 18000;   // сколько клиент ждёт, пока хост объявится
+const ANNOUNCE_MS = 1200;     // как часто клиент напоминает о себе
+
+// TURN переиспользуем тот же, что в peer.js: без него symmetric NAT не пробить
+const TRYSTERO_TURN = [
+  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+];
+
+// Префикс tSleep, а не sleep: build.mjs склеивает модули в одну область,
+// и одинаковые имена (как const sleep в peer.js) роняют весь бандл.
+const tSleep = ms => new Promise(r => setTimeout(r, ms));
+
+let trysteroPromise = null;
+
+/** Ленивая загрузка Trystero с CDN (два зеркала — одно может быть заблокировано). */
+function loadTrystero() {
+  if (trysteroPromise) return trysteroPromise;
+  trysteroPromise = (async () => {
+    for (const url of TRYSTERO_CDNS) {
+      try {
+        const mod = await import(url);
+        if (mod && typeof mod.joinRoom === 'function') return mod;
+      } catch { /* пробуем следующее зеркало */ }
+    }
+    throw new Error('Не удалось загрузить сетевой модуль (CDN недоступен)');
+  })();
+  return trysteroPromise;
+}
+
+function roomConfig() {
+  return {
+    appId: TRYSTERO_APP_ID,
+    turnConfig: TRYSTERO_TURN,
+    rtcConfig: {
+      iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }]
+    }
+  };
+}
+
+/** Ждём хотя бы один открытый сокет релея: без него нас никто не найдёт. */
+async function waitForRelay(getRelaySockets, ms) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    try {
+      const socks = getRelaySockets ? getRelaySockets() : null;
+      if (socks && Object.values(socks).some(s => s && s.readyState === 1)) return true;
+    } catch { /* ignore */ }
+    await tSleep(250);
+  }
+  return false;
+}
+
+/**
+ * Сеть хоста поверх Trystero.
+ * Интерфейс: { broadcast, sendTo, onClientMessage, onClientJoin, onClientLeave, close }
+ */
+async function createTrysteroHostNet(code) {
+  const T = await loadTrystero();
+  const room = T.joinRoom(roomConfig(), ROOM_PREFIX + String(code).toLowerCase());
+
+  // 'hi' — рукопожатие ролей, 'msg' — полезная нагрузка игры
+  const hi = room.makeAction('hi');
+  const msg = room.makeAction('msg');
+
+  const clients = new Set();
+  let onMsg = null, onJoin = null, onLeave = null;
+
+  hi.onMessage = (data, ctx) => {
+    if (!data || data.r !== 'c' || clients.has(ctx.peerId)) return;
+    clients.add(ctx.peerId);
+    if (onJoin) onJoin(ctx.peerId);
+  };
+  msg.onMessage = (data, ctx) => {
+    if (onMsg && clients.has(ctx.peerId)) onMsg(ctx.peerId, data);
+  };
+
+  room.onPeerJoin = id => {
+    // сразу объявляем себя хостом — клиенту не придётся гадать
+    try { hi.send({ r: 'h' }, { target: id }); } catch { /* ignore */ }
+  };
+  room.onPeerLeave = id => {
+    if (clients.delete(id) && onLeave) onLeave(id);
+  };
+
+  const relayOk = await waitForRelay(T.getRelaySockets, RELAY_WAIT_MS);
+  if (!relayOk) {
+    try { await room.leave(); } catch { /* ignore */ }
+    throw new Error('Релеи Trystero недоступны — сеть блокирует подключение');
+  }
+
+  return {
+    broadcast(m) { try { msg.send(m); } catch { /* ignore */ } },
+    sendTo(id, m) { try { msg.send(m, { target: id }); } catch { /* ignore */ } },
+    onClientMessage(cb) { onMsg = cb; },
+    onClientJoin(cb) { onJoin = cb; },
+    onClientLeave(cb) { onLeave = cb; },
+    close() { try { room.leave(); } catch { /* ignore */ } }
+  };
+}
+
+/**
+ * Линк клиента поверх Trystero. Ищет в комнате того, кто назвался хостом.
+ * Интерфейс: { send, onMessage, onClose, close }
+ */
+async function createTrysteroClientLink(code) {
+  const T = await loadTrystero();
+  const room = T.joinRoom(roomConfig(), ROOM_PREFIX + String(code).toLowerCase());
+
+  const hi = room.makeAction('hi');
+  const msg = room.makeAction('msg');
+
+  let hostId = null, onMsg = null, onClose = null, closed = false;
+
+  const bail = () => {
+    if (closed) return;
+    closed = true;
+    try { room.leave(); } catch { /* ignore */ }
+    if (onClose) onClose();
+  };
+
+  hi.onMessage = (data, ctx) => {
+    if (data && data.r === 'h' && !hostId) hostId = ctx.peerId;
+  };
+  msg.onMessage = (data, ctx) => {
+    if (onMsg && hostId && ctx.peerId === hostId) onMsg(data);
+  };
+  room.onPeerJoin = () => announce();
+  room.onPeerLeave = id => { if (id === hostId) bail(); };
+
+  function announce() {
+    try { hi.send({ r: 'c' }); } catch { /* ignore */ }
+  }
+  announce();
+
+  // ждём хоста: он мог зайти раньше нас, тогда его 'h' уже в пути
+  const t0 = Date.now();
+  while (!hostId && Date.now() - t0 < HOST_WAIT_MS) {
+    await tSleep(ANNOUNCE_MS);
+    if (!hostId) announce();
+  }
+  if (!hostId) {
+    try { await room.leave(); } catch { /* ignore */ }
+    throw new Error('Хост не найден в комнате — проверь код или создай комнату заново');
+  }
+
+  return {
+    send(m) {
+      if (closed) return;
+      try { msg.send(m, { target: hostId }); } catch { /* ignore */ }
+    },
+    onMessage(cb) { onMsg = cb; },
+    onClose(cb) { onClose = cb; },
+    close() {
+      closed = true;
+      try { room.leave(); } catch { /* ignore */ }
+    },
+    transport: 'trystero'
+  };
+}
+
+
+// hybrid.js — два транспорта одновременно.
+// Хост поднимает И Trystero (Nostr-релеи), И PeerJS: клиент найдёт его любым
+// из двух путей. Клиент сначала пробует Trystero (работает в РФ без VPN),
+// при неудаче — PeerJS (работает через VPN и в сетях, где релеи закрыты).
+//
+// Идентификаторы клиентов префиксуются ('t:' / 'p:'), чтобы host.js не знал,
+// по какому каналу пришёл игрок.
+
+
+
+
+/** Первый успешно созданный транспорт (null-и — неудачи, их пропускаем). */
+function firstSuccess(promises) {
+  return new Promise((resolve, reject) => {
+    let failed = 0;
+    let done = false;
+    promises.forEach(p => {
+      p.then(v => {
+        if (done) return;
+        if (v) { done = true; resolve(v); }
+      }, () => {
+        if (done) return;
+        if (++failed === promises.length) { done = true; reject(new Error('ни один транспорт не поднялся')); }
+      });
+    });
+  });
+}
+
+/**
+ * Сеть хоста на обоих транспортах.
+ * Интерфейс: { broadcast, sendTo, onClientMessage, onClientJoin, onClientLeave, close, transport }
+ */
+async function createHybridHostNet(code) {
+  const nets = [];       // [{ tag, net }]
+  const errors = [];
+  let onMsg = null, onJoin = null, onLeave = null;
+
+  function attach(tag, net) {
+    net.onClientMessage((raw, msg) => { if (onMsg) onMsg(tag + ':' + raw, msg); });
+    net.onClientJoin(raw => { if (onJoin) onJoin(tag + ':' + raw); });
+    net.onClientLeave(raw => { if (onLeave) onLeave(tag + ':' + raw); });
+    nets.push({ tag, net });
+  }
+
+  const tryNet = (tag, factory) => factory()
+    .then(net => { attach(tag, net); return tag; })
+    .catch(e => { errors.push(`${tag}: ${e.message}`); return null; });
+
+  const trysteroP = tryNet('t', () => createTrysteroHostNet(code));
+  const peerP = tryNet('p', () => createPeerHostNet(code));
+
+  let firstTag;
+  try {
+    firstTag = await firstSuccess([trysteroP, peerP]);
+  } catch {
+    throw new Error('Не удалось поднять ни один канал связи. ' + (errors.join('; ') || 'проверь интернет'));
+  }
+
+  return {
+    transport: firstTag === 't' ? 'trystero' : 'peerjs',
+    broadcast(m) { nets.forEach(({ net }) => { try { net.broadcast(m); } catch { /* ignore */ } }); },
+    sendTo(id, m) {
+      const i = String(id).indexOf(':');
+      if (i < 0) return;
+      const tag = id.slice(0, i), raw = id.slice(i + 1);
+      const hit = nets.find(n => n.tag === tag);
+      if (hit) { try { hit.net.sendTo(raw, m); } catch { /* ignore */ } }
+    },
+    onClientMessage(cb) { onMsg = cb; },
+    onClientJoin(cb) { onJoin = cb; },
+    onClientLeave(cb) { onLeave = cb; },
+    /** Список поднятых каналов — для диагностики в UI и e2e. */
+    channels() { return nets.map(n => n.tag); },
+    close() { nets.forEach(({ net }) => { try { net.close(); } catch { /* ignore */ } }); }
+  };
+}
+
+/**
+ * Линк клиента: Trystero первым, PeerJS как запасной путь.
+ * Интерфейс: { send, onMessage, onClose, close, transport }
+ */
+async function createHybridClientLink(code, onNote = null) {
+  const errors = [];
+  try {
+    const link = await createTrysteroClientLink(code);
+    if (onNote) onNote('канал: релеи (Trystero)');
+    return link;
+  } catch (e) {
+    errors.push('trystero: ' + e.message);
+    if (onNote) onNote('релеи не ответили — пробуем PeerJS…');
+  }
+  try {
+    const link = await createPeerClientLink(code);
+    if (onNote) onNote('канал: PeerJS');
+    return link;
+  } catch (e) {
+    errors.push('peerjs: ' + e.message);
+  }
+  throw new Error(`Не удалось подключиться. ${errors.join(' · ')}`);
+}
+
+
 // sound.js — синтезированные звуки через WebAudio. Никаких файлов, только математика.
 // Громкость и mute — через мастер-gain.
 
@@ -3755,6 +4065,31 @@ function renderStats(el, state) {
   `;
 }
 
+/**
+ * Рюкзак: список предметов с кнопками действий.
+ * Кнопка — это просто подсказка движку: клик отправляет «выпить …» / «надеть …».
+ */
+function renderInventoryPanel(el, items) {
+  if (!el) return;
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) {
+    el.innerHTML = '<div class="inv-empty">Пусто. Даже мышь не позарилась.</div>';
+    return;
+  }
+  el.innerHTML = list.map((it, i) => {
+    const act = it.type === 'potion' ? 'выпить'
+      : (it.type === 'weapon' || it.type === 'armor') ? 'надеть' : null;
+    const meta = it.type === 'potion' ? `+${it.heal || 8} HP`
+      : it.type === 'weapon' ? `урон ${it.dmg || 1}${it.bonus ? ` +${it.bonus}` : ''}`
+        : it.type === 'armor' ? `AC +${it.ac || 1}` : '';
+    return `<div class="inv-row">
+      <span class="inv-name" title="${escHtml(it.name)}">${escHtml(it.name)}${it.qty > 1 ? ` ×${it.qty}` : ''}</span>
+      <span class="inv-meta">${meta}</span>
+      ${act ? `<button class="inv-btn" data-i="${i}" data-act="${act}">${act === 'выпить' ? 'ВЫПИТЬ' : 'НАТЬ'}</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
 function renderQuests(el, state) {
   el.innerHTML = state.quests.length
     ? state.quests.map(q => `<div class="quest">◆ ${q}</div>`).join('')
@@ -4199,6 +4534,7 @@ function refreshPanelsSolo() {
   renderQuests($('quest-list'), state);
   renderCombat($('combat-panel'), engagedEnemies(state, state.activeIdx));
   refreshAbilityBtn();
+  refreshInventory();
   $('floor-label').textContent = state.floorName
     + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
 }
@@ -4302,6 +4638,22 @@ function refreshAbilityBtn() {
   btn.title = a.active ? `Применить «${a.name}»` : `${a.name} (пассивная)`;
 }
 
+/**
+ * Рюкзак: список предметов с кнопками «выпить» / «надеть».
+ * В коопе кнопки гаснут, пока не твой ход — движок всё равно отклонит чужой ход,
+ * но лучше не дразнить игрока.
+ */
+function refreshInventory() {
+  const el = $('inv-list');
+  if (!el) return;
+  const items = sessionMode === 'solo' ? state?.player?.inventory : mySnapshot?.self?.inventory;
+  renderInventoryPanel(el, items);
+  const myTurn = sessionMode === 'solo'
+    ? !!state && !state.over
+    : !!mySnapshot && mySnapshot.turnOf === mySnapshot.you;
+  el.querySelectorAll('.inv-btn').forEach(b => { b.disabled = !myTurn; });
+}
+
 function handleEventsSolo(events) {
   for (const e of events) {
     if (e.kind === 'dm' && String(e.text).startsWith('__FREE__')) continue; // служебный маркер — не для игрока
@@ -4346,13 +4698,15 @@ async function startHostRoom() {
 
   let net;
   try {
-    net = await createPeerHostNet(roomCode);
+    net = await createHybridHostNet(roomCode);
   } catch (e) {
     $('btn-start').disabled = false;
     $('lobby-panel').style.display = 'none';
     addSetupNote(`Не удалось создать комнату: ${e.message}`);
     return;
   }
+  window.__transport = net.transport;
+  window.__channels = () => (net.channels ? net.channels() : [net.transport]);
 
   sessionMode = 'host';
   hostSession = createHostSession({
@@ -4432,13 +4786,14 @@ async function joinRoom() {
 
   let link;
   try {
-    link = await createPeerClientLink(code);
+    link = await createHybridClientLink(code, note => addSetupNote(note));
   } catch (e) {
     $('btn-start').disabled = false;
     $('lobby-panel').style.display = 'none';
     addSetupNote(`Не удалось подключиться: ${e.message}`);
     return;
   }
+  window.__transport = link.transport;
 
   sessionMode = 'client';
   clientSession = createClientSession({ link, name });
@@ -4482,6 +4837,7 @@ function applySnapshot(snap) {
   renderStatsSnap($('stats'), snap);
   renderQuests($('quest-list'), snap);
   refreshAbilityBtn();
+  refreshInventory();
   renderCombat($('combat-panel'), snap.combat || []);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
     + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
@@ -4735,6 +5091,17 @@ function wire() {
     const a = sessionMode === 'solo' ? state?.player?.ability : mySnapshot?.self?.ability;
     if (!a || !a.active) return;
     $('input').value = a.name;
+    submitInput();
+  });
+
+  // рюкзак: клик по кнопке = обычная команда «выпить …» / «надеть …»
+  $('inv-list').addEventListener('click', e => {
+    const btn = e.target.closest('.inv-btn');
+    if (!btn) return;
+    const items = sessionMode === 'solo' ? state?.player?.inventory : mySnapshot?.self?.inventory;
+    const item = items && items[Number(btn.dataset.i)];
+    if (!item) return;
+    $('input').value = `${btn.dataset.act} ${item.name}`;
     submitInput();
   });
   $('btn-start').addEventListener('click', () => {

@@ -151,6 +151,31 @@ export function renderStats(el, state) {
   `;
 }
 
+/**
+ * Рюкзак: список предметов с кнопками действий.
+ * Кнопка — это просто подсказка движку: клик отправляет «выпить …» / «надеть …».
+ */
+export function renderInventoryPanel(el, items) {
+  if (!el) return;
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) {
+    el.innerHTML = '<div class="inv-empty">Пусто. Даже мышь не позарилась.</div>';
+    return;
+  }
+  el.innerHTML = list.map((it, i) => {
+    const act = it.type === 'potion' ? 'выпить'
+      : (it.type === 'weapon' || it.type === 'armor') ? 'надеть' : null;
+    const meta = it.type === 'potion' ? `+${it.heal || 8} HP`
+      : it.type === 'weapon' ? `урон ${it.dmg || 1}${it.bonus ? ` +${it.bonus}` : ''}`
+        : it.type === 'armor' ? `AC +${it.ac || 1}` : '';
+    return `<div class="inv-row">
+      <span class="inv-name" title="${escHtml(it.name)}">${escHtml(it.name)}${it.qty > 1 ? ` ×${it.qty}` : ''}</span>
+      <span class="inv-meta">${meta}</span>
+      ${act ? `<button class="inv-btn" data-i="${i}" data-act="${act}">${act === 'выпить' ? 'ВЫПИТЬ' : 'НАТЬ'}</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
 export function renderQuests(el, state) {
   el.innerHTML = state.quests.length
     ? state.quests.map(q => `<div class="quest">◆ ${q}</div>`).join('')

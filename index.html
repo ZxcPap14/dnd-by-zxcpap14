@@ -266,6 +266,23 @@
   }
   .col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 
+  /* рюкзак: предметы с кнопками, панель не разъезжается на весь экран */
+  #inv-panel { flex: 0 1 auto; max-height: 34%; }
+  .inv-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 3px 0; border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+    font-size: 17px;
+  }
+  .inv-row:last-child { border-bottom: none; }
+  .inv-name { color: var(--main); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .inv-meta { color: var(--dim); font-size: 15px; flex-shrink: 0; }
+  .inv-btn {
+    flex-shrink: 0; font-size: 8px; padding: 3px 8px;
+    border-color: var(--loot); color: var(--loot);
+  }
+  .inv-btn:disabled { border-color: var(--dim); color: var(--dim); cursor: default; }
+  .inv-empty { color: var(--dim); font-size: 16px; }
+
   .panel {
     border: 1px solid var(--dim);
     background: var(--panel);
@@ -699,6 +716,10 @@
   <div class="game-grid">
     <div class="col">
       <div class="panel" id="stats"></div>
+      <div class="panel" id="inv-panel">
+        <div class="panel-title">РЮКЗАК</div>
+        <div id="inv-list"></div>
+      </div>
       <div class="panel" id="quests">
         <div class="panel-title">ЖУРНАЛ ЗАДАЧ</div>
         <div id="quest-list"></div>

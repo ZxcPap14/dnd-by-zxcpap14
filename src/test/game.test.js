@@ -447,3 +447,15 @@ test('способность в снапшоте: клиент коопа вид
   assert.equal(snap.self.ability.name, 'Кара');
   assert.equal(snap.self.abilityCd, 0);
 });
+
+// ---------- парсер вынесен в отдельный модуль ----------
+
+test('parser.js самостоятелен: ре-экспорт из game.js не расходится с оригиналом', async () => {
+  const direct = await import('../engine/parser.js');
+  assert.equal(typeof direct.parseCommand, 'function');
+  assert.equal(typeof direct.W, 'function');
+  assert.equal(typeof direct.escapeRe, 'function');
+  // DIRS из обоих путей — один и тот же объект
+  assert.equal(direct.DIRS, DIRS);
+  assert.equal(direct.parseCommand('иду на север').intent, parseCommand('иду на север').intent);
+});
