@@ -59,6 +59,17 @@ export async function createPeerClientLink(code) {
   await loadPeerJS();
   const Peer = globalThis.Peer;
   const peer = new Peer();
+
+  // СНАЧАЛА ждём регистрации на signaling-брокере — peer.connect() до 'open'
+  // молча теряется (найдено e2e-тестом: таймаут «хост не отвечает»)
+  await Promise.race([
+    new Promise((res, rej) => {
+      peer.on('open', res);
+      peer.on('error', e => rej(new Error('PeerJS: ' + (e.type || e.message))));
+    }),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('Signaling-брокер не отвечает')), CONNECT_TIMEOUT_MS))
+  ]);
+
   const conn = peer.connect(PEER_NAMESPACE + String(code).toLowerCase(), { reliable: true });
   let onMsg = null, onClose = null;
 
