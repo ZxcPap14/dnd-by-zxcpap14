@@ -45,6 +45,47 @@ test('client.chat: пустой ответ кидает ошибку', async () 
   await assert.rejects(() => client.chat([]), /Пустой/);
 });
 
+test('client.chat: jsonMode добавляет response_format', async () => {
+  let captured;
+  const fakeFetch = async (url, opts) => {
+    captured = JSON.parse(opts.body);
+    return { ok: true, json: async () => ({ choices: [{ message: { content: '{}' } }] }) };
+  };
+  const client = createClient({ baseUrl: 'x', apiKey: 'k', model: 'm', fetch: fakeFetch });
+  await client.chat([{ role: 'user', content: 'hi' }], { jsonMode: true });
+  assert.deepEqual(captured.response_format, { type: 'json_object' });
+  await client.chat([{ role: 'user', content: 'hi' }], {});
+  assert.equal(captured.response_format, undefined, 'без jsonMode поля нет');
+});
+
+test('client.chat: провайдер без response_format — авто-retry без него', async () => {
+  const bodies = [];
+  let calls = 0;
+  const fakeFetch = async (url, opts) => {
+    bodies.push(JSON.parse(opts.body));
+    calls++;
+    if (calls === 1) {
+      return { ok: false, status: 400, text: async () => 'Invalid parameter: response_format is not supported' };
+    }
+    return { ok: true, json: async () => ({ choices: [{ message: { content: 'ок' } }] }) };
+  };
+  const client = createClient({ baseUrl: 'x', apiKey: 'k', model: 'm', fetch: fakeFetch });
+  const answer = await client.chat([{ role: 'user', content: 'hi' }], { jsonMode: true });
+  assert.equal(answer, 'ок');
+  assert.equal(calls, 2, 'повтор после отказа');
+  assert.equal(bodies[1].response_format, undefined, 'повтор без response_format');
+});
+
+test('client.chat: 400 не про response_format не ретраится', async () => {
+  let calls = 0;
+  const client = createClient({
+    baseUrl: 'x', apiKey: 'k', model: 'm',
+    fetch: async () => { calls++; return { ok: false, status: 400, text: async () => 'model not found' }; }
+  });
+  await assert.rejects(() => client.chat([], { jsonMode: true }), /model not found/);
+  assert.equal(calls, 1);
+});
+
 // ---- extractJson ----
 
 test('extractJson: чистый JSON', () => {

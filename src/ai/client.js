@@ -11,26 +11,48 @@ export function createClient(cfg) {
     model: cfg.model,
     /**
      * @param {Array<{role:string, content:string}>} messages
-     * @param {{temperature?: number, maxTokens?: number}} [opts]
+     * @param {{temperature?: number, maxTokens?: number, jsonMode?: boolean}} [opts]
      * @returns {Promise<string>} текст первого ответа
      */
     async chat(messages, opts = {}) {
-      const res = await doFetch(`${baseUrl}/chat/completions`, {
+      const body = {
+        model: cfg.model,
+        messages,
+        temperature: opts.temperature ?? 0.9,
+        max_tokens: opts.maxTokens ?? 600
+      };
+      if (opts.jsonMode) body.response_format = { type: 'json_object' };
+
+      let res = await doFetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${cfg.apiKey}`
         },
-        body: JSON.stringify({
-          model: cfg.model,
-          messages,
-          temperature: opts.temperature ?? 0.9,
-          max_tokens: opts.maxTokens ?? 600
-        })
+        body: JSON.stringify(body)
       });
+
+      // провайдер не знает response_format — повторяем без него
+      if (res.status === 400 && opts.jsonMode) {
+        const errText = await res.text().catch(() => '');
+        if (/response_format|json_object/i.test(errText)) {
+          delete body.response_format;
+          res = await doFetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${cfg.apiKey}`
+            },
+            body: JSON.stringify(body)
+          });
+        } else {
+          return Promise.reject(new Error(`AI API 400: ${errText.slice(0, 200)}`));
+        }
+      }
+
       if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`AI API ${res.status}: ${body.slice(0, 200)}`);
+        const bodyText = await res.text().catch(() => '');
+        throw new Error(`AI API ${res.status}: ${bodyText.slice(0, 200)}`);
       }
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content;

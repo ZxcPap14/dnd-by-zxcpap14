@@ -1096,7 +1096,8 @@ function newGame(opts) {
     heroes: [],
     activeIdx: 0,
     monsters: [],
-    floorItems: []
+    floorItems: [],
+    memory: [] // кольцевой журнал последних событий — память ИИ-ДМа между ходами
   };
   state.dice = makeDice(state.rng);
 
@@ -1352,6 +1353,9 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
       break;
   }
 
+  // мир живёт: монстры ходят и нападают после действия героя
+  events.push(...monsterTurns(state));
+
   // смерть героя?
   if (hero.hp <= 0 && hero.alive) {
     hero.alive = false;
@@ -1365,6 +1369,7 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
   }
 
   if (!state.over) advanceTurn(state);
+  rememberEvents(state, events);
   return events;
 }
 
@@ -1432,6 +1437,7 @@ function resolveCombatRound(state, hero, monster, dice) {
   if (playerFirst) { playerStrike(); if (monster.hp > 0) monsterStrike(); }
   else { monsterStrike(); if (hero.hp > 0) playerStrike(); }
 
+  monster.lastActedTurn = state.turn; // уже подрался в этом ходу — monsterTurns его пропустит
   return events;
 }
 
@@ -1460,6 +1466,135 @@ function describeSurroundings(state, heroIdx = state.activeIdx) {
 /** Добавить квест в журнал (ИИ или движок). */
 function addQuest(state, text) {
   if (text && !state.quests.includes(text)) state.quests.push(text);
+}
+
+// ---------- память ДМа ----------
+
+const MEMORY_CAP = 14;      // сколько последних событий помнит ДМ
+const MEMORY_LINE_MAX = 160; // обрезка строки события
+
+/**
+ * Запомнить события для ИИ-ДМа. Служебные эхо (__FREE__) не запоминаются.
+ */
+function rememberEvents(state, events) {
+  if (!state.memory) state.memory = [];
+  for (const e of events) {
+    if (!e || typeof e.text !== 'string') continue;
+    if (e.text.startsWith('__FREE__')) continue;
+    const line = `${e.kind}: ${e.text}`.slice(0, MEMORY_LINE_MAX);
+    state.memory.push(line);
+  }
+  if (state.memory.length > MEMORY_CAP) state.memory.splice(0, state.memory.length - MEMORY_CAP);
+}
+
+/** Строка «НЕДАВНИЕ СОБЫТИЯ» для контекста ИИ. */
+function memoryDigest(state, n = 12) {
+  if (!state.memory?.length) return '';
+  return state.memory.slice(-n).join(' | ');
+}
+
+// ---------- жизнь монстров: преследование и атака ----------
+
+function walkable(state, x, y) {
+  if (x < 0 || y < 0 || x >= state.dungeon.w || y >= state.dungeon.h) return false;
+  return state.dungeon.grid[y][x] !== TILE.WALL;
+}
+
+function occupied(state, x, y) {
+  if (state.monsters.some(m => m.hp > 0 && m.x === x && m.y === y)) return true;
+  if (state.heroes.some(h => h.alive && h.pos.x === x && h.pos.y === y)) return true;
+  return false;
+}
+
+function stepToward(state, m, target) {
+  let best = null;
+  let bestD = dist(m.x, m.y, target.x, target.y);
+  for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+    const nx = m.x + dx, ny = m.y + dy;
+    if (!walkable(state, nx, ny) || occupied(state, nx, ny)) continue;
+    const d = dist(nx, ny, target.x, target.y);
+    if (d < bestD) { bestD = d; best = { x: nx, y: ny }; }
+  }
+  return best;
+}
+
+function randomStep(state, m) {
+  const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+  for (let i = dirs.length - 1; i > 0; i--) {
+    const j = Math.floor(state.rng() * (i + 1));
+    [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+  }
+  for (const [dx, dy] of dirs) {
+    const nx = m.x + dx, ny = m.y + dy;
+    if (walkable(state, nx, ny) && !occupied(state, nx, ny)) return { x: nx, y: ny };
+  }
+  return null;
+}
+
+/** Атака монстра по герою вплотную. Возвращает события. */
+function monsterStrikeAdjacent(state, m, push) {
+  const events = [];
+  const candidates = state.heroes
+    .filter(h => h.alive && dist(h.pos.x, h.pos.y, m.x, m.y) <= 1)
+    .sort((a, b) => dist(a.pos.x, a.pos.y, m.x, m.y) - dist(b.pos.x, b.pos.y, m.x, m.y));
+  const target = candidates[0];
+  if (!target) return events;
+  const atk = monsterAttack(state.dice, m, playerAc(target));
+  if (!atk.hit) {
+    push('combat', `${m.name} настигает ${target.name}, но бьёт мимо.`);
+    return events;
+  }
+  target.hp -= atk.dmg;
+  state.deathCause = `убит ${m.name}`;
+  push('combat', `${m.name} ${atk.crit ? 'КРИТУЕТ' : 'нападает'} по ${target.name}: -${atk.dmg} HP (осталось ${Math.max(0, target.hp)}).`);
+  return events;
+}
+
+/**
+ * Ходы монстров после действия героя: видят героя — преследуют и бьют в упор,
+ * не видят — иногда бродят. Монстр, уже подравшийся в этом ходу, ход не тратит.
+ */
+function monsterTurns(state) {
+  const events = [];
+  const push = (kind, text) => events.push(ev(kind, text));
+  if (state.over) return events;
+  const living = state.heroes.filter(h => h.alive);
+  if (!living.length) return events;
+
+  for (const m of state.monsters) {
+    if (m.hp <= 0 || m.lastActedTurn === state.turn) continue;
+
+    // цель: ближайший живой герой, который видит монстра (= взаимная видимость)
+    let target = null, bestD = Infinity;
+    for (const h of living) {
+      if (!h.fov.has(`${m.x},${m.y}`)) continue;
+      const d = dist(h.pos.x, h.pos.y, m.x, m.y);
+      if (d < bestD) { bestD = d; target = h; }
+    }
+
+    if (target && bestD <= 1) {
+      m.lastActedTurn = state.turn;
+      events.push(...monsterStrikeAdjacent(state, m, push));
+      continue;
+    }
+
+    if (target) {
+      if (!m.aware) {
+        m.aware = true;
+        push('dm', `Из тьмы за тобой крадётся ${m.name}. Похоже, ты ему понравился.`);
+      }
+      const step = stepToward(state, m, target.pos);
+      if (step) { m.x = step.x; m.y = step.y; m.lastActedTurn = state.turn; }
+      continue;
+    }
+
+    // никого не видит — иногда бродит
+    if (state.rng() < 0.25) {
+      const step = randomStep(state, m);
+      if (step) { m.x = step.x; m.y = step.y; m.lastActedTurn = state.turn; }
+    }
+  }
+  return events;
 }
 
 /**
@@ -1615,6 +1750,7 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       push('death', `☠ Партия уничтожена.`);
     }
   }
+  rememberEvents(state, events);
   return events;
 }
 
@@ -1632,26 +1768,48 @@ function createClient(cfg) {
     model: cfg.model,
     /**
      * @param {Array<{role:string, content:string}>} messages
-     * @param {{temperature?: number, maxTokens?: number}} [opts]
+     * @param {{temperature?: number, maxTokens?: number, jsonMode?: boolean}} [opts]
      * @returns {Promise<string>} текст первого ответа
      */
     async chat(messages, opts = {}) {
-      const res = await doFetch(`${baseUrl}/chat/completions`, {
+      const body = {
+        model: cfg.model,
+        messages,
+        temperature: opts.temperature ?? 0.9,
+        max_tokens: opts.maxTokens ?? 600
+      };
+      if (opts.jsonMode) body.response_format = { type: 'json_object' };
+
+      let res = await doFetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${cfg.apiKey}`
         },
-        body: JSON.stringify({
-          model: cfg.model,
-          messages,
-          temperature: opts.temperature ?? 0.9,
-          max_tokens: opts.maxTokens ?? 600
-        })
+        body: JSON.stringify(body)
       });
+
+      // провайдер не знает response_format — повторяем без него
+      if (res.status === 400 && opts.jsonMode) {
+        const errText = await res.text().catch(() => '');
+        if (/response_format|json_object/i.test(errText)) {
+          delete body.response_format;
+          res = await doFetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${cfg.apiKey}`
+            },
+            body: JSON.stringify(body)
+          });
+        } else {
+          return Promise.reject(new Error(`AI API 400: ${errText.slice(0, 200)}`));
+        }
+      }
+
       if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`AI API ${res.status}: ${body.slice(0, 200)}`);
+        const bodyText = await res.text().catch(() => '');
+        throw new Error(`AI API ${res.status}: ${bodyText.slice(0, 200)}`);
       }
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content;
@@ -1729,12 +1887,14 @@ function tryParseJson(s) {
 
 
 
+
 const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-игры «dnd by ZxcPap14». 
 
 ХАРАКТЕР: ты тролль и шутник. Издеваешься над игроком, шутишь, делаешь отсылки к поп-культуре и мемам. Но мир живёт всерьёз: опасности реальны, а плохие решения наказываются. Ты БЕСПОЩАДЕН: глупый поступок = реальный урон или смерть. Не жалей игрока.
 
 ПРАВИЛА:
 - Пиши ТОЛЬКО по-русски. 2-4 предложения на событие (больше — только на ключевых моментах).
+- Учитывай блок «НЕДАВНИЕ СОБЫТИЯ» — это твоя память: помни, что уже произошло, продолжай начатое (квесты, раненые враги, обещания NPC), НИКОГДА не повторяй те же шутки и описания.
 - Ты НЕ кидаешь кубики и НЕ решаешь исходы атак сам — это делает движок. Ты только описываешь и предлагаешь.
 - Ты можешь предлагать только эти эффекты, в пределах разумного: playerDamage (0-15), heal (0-20), xpGain (0-50), goldGain (1-200), enemyDamage (0-25), enemySpawn, itemGain (слабые предметы), questAdd.
 - Никогда не обещай игроку лут мощнее кинжала без причины.
@@ -1773,6 +1933,7 @@ function buildContext(state, playerInput) {
         nearby.length ? `ВИДИТ ВРАГОВ: ${nearby.join(', ')}.` : 'ВРАГОВ НЕ ВИДИТ.',
         items.length ? `ВИДИТ ПРЕДМЕТЫ: ${items.join(', ')}.` : '',
         state.quests.length ? `КВЕСТЫ: ${state.quests.join('; ')}.` : '',
+        (() => { const mem = memoryDigest(state); return mem ? `НЕДАВНИЕ СОБЫТИЯ: ${mem}.` : ''; })(),
         `ПРОВЕРКИ ДВИЖКА (последние): ${state.recentRolls?.join(', ') || 'нет'}.`,
         `ДЕЙСТВИЕ ИГРОКА: "${playerInput}"`
       ].filter(Boolean).join('\n')
@@ -3000,7 +3161,7 @@ async function renderClassList() {
   const c = currentClient();
   if (c) {
     try {
-      const raw = await c.chat(classMessages(world), { maxTokens: 1500 });
+      const raw = await c.chat(classMessages(world), { maxTokens: 1500, jsonMode: true });
       const data = extractJson(raw);
       if (data?.classes?.length) classes = data.classes.slice(0, 4);
     } catch (e) {
@@ -3041,7 +3202,7 @@ function makeDmResolver() {
     resolveFree: async (game, text) => {
       if (client) {
         try {
-          const raw = await client.chat(buildContext(game, text), { maxTokens: 2000 });
+          const raw = await client.chat(buildContext(game, text), { maxTokens: 2000, jsonMode: true });
           const eff = extractJson(raw);
           return eff || { narrative: raw.slice(0, 800) };
         } catch (e) {
@@ -3079,7 +3240,7 @@ function startSolo() {
   showIntro([world.toUpperCase(), `РЕЖИМ: ${mode === 'sandbox' ? 'ПЕСОЧНИЦА' : 'СЮЖЕТ'}`, `ЭПИЗОД I — ${name}, ${cls.name}`, 'ДАЛЕЕ: ТЬМА, ТРОЛЛИНГ И ПЕРМАСМЕРТЬ']);
 
   if (client) {
-    client.chat(introMessages(state), { maxTokens: 2000 })
+    client.chat(introMessages(state), { maxTokens: 2000, jsonMode: true })
       .then(raw => {
         const eff = extractJson(raw);
         handleEventsSolo(applyDmEffects(state, eff || { narrative: raw.slice(0, 600) }));
@@ -3243,7 +3404,7 @@ async function hostLaunch() {
   const intro = client
     ? async (game) => {
       try {
-        const raw = await client.chat(introMessages(game), { maxTokens: 2000 });
+        const raw = await client.chat(introMessages(game), { maxTokens: 2000, jsonMode: true });
         return extractJson(raw) || { narrative: raw.slice(0, 600) };
       } catch (e) {
         return { narrative: `ДМ не отвечает (${e.message}). Партия очнулась в темноте. Как обычно.` };

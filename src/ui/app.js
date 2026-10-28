@@ -114,7 +114,7 @@ async function renderClassList() {
   const c = currentClient();
   if (c) {
     try {
-      const raw = await c.chat(classMessages(world), { maxTokens: 1500 });
+      const raw = await c.chat(classMessages(world), { maxTokens: 1500, jsonMode: true });
       const data = extractJson(raw);
       if (data?.classes?.length) classes = data.classes.slice(0, 4);
     } catch (e) {
@@ -155,7 +155,7 @@ function makeDmResolver() {
     resolveFree: async (game, text) => {
       if (client) {
         try {
-          const raw = await client.chat(buildContext(game, text), { maxTokens: 2000 });
+          const raw = await client.chat(buildContext(game, text), { maxTokens: 2000, jsonMode: true });
           const eff = extractJson(raw);
           return eff || { narrative: raw.slice(0, 800) };
         } catch (e) {
@@ -193,7 +193,7 @@ function startSolo() {
   showIntro([world.toUpperCase(), `РЕЖИМ: ${mode === 'sandbox' ? 'ПЕСОЧНИЦА' : 'СЮЖЕТ'}`, `ЭПИЗОД I — ${name}, ${cls.name}`, 'ДАЛЕЕ: ТЬМА, ТРОЛЛИНГ И ПЕРМАСМЕРТЬ']);
 
   if (client) {
-    client.chat(introMessages(state), { maxTokens: 2000 })
+    client.chat(introMessages(state), { maxTokens: 2000, jsonMode: true })
       .then(raw => {
         const eff = extractJson(raw);
         handleEventsSolo(applyDmEffects(state, eff || { narrative: raw.slice(0, 600) }));
@@ -357,7 +357,7 @@ async function hostLaunch() {
   const intro = client
     ? async (game) => {
       try {
-        const raw = await client.chat(introMessages(game), { maxTokens: 2000 });
+        const raw = await client.chat(introMessages(game), { maxTokens: 2000, jsonMode: true });
         return extractJson(raw) || { narrative: raw.slice(0, 600) };
       } catch (e) {
         return { narrative: `ДМ не отвечает (${e.message}). Партия очнулась в темноте. Как обычно.` };
