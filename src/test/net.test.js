@@ -60,6 +60,14 @@ test('mqtt-signal: parseEnvelope режет мусор, пропускает в�
   assert.equal(parseEnvelope({ kind: 'offer', from: 'c-1', payload: {} }).kind, 'offer');
   assert.equal(parseEnvelope('{"kind":"ice","from":"h-1","candidate":{"candidate":"x"}}').kind, 'ice');
   assert.equal(parseEnvelope({ kind: 'host-here', from: 'h-1', ts: 1 }).kind, 'host-here');
+  // relay-конверты
+  assert.equal(parseEnvelope({ kind: 'relay-hello', from: 'c-1' }).kind, 'relay-hello');
+  assert.equal(parseEnvelope({ kind: 'relay-bye', from: 'h-1' }).kind, 'relay-bye');
+  assert.equal(parseEnvelope({ kind: 'relay-msg', from: 'c-1' }), null, 'relay-msg без msg отбраковывается');
+  assert.equal(parseEnvelope({ kind: 'relay-msg', from: 'c-1', msg: 'строка' }), null, 'msg должен быть объектом');
+  const ok = parseEnvelope({ kind: 'relay-msg', from: 'c-1', msg: { t: 'intent' } });
+  assert.equal(ok.kind, 'relay-msg');
+  assert.deepEqual(ok.msg, { t: 'intent' });
 });
 
 test('makeRoomCode: 4 символа из безопасного алфавита', () => {

@@ -29,7 +29,8 @@ export function parseEnvelope(raw) {
   if (!env || typeof env !== 'object') return null;
   if (typeof env.kind !== 'string') return null;
   if (typeof env.from !== 'string' || !env.from) return null;
-  if (!['host-here', 'offer', 'answer', 'ice', 'bye'].includes(env.kind)) return null;
+  if (!['host-here', 'offer', 'answer', 'ice', 'bye', 'relay-hello', 'relay-msg', 'relay-bye'].includes(env.kind)) return null;
+  if (env.kind === 'relay-msg' && typeof env.msg !== 'object') return null;
   return env;
 }
 
@@ -55,8 +56,9 @@ export function loadMqtt() {
 /**
  * Подключение к первому живому брокеру из списка (или к customUrl — для тестов).
  * Публичные брокеры иногда флакают/лимитируют — потому перебор.
+ * opts.will — MQTT-завещание {topic, payload} на случай обрыва связи.
  */
-export async function connectMqttBroker(customUrl) {
+export async function connectMqttBroker(customUrl, opts = {}) {
   await loadMqtt();
   const list = customUrl ? [customUrl] : MQTT_BROKERS;
   let lastErr = null;
@@ -67,7 +69,8 @@ export async function connectMqttBroker(customUrl) {
           clientId: 'dnd-' + Math.random().toString(36).slice(2, 10),
           connectTimeout: BROKER_TIMEOUT_MS,
           keepalive: 30,
-          clean: true
+          clean: true,
+          ...(opts.will ? { will: { qos: 0, retain: false, ...opts.will } } : {})
         });
         const t = setTimeout(() => { try { client.end(true); } catch { /* ignore */ } reject(new Error('timeout ' + url)); }, BROKER_TIMEOUT_MS);
         client.on('connect', () => { clearTimeout(t); resolve(client); });

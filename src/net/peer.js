@@ -1,13 +1,16 @@
 // peer.js — оркестрация транспортов мультиплеера.
-// РФ-плейтест показал: 0.peerjs.com (signaling PeerJS) заблокирован без VPN.
-// Решение: хост регистрируется СРАЗУ на двух транспортах —
-//   1) MQTT-сигналинг + прямой WebRTC (wss://broker.emqx.io и др., доступны из РФ)
-//   2) классический PeerJS (работает за VPN и за пределами РФ)
-// Клиент стучится сначала в MQTT-транспорт, при неудаче — в PeerJS.
-// Игровой трафик в обоих случаях идёт по P2P WebRTC DataChannel.
+// РФ-плейтесты: 0.peerjs.com (signaling PeerJS) заблокирован без VPN, а публичные
+// TURN-релеи часто недоступны из российских сетей — P2P умирает при живом сигналинге.
+// Решение — тройная защита:
+//   хост: регистрируется ПАРАЛЛЕЛЬНО на MQTT-транспорте (EMQX/HiveMQ, доступны из РФ)
+//         и классическом PeerJS; живёт, пока работает хотя бы один.
+//   клиент: 1) MQTT + WebRTC P2P (быстрый путь)
+//           2) MQTT relay — игровой трафик через брокера (гарантированный путь)
+//           3) PeerJS (за VPN / за пределами РФ)
+// Игровой трафик в режимах 1 и 3 идёт P2P, в режиме 2 — через брокера.
 
 import { ICE_SERVERS } from './ice.js';
-import { createWebRtcHostNet, createWebRtcClientLink } from './webrtc.js';
+import { createMqttHostNet, createMqttClientLink } from './webrtc.js';
 
 const PEER_NAMESPACE = 'dndzxc14-';
 const PEER_CDNS = [
@@ -28,6 +31,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 /** Оверрайд MQTT-брокера из URL (?mqtt=ws://localhost:8080) — для локальных e2e. */
 export function brokerOverride() {
   try { return new URLSearchParams(globalThis.location.search).get('mqtt') || undefined; } catch { return undefined; }
+}
+
+/** Оверрайд режима MQTT-линка из URL (?mqttmode=webrtc|relay) — для локальных e2e. */
+export function mqttModeOverride() {
+  try { return new URLSearchParams(globalThis.location.search).get('mqttmode') || 'auto'; } catch { return 'auto'; }
 }
 
 /** Человекочитаемый текст для типа ошибки PeerJS (экспортируется для тестов). */
@@ -192,12 +200,12 @@ function mergeNets(nets) {
 }
 
 /**
- * Сеть хоста: MQTT/WebRTC (RF-путь) + PeerJS параллельно; живёт хотя бы один.
+ * Сеть хоста: MQTT/WebRTC+релей (RF-путь) + PeerJS параллельно; живёт хотя бы один.
  */
 export async function createPeerHostNet(code) {
   const opts = { brokerUrl: brokerOverride() };
   const results = await Promise.allSettled([
-    createWebRtcHostNet(code, opts),
+    createMqttHostNet(code, opts),
     createPeerJsHostNet(code)
   ]);
   const nets = results.filter(r => r.status === 'fulfilled').map(r => r.value);
@@ -209,22 +217,36 @@ export async function createPeerHostNet(code) {
 }
 
 /**
- * Линк клиента: сперва MQTT/WebRTC (работает из РФ), затем PeerJS.
+ * Линк клиента, цепочка попыток:
+ *   1. MQTT + WebRTC P2P (быстрый путь)
+ *   2. MQTT relay — трафик через брокера (гарантированный путь, если TURN мёртв)
+ *   3. PeerJS (работает за VPN / за пределами РФ)
  */
 export async function createPeerClientLink(code) {
   const opts = { brokerUrl: brokerOverride() };
-  let mqttErr = null;
-  try {
-    return await createWebRtcClientLink(code, opts);
-  } catch (e) {
-    mqttErr = e;
+  const mode = mqttModeOverride(); // auto | webrtc | relay
+  const errs = [];
+
+  if (mode !== 'relay') {
+    try {
+      return await createMqttClientLink(code, { ...opts, mode: 'webrtc' });
+    } catch (e) {
+      errs.push(e.message);
+      if (mode === 'webrtc') throw e;
+    }
+  }
+  if (mode !== 'webrtc') {
+    try {
+      return await createMqttClientLink(code, { ...opts, mode: 'relay' });
+    } catch (e) {
+      errs.push(e.message);
+    }
   }
   try {
     return await createPeerJsClientLink(code);
   } catch (peerErr) {
     // room-not-found — самый полезный ответ (хост действительно нигде не живёт)
     if (peerErr.peerType === 'peer-unavailable') throw peerErr;
-    const parts = [mqttErr && mqttErr.message, peerErr.message].filter(Boolean).join(' / ');
-    throw new Error('Не удалось подключиться: ' + parts);
+    throw new Error('Не удалось подключиться: ' + [...errs, peerErr.message].filter(Boolean).join(' / '));
   }
 }
