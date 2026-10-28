@@ -90,7 +90,8 @@ export function newGame(opts) {
     heroes: [],
     activeIdx: 0,
     monsters: [],
-    floorItems: []
+    floorItems: [],
+    memory: [] // кольцевой журнал последних событий — память ИИ-ДМа между ходами
   };
   state.dice = makeDice(state.rng);
 
@@ -359,6 +360,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
   }
 
   if (!state.over) advanceTurn(state);
+  rememberEvents(state, events);
   return events;
 }
 
@@ -454,6 +456,31 @@ export function describeSurroundings(state, heroIdx = state.activeIdx) {
 /** Добавить квест в журнал (ИИ или движок). */
 export function addQuest(state, text) {
   if (text && !state.quests.includes(text)) state.quests.push(text);
+}
+
+// ---------- память ДМа ----------
+
+const MEMORY_CAP = 14;      // сколько последних событий помнит ДМ
+const MEMORY_LINE_MAX = 160; // обрезка строки события
+
+/**
+ * Запомнить события для ИИ-ДМа. Служебные эхо (__FREE__) не запоминаются.
+ */
+export function rememberEvents(state, events) {
+  if (!state.memory) state.memory = [];
+  for (const e of events) {
+    if (!e || typeof e.text !== 'string') continue;
+    if (e.text.startsWith('__FREE__')) continue;
+    const line = `${e.kind}: ${e.text}`.slice(0, MEMORY_LINE_MAX);
+    state.memory.push(line);
+  }
+  if (state.memory.length > MEMORY_CAP) state.memory.splice(0, state.memory.length - MEMORY_CAP);
+}
+
+/** Строка «НЕДАВНИЕ СОБЫТИЯ» для контекста ИИ. */
+export function memoryDigest(state, n = 12) {
+  if (!state.memory?.length) return '';
+  return state.memory.slice(-n).join(' | ');
 }
 
 /**
@@ -609,5 +636,6 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       push('death', `☠ Партия уничтожена.`);
     }
   }
+  rememberEvents(state, events);
   return events;
 }

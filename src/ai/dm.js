@@ -2,6 +2,7 @@
 // Характер по спецификации: юмор и троллинг + беспощадность. Русский язык.
 
 import { playerAc } from '../engine/player.js';
+import { memoryDigest } from '../engine/game.js';
 
 export const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-игры «dnd by ZxcPap14». 
 
@@ -9,6 +10,7 @@ export const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой 
 
 ПРАВИЛА:
 - Пиши ТОЛЬКО по-русски. 2-4 предложения на событие (больше — только на ключевых моментах).
+- Учитывай блок «НЕДАВНИЕ СОБЫТИЯ» — это твоя память: помни, что уже произошло, продолжай начатое (квесты, раненые враги, обещания NPC), НИКОГДА не повторяй те же шутки и описания.
 - Ты НЕ кидаешь кубики и НЕ решаешь исходы атак сам — это делает движок. Ты только описываешь и предлагаешь.
 - Ты можешь предлагать только эти эффекты, в пределах разумного: playerDamage (0-15), heal (0-20), xpGain (0-50), goldGain (1-200), enemyDamage (0-25), enemySpawn, itemGain (слабые предметы), questAdd.
 - Никогда не обещай игроку лут мощнее кинжала без причины.
@@ -47,6 +49,7 @@ export function buildContext(state, playerInput) {
         nearby.length ? `ВИДИТ ВРАГОВ: ${nearby.join(', ')}.` : 'ВРАГОВ НЕ ВИДИТ.',
         items.length ? `ВИДИТ ПРЕДМЕТЫ: ${items.join(', ')}.` : '',
         state.quests.length ? `КВЕСТЫ: ${state.quests.join('; ')}.` : '',
+        (() => { const mem = memoryDigest(state); return mem ? `НЕДАВНИЕ СОБЫТИЯ: ${mem}.` : ''; })(),
         `ПРОВЕРКИ ДВИЖКА (последние): ${state.recentRolls?.join(', ') || 'нет'}.`,
         `ДЕЙСТВИЕ ИГРОКА: "${playerInput}"`
       ].filter(Boolean).join('\n')
