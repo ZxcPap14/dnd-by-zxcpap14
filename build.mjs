@@ -20,6 +20,8 @@ const ORDER = [
   'src/net/client.js',
   'src/net/peer.js',
   'src/ui/sound.js',
+  'src/ui/avatar.js',
+  'src/ui/theme.js',
   'src/ui/terminal.js',
   'src/ui/app.js'
 ];

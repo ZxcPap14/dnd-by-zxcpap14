@@ -4,26 +4,59 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>dnd by ZxcPap14</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕯️</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <style>
+  /* ---------- ТЕМЫ ---------- */
+  body[data-theme="amber"], body {
+    --main:#ffb000; --dim:#b87d00; --bright:#ffd166; --red:#ff5555;
+    --bg:#0a0603; --panel:#120c05; --wall:#7a5200; --floor:#4d3600;
+    --stair:#9fd8ff; --loot:#7dff8a; --magic:#c084fc;
+    --tint:rgba(255,176,0,0.08); --glow:rgba(255,176,0,0.45); --glow2:rgba(255,176,0,0.8);
+  }
+  body[data-theme="phosphor"] {
+    --main:#39ff7a; --dim:#1f9e46; --bright:#c8ffdd; --red:#ff5555;
+    --bg:#030a05; --panel:#06130a; --wall:#1c7a3a; --floor:#0f4522;
+    --stair:#9fe8ff; --loot:#ffe066; --magic:#c084fc;
+    --tint:rgba(57,255,122,0.08); --glow:rgba(57,255,122,0.45); --glow2:rgba(57,255,122,0.8);
+  }
+  body[data-theme="ice"] {
+    --main:#7dd8ff; --dim:#4187ad; --bright:#e0f7ff; --red:#ff6b6b;
+    --bg:#030910; --panel:#071220; --wall:#2a6a8f; --floor:#14405c;
+    --stair:#ffd166; --loot:#8affc1; --magic:#c084fc;
+    --tint:rgba(125,216,255,0.08); --glow:rgba(125,216,255,0.45); --glow2:rgba(125,216,255,0.8);
+  }
+  body[data-theme="blood"] {
+    --main:#ff4d4d; --dim:#a12f2f; --bright:#ffb8b8; --red:#ff2222;
+    --bg:#0a0303; --panel:#140606; --wall:#7a2020; --floor:#451212;
+    --stair:#ffd166; --loot:#8affc1; --magic:#c084fc;
+    --tint:rgba(255,77,77,0.08); --glow:rgba(255,77,77,0.45); --glow2:rgba(255,77,77,0.8);
+  }
+  body[data-theme="terminator"] {
+    --main:#ff2e2e; --dim:#8f1a1a; --bright:#ffffff; --red:#ff0000;
+    --bg:#050202; --panel:#0d0404; --wall:#5c0f0f; --floor:#2e0808;
+    --stair:#00e5ff; --loot:#00ffa3; --magic:#ff00ff;
+    --tint:rgba(255,46,46,0.1); --glow:rgba(255,46,46,0.5); --glow2:rgba(255,80,80,0.9);
+  }
+
   :root {
-    --amber: #ffb000;
-    --amber-dim: #b87d00;
-    --amber-bright: #ffd166;
-    --red: #ff5555;
-    --bg: #0a0603;
-    --panel-bg: #120c05;
+    --font-pixel: 'Press Start 2P', 'Consolas', monospace;
+    --font-term: 'VT323', 'Consolas', monospace;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
   body {
     background: var(--bg);
-    color: var(--amber);
-    font-family: 'Consolas', 'Courier New', monospace;
+    color: var(--main);
+    font-family: var(--font-term);
+    font-size: 19px;
     overflow: hidden;
-    text-shadow: 0 0 6px rgba(255, 176, 0, 0.45);
+    text-shadow: 0 0 7px var(--glow);
   }
 
-  /* CRT: скан-линии + виньетка */
+  /* CRT: скан-линии + зерно + виньетка */
   body::after {
     content: '';
     position: fixed;
@@ -31,88 +64,169 @@
     pointer-events: none;
     background:
       repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0 1px, transparent 1px 3px),
-      radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+      radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.62) 100%);
     z-index: 99;
   }
+  /* мерцание (выкл по умолчанию) */
+  body.flicker::before {
+    content: '';
+    position: fixed; inset: 0;
+    pointer-events: none;
+    background: var(--main);
+    opacity: 0;
+    mix-blend-mode: overlay;
+    animation: flick 3.4s infinite steps(1);
+    z-index: 98;
+  }
+  @keyframes flick {
+    0%, 91%, 94%, 100% { opacity: 0; }
+    92% { opacity: 0.04; }
+    93% { opacity: 0.015; }
+    96% { opacity: 0.03; }
+  }
+
+  /* тряска экрана */
+  body.shake { animation: shake 0.35s linear; }
+  @keyframes shake {
+    0%, 100% { transform: translate(0, 0); }
+    20% { transform: translate(-7px, 4px); }
+    40% { transform: translate(6px, -5px); }
+    60% { transform: translate(-5px, -3px); }
+    80% { transform: translate(4px, 3px); }
+  }
+  /* глитч смерти */
+  body.glitch { animation: shake 0.12s steps(2) infinite; }
+  body.glitch .screen.active, body.glitch #screen-death.active { filter: contrast(1.6) brightness(1.4); }
+  body.glitch .screen.active { animation: glitchshift 0.11s steps(2) infinite; }
+  @keyframes glitchshift {
+    0% { transform: translate(0); clip-path: inset(0); }
+    25% { transform: translate(-8px, 2px); clip-path: inset(8% 0 12% 0); }
+    50% { transform: translate(6px, -3px); clip-path: inset(0 6% 0 3%); }
+    75% { transform: translate(-4px, -2px); clip-path: inset(20% 0 4% 0); }
+    100% { transform: translate(0); clip-path: inset(0); }
+  }
+
+  #matrix { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+  #screen-setup { position: relative; z-index: 1; }
 
   .screen { display: none; height: 100vh; padding: 18px; }
   .screen.active { display: flex; flex-direction: column; }
 
   /* ---------- шапка ---------- */
-  header { text-align: center; padding: 8px 0 12px; flex-shrink: 0; }
+  header { text-align: center; padding: 6px 0 10px; flex-shrink: 0; }
   header h1 {
-    font-size: 18px; font-weight: normal; letter-spacing: 2px;
-    color: var(--amber-bright);
+    font-family: var(--font-pixel);
+    font-size: 13px; font-weight: normal; letter-spacing: 2px;
+    color: var(--bright);
   }
-  header .tagline { font-size: 11px; color: var(--amber-dim); margin-top: 4px; }
+  header .tagline { font-size: 16px; color: var(--dim); margin-top: 4px; }
 
   /* ---------- setup ---------- */
   #screen-setup { align-items: center; justify-content: center; }
   .setup-box {
-    width: min(640px, 94vw);
+    width: min(680px, 94vw);
     max-height: 92vh;
     overflow-y: auto;
-    border: 1px solid var(--amber-dim);
+    border: 1px solid var(--dim);
     padding: 24px;
-    background: var(--panel-bg);
-    box-shadow: 0 0 30px rgba(255, 176, 0, 0.12);
+    background: var(--panel);
+    box-shadow: 0 0 40px var(--glow);
   }
-  .setup-box h2 { font-size: 14px; font-weight: normal; color: var(--amber-bright); margin: 14px 0 8px; letter-spacing: 1px; }
-  .setup-box h2:first-child { margin-top: 0; }
+  #logo {
+    font-family: var(--font-pixel);
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--bright);
+    text-align: center;
+    text-shadow: 0 0 12px var(--glow2);
+    margin-bottom: 6px;
+  }
+  #logo .by { color: var(--dim); font-size: 8px; }
+  .setup-box h2 {
+    font-family: var(--font-pixel);
+    font-size: 10px; font-weight: normal; color: var(--bright); margin: 16px 0 8px; letter-spacing: 1px;
+  }
+  .setup-box h2:first-of-type { margin-top: 6px; }
   .field { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-  .field label { width: 110px; flex-shrink: 0; font-size: 12px; color: var(--amber-dim); }
+  .field label { width: 130px; flex-shrink: 0; font-size: 17px; color: var(--dim); }
   .field input, .field select {
     flex: 1;
     background: #000;
-    border: 1px solid var(--amber-dim);
-    color: var(--amber);
-    font-family: inherit;
-    font-size: 13px;
-    padding: 6px 8px;
+    border: 1px solid var(--dim);
+    color: var(--main);
+    font-family: var(--font-term);
+    font-size: 18px;
+    padding: 5px 8px;
     outline: none;
   }
-  .field input:focus { border-color: var(--amber-bright); }
+  .field input[type="checkbox"] { flex: 0; width: 18px; height: 18px; accent-color: var(--main); }
+  .field input[type="range"] { accent-color: var(--main); padding: 0; }
+  .field input:focus { border-color: var(--bright); }
   .field input[type="password"] { letter-spacing: 2px; }
-  .hint { font-size: 11px; color: var(--amber-dim); margin: 2px 0 0 120px; }
+  .hint { font-size: 16px; color: var(--dim); margin: 2px 0 0 140px; }
   #class-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
   .class-card {
-    border: 1px solid var(--amber-dim);
+    border: 1px solid var(--dim);
     padding: 10px;
     cursor: pointer;
     display: flex; flex-direction: column; gap: 4px;
-    font-size: 12px;
+    font-size: 17px;
   }
-  .class-card:hover { border-color: var(--amber); }
+  .class-card:hover { border-color: var(--main); }
   .class-card input { display: none; }
-  .class-card:has(input:checked) { border-color: var(--amber-bright); background: rgba(255, 176, 0, 0.08); }
-  .class-name { color: var(--amber-bright); }
-  .class-desc { color: var(--amber-dim); }
-  .class-loading { font-size: 12px; color: var(--amber-dim); padding: 10px; }
+  .class-card:has(input:checked) { border-color: var(--bright); background: var(--tint); }
+  .class-name { color: var(--bright); }
+  .class-desc { color: var(--dim); }
+  .class-loading { font-size: 17px; color: var(--dim); padding: 10px; }
   button {
     background: transparent;
-    border: 1px solid var(--amber);
-    color: var(--amber);
-    font-family: inherit;
-    font-size: 13px;
-    padding: 8px 18px;
+    border: 1px solid var(--main);
+    color: var(--main);
+    font-family: var(--font-pixel);
+    font-size: 10px;
+    padding: 9px 16px;
     cursor: pointer;
     letter-spacing: 1px;
+    text-shadow: 0 0 6px var(--glow);
   }
-  button:hover { background: rgba(255, 176, 0, 0.12); border-color: var(--amber-bright); }
+  button:hover { background: var(--tint); border-color: var(--bright); }
   .btn-row { display: flex; gap: 10px; margin-top: 16px; justify-content: center; }
-  .btn-primary { border-width: 2px; padding: 10px 32px; color: var(--amber-bright); }
-  #setup-note { display: none; margin-top: 10px; font-size: 11px; color: var(--red); text-align: center; }
-  #hof-list { font-size: 11px; margin-top: 6px; }
-  .hof-row { padding: 4px 0; border-bottom: 1px dashed rgba(184, 125, 0, 0.35); display: flex; gap: 8px; flex-wrap: wrap; }
-  .hof-name { color: var(--amber-bright); }
-  .hof-meta { color: var(--amber-dim); }
+  .btn-primary { border-width: 2px; padding: 11px 26px; color: var(--bright); }
+  #setup-note { display: none; margin-top: 10px; font-size: 17px; color: var(--red); text-align: center; }
+  #hof-list { font-size: 17px; margin-top: 6px; }
+  .hof-row { padding: 4px 0; border-bottom: 1px dashed var(--dim); display: flex; gap: 8px; flex-wrap: wrap; }
+  .hof-name { color: var(--bright); }
+  .hof-meta { color: var(--dim); }
   .hof-epitaph { color: var(--red); opacity: 0.85; }
-  .hof-empty, .quest-empty { color: var(--amber-dim); font-style: italic; }
+  .hof-empty, .quest-empty { color: var(--dim); font-style: italic; }
+
+  /* аватары */
+  .avatar {
+    font-family: var(--font-pixel);
+    font-size: 8px;
+    line-height: 1.4;
+    color: var(--bright);
+    text-shadow: 0 0 8px var(--glow);
+    white-space: pre;
+  }
+  .avatar-sm { font-size: 6px; margin-top: 3px; }
+  .stat-hero { align-items: flex-start; }
+  .lobby-card { display: flex; align-items: center; gap: 12px; padding: 4px 0; }
+  .lobby-name { font-size: 18px; }
 
   /* ---------- игра ---------- */
-  #screen-game { gap: 12px; }
-  #game-title { text-align: center; flex-shrink: 0; font-size: 14px; letter-spacing: 2px; color: var(--amber-bright); }
-  #floor-label { color: var(--amber-dim); font-size: 11px; }
+  #screen-game { gap: 10px; }
+  #game-title {
+    text-align: center; flex-shrink: 0;
+    font-family: var(--font-pixel); font-size: 11px; letter-spacing: 2px; color: var(--bright);
+  }
+  #floor-label { color: var(--dim); font-size: 9px; }
+  #turn-banner {
+    font-family: var(--font-pixel);
+    font-size: 9px; color: var(--bright); letter-spacing: 1px; margin-top: 4px;
+  }
+  #turn-banner.mine { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
   .game-grid {
     flex: 1;
@@ -124,76 +238,186 @@
   .col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 
   .panel {
-    border: 1px solid var(--amber-dim);
-    background: var(--panel-bg);
+    border: 1px solid var(--dim);
+    background: var(--panel);
     padding: 10px;
     overflow: auto;
   }
-  .panel-title { font-size: 11px; color: var(--amber-dim); letter-spacing: 2px; margin-bottom: 6px; }
+  .panel-title {
+    font-family: var(--font-pixel);
+    font-size: 8px; color: var(--dim); letter-spacing: 2px; margin-bottom: 8px;
+  }
 
   #map {
-    font-size: 12.5px;
-    line-height: 1.12;
+    font-family: var(--font-pixel);
+    font-size: 9.5px;
+    line-height: 1.35;
     white-space: pre;
     text-align: center;
   }
-  .m-wall { color: #7a5200; }
-  .m-floor { color: #4d3600; }
-  .m-pl { color: #fff; background: rgba(255,176,0,0.35); text-shadow: 0 0 10px #fff; font-weight: bold; }
+  .m-wall { color: var(--wall); text-shadow: none; }
+  .m-floor { color: var(--floor); text-shadow: none; }
+  .m-pl { color: #fff; background: var(--tint); text-shadow: 0 0 10px #fff; font-weight: bold; }
   .m-mon { color: var(--red); text-shadow: 0 0 8px var(--red); font-weight: bold; }
-  .m-item { color: var(--amber-bright); text-shadow: 0 0 8px var(--amber-bright); }
-  .m-stair { color: #9fd8ff; text-shadow: 0 0 8px #9fd8ff; font-weight: bold; }
+  .m-item { color: var(--bright); text-shadow: 0 0 8px var(--glow2); }
+  .m-stair { color: var(--stair); text-shadow: 0 0 8px var(--stair); font-weight: bold; }
 
-  #stats { font-size: 12px; flex-shrink: 0; }
-  .stat-row { display: flex; justify-content: space-between; padding: 2px 0; }
-  .stat-label { color: var(--amber-dim); }
-  .hp { color: var(--amber-bright); }
-  .stats-line { justify-content: center; color: var(--amber-dim); font-size: 11px; margin-top: 4px; }
+  #stats { font-size: 18px; flex-shrink: 0; }
+  .stat-row { display: flex; justify-content: space-between; padding: 2px 0; gap: 8px; }
+  .stat-label { color: var(--dim); }
+  .hp { color: var(--bright); }
+  .stats-line { justify-content: center; color: var(--dim); font-size: 16px; margin-top: 4px; }
 
-  #quests { flex-shrink: 0; max-height: 110px; font-size: 11.5px; }
+  #quests { flex-shrink: 0; max-height: 110px; font-size: 17px; }
   .quest { padding: 2px 0; }
 
   #log {
     flex: 1;
-    font-size: 13px;
-    line-height: 1.5;
+    font-size: 19px;
+    line-height: 1.35;
     min-height: 0;
     cursor: pointer;
   }
-  .line { white-space: pre-wrap; word-break: break-word; margin-bottom: 6px; }
-  .kind-player { color: var(--amber-bright); }
-  .kind-dm { color: var(--amber); }
-  .kind-system { color: var(--amber-dim); }
-  .kind-roll { color: #9fd8ff; text-shadow: 0 0 6px rgba(159,216,255,0.4); }
+  .line { white-space: pre-wrap; word-break: break-word; margin-bottom: 7px; }
+  .kind-player { color: var(--bright); }
+  .kind-dm { color: var(--main); }
+  .kind-system { color: var(--dim); }
+  .kind-roll { color: var(--stair); text-shadow: 0 0 6px var(--stair); }
   .kind-combat { color: var(--red); }
-  .kind-loot { color: #7dff8a; text-shadow: 0 0 6px rgba(125,255,138,0.4); }
+  .kind-loot { color: var(--loot); text-shadow: 0 0 6px var(--loot); }
+  .kind-magic { color: var(--magic); text-shadow: 0 0 6px var(--magic); }
+  .kind-npc { color: #ffffff; text-shadow: 0 0 6px rgba(255,255,255,0.5); }
+  .kind-danger {
+    color: var(--red); font-weight: bold; text-shadow: 0 0 12px var(--red);
+    animation: blinkred 0.45s steps(2, end) 4;
+  }
+  @keyframes blinkred { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
   .kind-death { color: var(--red); font-weight: bold; text-shadow: 0 0 12px var(--red); }
 
   .input-row { display: flex; gap: 8px; flex-shrink: 0; }
-  .prompt-ch { color: var(--amber-bright); align-self: center; }
+  .prompt-ch { color: var(--bright); align-self: center; font-size: 20px; }
   #input {
     flex: 1;
     background: #000;
-    border: 1px solid var(--amber-dim);
-    color: var(--amber);
-    font-family: inherit;
-    font-size: 14px;
-    padding: 9px 10px;
+    border: 1px solid var(--dim);
+    color: var(--main);
+    font-family: var(--font-term);
+    font-size: 19px;
+    padding: 8px 10px;
     outline: none;
+    caret-color: var(--bright);
+    caret-shape: block;
   }
-  #input:focus { border-color: var(--amber-bright); box-shadow: 0 0 12px rgba(255,176,0,0.2); }
+  #input:focus { border-color: var(--bright); box-shadow: 0 0 12px var(--glow); }
+
+  /* ---------- оверлеи ---------- */
+  #crt-boot {
+    position: fixed; inset: 0; z-index: 200;
+    background: #000;
+    display: none;
+    align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  #crt-boot.active { display: flex; animation: crtfade 1.6s ease-in forwards; }
+  #crt-boot::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: 50%;
+    height: 3px;
+    background: var(--main);
+    box-shadow: 0 0 60px 8px var(--glow2);
+    animation: sweep 0.9s ease-in forwards;
+  }
+  @keyframes sweep {
+    0% { top: 0%; opacity: 1; transform: scaleX(0.2); }
+    40% { transform: scaleX(1); }
+    100% { top: 100%; opacity: 1; }
+  }
+  @keyframes crtfade {
+    0%, 55% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  #flash {
+    position: fixed; inset: 0; z-index: 150;
+    pointer-events: none;
+    opacity: 0;
+    box-shadow: inset 0 0 140px 50px var(--red);
+  }
+  #flash.active { animation: flashout 0.45s ease-out; }
+  @keyframes flashout { 0% { opacity: 0.9; } 100% { opacity: 0; } }
+
+  #dice {
+    position: fixed; top: 14%; left: 50%; transform: translateX(-50%);
+    z-index: 160; display: none; pointer-events: none;
+  }
+  #dice.active { display: block; animation: dicein 0.15s ease-out; }
+  @keyframes dicein { 0% { transform: translateX(-50%) scale(1.4); opacity: 0.3; } 100% { transform: translateX(-50%) scale(1); opacity: 1; } }
+  #dice pre {
+    font-family: var(--font-pixel);
+    font-size: 16px;
+    color: var(--stair);
+    text-shadow: 0 0 16px var(--stair);
+    background: var(--bg);
+    border: 1px solid var(--stair);
+    padding: 10px 14px;
+    box-shadow: 0 0 40px var(--glow);
+  }
+
+  #intro {
+    position: fixed; inset: 0; z-index: 170;
+    background: #000;
+    display: none;
+    overflow: hidden;
+  }
+  #intro.active { display: block; }
+  #intro-scroll {
+    position: absolute;
+    left: 50%; top: 100%;
+    transform: translateX(-50%);
+    width: min(720px, 90vw);
+    animation: crawl 16s linear forwards;
+  }
+  @keyframes crawl {
+    0% { top: 100%; }
+    100% { top: -160%; }
+  }
+  #intro-text {
+    font-size: 24px;
+    line-height: 1.5;
+    color: var(--main);
+    text-align: center;
+    text-shadow: 0 0 10px var(--glow);
+    white-space: pre-wrap;
+  }
+  #btn-skip-intro {
+    position: absolute; right: 20px; bottom: 18px; z-index: 171;
+  }
 
   /* ---------- смерть ---------- */
   #screen-death {
     position: fixed; inset: 0; z-index: 50;
-    background: rgba(5, 2, 0, 0.94);
+    background: rgba(3, 1, 0, 0.96);
     display: none; align-items: center; justify-content: center;
   }
   #screen-death.active { display: flex; }
-  .death-box { text-align: center; border: 1px solid var(--red); padding: 40px 48px; background: var(--panel-bg); box-shadow: 0 0 60px rgba(255,85,85,0.25); }
-  .death-box h2 { color: var(--red); font-size: 28px; font-weight: normal; letter-spacing: 6px; text-shadow: 0 0 20px var(--red); }
-  .death-box .epi { margin: 18px 0; font-size: 15px; color: var(--amber); }
-  .death-box .dstats { font-size: 12px; color: var(--amber-dim); margin-bottom: 20px; }
+  .death-box {
+    text-align: center; border: 1px solid var(--red); padding: 40px 48px; background: var(--panel);
+    box-shadow: 0 0 70px rgba(255, 60, 60, 0.3);
+    animation: deathin 0.9s ease-out;
+  }
+  @keyframes deathin {
+    0% { opacity: 0; transform: scale(1.15); filter: blur(6px); }
+    60% { opacity: 1; filter: blur(0); }
+    100% { transform: scale(1); }
+  }
+  .death-box h2 {
+    color: var(--red); font-size: 24px; font-weight: normal; letter-spacing: 4px;
+    text-shadow: 0 0 22px var(--red);
+    font-family: var(--font-pixel);
+  }
+  .death-box .epi { margin: 18px 0; font-size: 21px; color: var(--main); }
+  .death-box .dstats { font-size: 17px; color: var(--dim); margin-bottom: 20px; }
 
   @media (max-width: 800px) {
     .game-grid { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
@@ -201,13 +425,22 @@
   }
 </style>
 </head>
-<body>
+<body data-theme="amber">
+
+<canvas id="matrix"></canvas>
 
 <!-- ЭКРАН НАСТРОЕК -->
 <div class="screen active" id="screen-setup">
   <div class="setup-box">
-    <h2>◆ dnd by ZxcPap14</h2>
-    <div class="hint" style="margin-left:0">ASCII-рогалик с ИИ-данж-мастером. Троллем. Беспощадным.</div>
+    <pre id="logo">
+██████╗ ███╗   ██╗██████╗
+██╔══██╗████╗  ██║██╔══██╗
+██║  ██║██╔██╗ ██║██║  ██║
+██║  ██║██║╚██╗██║██║  ██║
+██████╔╝██║ ╚████║██████╔╝
+╚═════╝ ╚═╝  ╚═══╝╚═════╝
+<span class="by">   ~ by ZxcPap14 ~</span></pre>
+    <div class="hint" style="margin-left:0; text-align:center">ASCII-рогалик с ИИ-данж-мастером. Троллем. Беспощадным.</div>
 
     <h2>МИР</h2>
     <div class="field">
@@ -237,11 +470,15 @@
       <label for="set-name">Имя героя</label>
       <input id="set-name" type="text" placeholder="Безымянный" maxlength="20">
     </div>
+    <div class="field">
+      <label>Аватар</label>
+      <pre class="avatar" id="name-avatar" style="font-size:8px"> </pre>
+    </div>
 
-    <div id="lobby-panel" style="display:none; border:1px dashed var(--amber-dim); padding:12px; margin:10px 0">
+    <div id="lobby-panel" style="display:none; border:1px dashed var(--dim); padding:12px; margin:10px 0">
       <div class="field" style="justify-content:center">
         <span class="stat-label">КОД КОМНАТЫ:</span>
-        <span id="room-code" style="font-size:22px; letter-spacing:8px; color:var(--amber-bright)">····</span>
+        <span id="room-code" style="font-size:24px; letter-spacing:8px; color:var(--bright)">····</span>
       </div>
       <div class="hint" style="margin-left:0; text-align:center">Друзья открывают эту же страницу → «Кооп: войти по коду» → вводят код</div>
       <div id="lobby-list" style="margin-top:8px"></div>
@@ -250,8 +487,36 @@
       </div>
     </div>
 
-    <h2>КЛАСС <button id="btn-classes" style="font-size:11px; padding:3px 10px; margin-left:8px">перегенерировать под мир</button></h2>
+    <h2>КЛАСС <button id="btn-classes" style="font-size:8px; padding:5px 10px; margin-left:8px">перегенерировать под мир</button></h2>
     <div id="class-list"></div>
+
+    <h2>ВИЗУАЛ И ЗВУК</h2>
+    <div class="field">
+      <label for="vis-theme">Тема</label>
+      <select id="vis-theme">
+        <option value="amber">Янтарь (ретро-VT)</option>
+        <option value="phosphor">Зелёный фосфор</option>
+        <option value="ice">Холодный голубой</option>
+        <option value="blood">Кроваво-красный</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="vis-glyphs">Символы карты</label>
+      <select id="vis-glyphs">
+        <option value="classic">Классика # . &gt;</option>
+        <option value="pseudo">Псевдографика ║ ∙ »</option>
+        <option value="blocky">Блочные тени ▓ · ≡</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="vis-flicker">Мерцание ЭЛТ</label>
+      <input id="vis-flicker" type="checkbox">
+    </div>
+    <div class="field">
+      <label for="vis-vol">Громкость</label>
+      <input id="vis-vol" type="range" min="0" max="100" value="60" style="flex:1">
+      <label style="width:auto; display:flex; align-items:center; gap:5px"><input id="vis-mute" type="checkbox"> mute</label>
+    </div>
 
     <h2>ИИ-ДМАСТЕР (необязательно — без ключа играет заглушка)</h2>
     <div class="field">
@@ -266,7 +531,7 @@
       <label for="set-model">Модель</label>
       <input id="set-model" type="text" placeholder="gpt-4o-mini / deepseek-chat / llama3">
     </div>
-    <div class="hint" style="margin-left:120px">Любой OpenAI-совместимый: OpenAI, DeepSeek, OpenRouter, локальная Ollama. Ключ хранится только в твоём браузере.</div>
+    <div class="hint" style="margin-left:140px">Любой OpenAI-совместимый: OpenAI, DeepSeek, OpenRouter, локальная Ollama. Ключ хранится только в твоём браузере.</div>
     <div id="setup-note"></div>
 
     <div class="btn-row">
@@ -280,9 +545,9 @@
 
 <!-- ЭКРАН ИГРЫ -->
 <div class="screen" id="screen-game">
-  <header style="padding:0 0 4px">
+  <header style="padding:0 0 2px">
     <div id="game-title">dnd by ZxcPap14 <span id="floor-label"></span></div>
-    <div id="turn-banner" style="font-size:11px; color:var(--amber-bright); letter-spacing:1px; margin-top:4px"></div>
+    <div id="turn-banner"></div>
   </header>
   <div class="game-grid">
     <div class="col">
@@ -303,7 +568,7 @@
       </div>
       <div class="input-row">
         <span class="prompt-ch">&gt;</span>
-        <input id="input" type="text" autocomplete="off" placeholder="что ты делаешь? (пиши свободно) · ↑ история">
+        <input id="input" type="text" autocomplete="off" placeholder="что ты делаешь? (пиши свободно) · ↑ история · попробуй «кофе»">
       </div>
     </div>
   </div>
@@ -320,6 +585,15 @@
       <button class="btn-primary" id="btn-restart">НОВЫЙ ЗАБЕГ</button>
     </div>
   </div>
+</div>
+
+<!-- ОВЕРЛЕИ -->
+<div id="crt-boot"></div>
+<div id="flash"></div>
+<div id="dice"><pre id="dice-art"></pre></div>
+<div id="intro">
+  <div id="intro-scroll"><pre id="intro-text"></pre></div>
+  <button id="btn-skip-intro">ПРОПУСТИТЬ ▶▶</button>
 </div>
 
 <script>
@@ -2054,14 +2328,35 @@ async function createPeerClientLink(code) {
 
 
 // sound.js — синтезированные звуки через WebAudio. Никаких файлов, только математика.
+// Громкость и mute — через мастер-gain.
 
 let ctx = null;
+let master = null;
+let volume = 0.6;   // 0..1
+let muted = false;
 
 function initAudio() {
   if (!ctx) {
     try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { ctx = null; }
+    if (ctx) {
+      master = ctx.createGain();
+      master.gain.value = muted ? 0 : volume;
+      master.connect(ctx.destination);
+    }
   }
   if (ctx && ctx.state === 'suspended') ctx.resume();
+}
+
+/** Установить громкость 0..1. */
+function setVolume(v) {
+  volume = Math.max(0, Math.min(1, Number(v) || 0));
+  if (master) master.gain.value = muted ? 0 : volume;
+}
+
+/** Вкл/выкл звук. */
+function setMuted(m) {
+  muted = !!m;
+  if (master) master.gain.value = muted ? 0 : volume;
 }
 
 function tone(freq, dur, type = 'square', gain = 0.03, when = 0, slideTo = null) {
@@ -2074,7 +2369,8 @@ function tone(freq, dur, type = 'square', gain = 0.03, when = 0, slideTo = null)
   if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
   g.gain.setValueAtTime(gain, t0);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  osc.connect(g).connect(ctx.destination);
+  osc.connect(g);
+  g.connect(master || ctx.destination);
   osc.start(t0);
   osc.stop(t0 + dur + 0.02);
 }
@@ -2112,12 +2408,263 @@ function deathSound() {
   tone(300, 0.9, 'sawtooth', 0.07, 0, 55);
 }
 
+/** Сигнал «твой ход» в коопе — два восходящих блипа. */
+function turnSound() {
+  tone(660, 0.09, 'triangle', 0.045);
+  tone(990, 0.12, 'triangle', 0.045, 0.09);
+}
+
+/** Наливание кофе — журчание. */
+function coffeeSound() {
+  tone(220, 0.3, 'sine', 0.03, 0, 180);
+  tone(180, 0.25, 'sine', 0.025, 0.25, 140);
+  lootSound();
+}
+
+
+// avatar.js — детерминированные ASCII-портреты из хэша ника.
+// Чистый модуль без DOM — тестируется в node.
+
+/** xfnv1a-хэш строки → uint32. Один ник = один портрет на всех устройствах. */
+function nameHash(str) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** mulberry32 — маленький seeded PRNG. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const CHARS = [' ', ' ', ' ', '.', ':', '~', '=', '+', "'", '^', 'o', '▒', '▓', '█'];
+const AVATAR_W = 8;
+const AVATAR_H = 5;
+
+/**
+ * ASCII-портрет (AVATAR_H строк × AVATAR_W колонок), зеркально-симметричный.
+ * Один и тот же ник всегда даёт один и тот же портрет.
+ */
+function asciiAvatar(name) {
+  const rnd = mulberry32(nameHash(String(name ?? '').toLowerCase().trim()));
+  const rows = [];
+  for (let y = 0; y < AVATAR_H; y++) {
+    const left = [];
+    for (let x = 0; x < AVATAR_W / 2; x++) {
+      left.push(CHARS[Math.floor(rnd() * CHARS.length)]);
+    }
+    rows.push(left.join('') + left.slice().reverse().join(''));
+  }
+  return rows.join('\n');
+}
+
+
+// theme.js — визуальный слой: темы, настройки вида, CRT-эффекты, анимации, матрица.
+// DOM-часть; чистая логика аватаров живёт в avatar.js.
+
+
+
+const VIS_KEY = 'dnd_vis';
+
+const THEMES = ['amber', 'phosphor', 'ice', 'blood'];
+const TERMINATOR_AFTER = 10; // смертей в зале славы для секретной темы
+
+function loadVis() {
+  const defaults = { theme: 'amber', glyphs: 'classic', flicker: false, volume: 60, muted: false };
+  try { return { ...defaults, ...JSON.parse(localStorage.getItem(VIS_KEY) || '{}') }; }
+  catch { return defaults; }
+}
+
+function saveVis(vis) {
+  try { localStorage.setItem(VIS_KEY, JSON.stringify(vis)); } catch { /*ignore*/ }
+}
+
+/** Применить визуальные настройки к документу и звуку. */
+function applyVis(vis) {
+  document.body.dataset.theme = vis.theme === 'terminator' ? 'terminator' : (THEMES.includes(vis.theme) ? vis.theme : 'amber');
+  document.body.classList.toggle('flicker', !!vis.flicker);
+  setVolume(vis.volume / 100);
+  setMuted(!!vis.muted);
+}
+
+/** Сколько смертей в зале славы (для разблокировки «терминатора»). */
+function deathCount() {
+  try { return JSON.parse(localStorage.getItem('dnd_hof') || '[]').length; }
+  catch { return 0; }
+}
+
+// ---------- эффекты ----------
+
+/** Тряска экрана (урон). */
+function shakeScreen() {
+  document.body.classList.remove('shake');
+  void document.body.offsetWidth; // restart animation
+  document.body.classList.add('shake');
+}
+
+/** Красная вспышка по краям (урон). */
+function redFlash() {
+  const f = document.getElementById('flash');
+  if (!f) return;
+  f.classList.remove('active');
+  void f.offsetWidth;
+  f.classList.add('active');
+}
+
+const DICE_FRAMES = 8;
+const DICE_FRAME_MS = 70;
+const DICE_HOLD_MS = 650;
+
+/** ASCII-кубик d20: крутится и падает на результат. */
+function showDiceRoll(final) {
+  const box = document.getElementById('dice');
+  const art = document.getElementById('dice-art');
+  if (!box || !art) return;
+  if (box.dataset.busy) return;
+  box.dataset.busy = '1';
+  box.classList.add('active');
+
+  const frame = (n, done) => {
+    const num = String(n).padStart(2, ' ');
+    art.textContent =
+      ` ╔═══════════╗\n` +
+      ` ║           ║\n` +
+      ` ║   ${num} ${done ? '◆' : '·'}   ║\n` +
+      ` ║           ║\n` +
+      ` ╚═══════════╝`;
+  };
+
+  let i = 0;
+  const iv = setInterval(() => {
+    i++;
+    if (i <= DICE_FRAMES) frame(1 + Math.floor(Math.random() * 20), false);
+    else {
+      clearInterval(iv);
+      frame(final, true);
+      setTimeout(() => { box.classList.remove('active'); delete box.dataset.busy; }, DICE_HOLD_MS);
+    }
+  }, DICE_FRAME_MS);
+}
+
+/** Глитч-распад перед экраном смерти. Возвращает Promise. */
+function deathGlitch() {
+  return new Promise(res => {
+    document.body.classList.add('glitch');
+    setTimeout(() => {
+      document.body.classList.remove('glitch');
+      res();
+    }, 1000);
+  });
+}
+
+/** CRT-включение при загрузке страницы: линия развёртки → интерфейс. */
+function bootCRT() {
+  const el = document.getElementById('crt-boot');
+  if (!el) return;
+  el.classList.add('active');
+  setTimeout(() => el.classList.remove('active'), 1600);
+}
+
+// ---------- матричный дождь (стартовый экран) ----------
+
+let matrixRunning = false;
+
+/** Запустить дождь в фоне стартового экрана (рисует только пока setup активен). */
+function startMatrix() {
+  const canvas = document.getElementById('matrix');
+  if (!canvas || matrixRunning) return;
+  matrixRunning = true;
+  const ctx2d = canvas.getContext('2d');
+  const CHARS = 'アカサタナハマヤラワ0123456789+*<>|/\\#$@%';
+  let drops = [];
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const cols = Math.floor(canvas.width / 16);
+    drops = Array.from({ length: cols }, () => Math.floor(Math.random() * canvas.height / 16));
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function themeColor() {
+    return getComputedStyle(document.body).getPropertyValue('--main').trim() || '#ffb000';
+  }
+
+  let last = 0;
+  function loop(ts) {
+    if (!matrixRunning) return;
+    requestAnimationFrame(loop);
+    if (ts - last < 66) return; // ~15 fps
+    last = ts;
+    const setupActive = document.getElementById('screen-setup')?.classList.contains('active');
+    if (!setupActive) { if (canvas.dataset.dirty) { ctx2d.clearRect(0, 0, canvas.width, canvas.height); canvas.dataset.dirty = ''; } return; }
+    canvas.dataset.dirty = '1';
+    ctx2d.fillStyle = 'rgba(0,0,0,0.14)';
+    ctx2d.fillRect(0, 0, canvas.width, canvas.height);
+    ctx2d.fillStyle = themeColor();
+    ctx2d.font = '14px monospace';
+    ctx2d.globalAlpha = 0.5;
+    for (let i = 0; i < drops.length; i++) {
+      const ch = CHARS[Math.floor(Math.random() * CHARS.length)];
+      ctx2d.fillText(ch, i * 16, drops[i] * 16);
+      if (drops[i] * 16 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+      drops[i]++;
+    }
+    ctx2d.globalAlpha = 1;
+  }
+  requestAnimationFrame(loop);
+}
+
+function stopMatrix() { matrixRunning = false; }
+
+// ---------- кинематографичное вступление (скролл Star Wars) ----------
+
+/** Показать вступление: строки ползут снизу вверх. skipFn — по кнопке или автоматически. */
+function showIntro(lines) {
+  const wrap = document.getElementById('intro');
+  const text = document.getElementById('intro-text');
+  if (!wrap || !text) return;
+  text.textContent = lines.join('\n\n');
+  wrap.classList.add('active');
+  // перезапуск анимации скролла
+  const scroll = document.getElementById('intro-scroll');
+  scroll.style.animation = 'none';
+  void scroll.offsetWidth;
+  scroll.style.animation = '';
+  const hide = () => wrap.classList.remove('active');
+  scroll.onanimationend = hide;
+  document.getElementById('btn-skip-intro').onclick = hide;
+}
+
 
 // terminal.js — рендер карты/статов и печатная машинка для хроники.
 
 
 
 
+
+
+/** Наборы символов карты (переключаются в настройках). */
+const GLYPH_SETS = {
+  classic: { wall: '#', floor: '.', stair: '>', mon: 'м', gold: '$', potion: '!', item: '†' },
+  pseudo:  { wall: '║', floor: '∙', stair: '»', mon: 'м', gold: '$', potion: '!', item: '†' },
+  blocky:  { wall: '▓', floor: '·', stair: '≡', mon: 'м', gold: '$', potion: '!', item: '†' }
+};
+
+/** По умолчанию — классика NetHack. */
+function glyphOf(setName) {
+  return GLYPH_SETS[setName] || GLYPH_SETS.classic;
+}
 
 /**
  * Печатная машинка: очередь строк, появляющихся посимвольно.
@@ -2189,9 +2736,10 @@ function createTyper(el) {
 }
 
 /**
- * Рендер карты с туманом войны в <pre>.
+ * Рендер карты с туманом войны в <pre>. glyphs — набор символов из GLYPH_SETS.
  */
-function renderMap(pre, state) {
+function renderMap(pre, state, glyphSetName = 'classic') {
+  const g = glyphOf(glyphSetName);
   const parts = [];
   for (let y = 0; y < state.dungeon.h; y++) {
     for (let x = 0; x < state.dungeon.w; x++) {
@@ -2201,21 +2749,25 @@ function renderMap(pre, state) {
       }
       if (!state.fov.has(`${x},${y}`)) { parts.push(' '); continue; }
       const tile = state.dungeon.grid[y][x];
-      if (tile === TILE.WALL) { parts.push('<span class="m-wall">#</span>'); continue; }
+      if (tile === TILE.WALL) { parts.push(`<span class="m-wall">${g.wall}</span>`); continue; }
       const mon = state.monsters.find(m => m.hp > 0 && m.x === x && m.y === y);
-      if (mon) { parts.push(`<span class="m-mon" title="${mon.name}">м</span>`); continue; }
+      if (mon) { parts.push(`<span class="m-mon" title="${mon.name}">${g.mon}</span>`); continue; }
       const item = state.floorItems.find(it => it.x === x && it.y === y);
       if (item) {
-        const ch = item.type === 'gold' ? '$' : item.type === 'potion' ? '!' : '†';
+        const ch = item.type === 'gold' ? g.gold : item.type === 'potion' ? g.potion : g.item;
         parts.push(`<span class="m-item" title="${item.name}">${ch}</span>`);
         continue;
       }
-      if (tile === TILE.STAIRS) { parts.push('<span class="m-stair">&gt;</span>'); continue; }
-      parts.push('<span class="m-floor">.</span>');
+      if (tile === TILE.STAIRS) { parts.push(`<span class="m-stair">${escGlyph(g.stair)}</span>`); continue; }
+      parts.push(`<span class="m-floor">${g.floor}</span>`);
     }
     parts.push('\n');
   }
   pre.innerHTML = parts.join('');
+}
+
+function escGlyph(ch) {
+  return ch === '>' ? '&gt;' : ch;
 }
 
 /** Полоска HP из блоков. */
@@ -2227,7 +2779,10 @@ function hpBar(player, width = 10) {
 function renderStats(el, state) {
   const p = state.player;
   el.innerHTML = `
-    <div class="stat-row"><span class="stat-label">${p.name}</span><span>${p.className} · ур.${p.level}</span></div>
+    <div class="stat-row stat-hero">
+      <pre class="avatar avatar-sm">${asciiAvatar(p.name)}</pre>
+      <span class="stat-label">${p.name}</span><span>${p.className} · ур.${p.level}</span>
+    </div>
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${hpBar(p)} ${p.hp}/${p.maxHp}</span></div>
     <div class="stat-row"><span class="stat-label">AC / XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${p.equipment.weapon ? p.equipment.weapon.name : 'кулаки'}</span></div>
@@ -2249,13 +2804,17 @@ const CELL_CLASS = {
   '†': 'm-item', '$': 'm-item', '>': 'm-stair', '@': 'm-pl'
 };
 
-/** Карта из персонального снапшота (символы уже вырезаны на хосте). */
-function renderSnapshotMap(pre, snap) {
+/** Карта из персонального снапшота (символы уже вырезаны на хосте; глифы подменяются локально). */
+function renderSnapshotMap(pre, snap, glyphSetName = 'classic') {
+  const g = glyphOf(glyphSetName);
+  const SUB = { '#': g.wall, '.': g.floor, 'м': g.mon, '!': g.potion, '†': g.item, '$': g.gold, '>': escGlyph(g.stair), '@': '@' };
   const parts = [];
   for (const row of snap.map.cells) {
     for (const ch of row) {
+      const sub = SUB[ch];
+      if (!sub) { parts.push(' '); continue; }
       const cls = CELL_CLASS[ch];
-      parts.push(cls ? `<span class="${cls}">${ch === '>' ? '&gt;' : ch}</span>` : ' ');
+      parts.push(cls ? `<span class="${cls}">${sub}</span>` : sub);
     }
     parts.push('\n');
   }
@@ -2273,7 +2832,10 @@ function renderStatsSnap(el, snap) {
     return `<div class="stat-row"><span class="stat-label">${h.glyph} ${h.name}${you}</span><span>ур.${h.level} · ${h.hp}/${h.maxHp} HP${dead}</span></div>`;
   }).join('');
   el.innerHTML = `
-    <div class="stat-row"><span class="stat-label">Уровень ${s.level}</span><span>XP ${s.xp}/${s.xpNext} · золото ${s.gold}</span></div>
+    <div class="stat-row stat-hero">
+      <pre class="avatar avatar-sm">${asciiAvatar((snap.heroes[snap.you] || {}).name || '')}</pre>
+      <span class="stat-label">Уровень ${s.level}</span><span>XP ${s.xp}/${s.xpNext} · золото ${s.gold}</span>
+    </div>
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${bar} ${s.hp}/${s.maxHp}</span></div>
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${s.equipment.weapon ? s.equipment.weapon.name : 'кулаки'}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${s.equipment.armor ? s.equipment.armor.name : 'нет'} (AC ${s.ac})</span></div>
@@ -2297,6 +2859,8 @@ function renderStatsSnap(el, snap) {
 
 
 
+
+
 const $ = (id) => document.getElementById(id);
 
 const STUB_CLASSES = [
@@ -2306,12 +2870,14 @@ const STUB_CLASSES = [
 ];
 
 let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini' };
+let vis = loadVis();        // визуальные настройки (тема, глифы, звук)
 let client = null;          // AI-клиент (хост/соло)
 let state = null;           // соло-состояние
 let typer = null;
 let chronicle = [];
 let inputHistory = [];
 let historyIdx = -1;
+let wasMyTurn = false;      // для звукового сигнала хода в коопе
 
 let sessionMode = 'solo';   // 'solo' | 'host' | 'client'
 let hostSession = null;
@@ -2354,6 +2920,7 @@ function renderHof() {
       `<div class="hof-row"><span class="hof-name">${esc(h.name)}</span> <span class="hof-meta">${esc(h.className)} · ${esc(h.world)} · этаж ${h.depth}</span><span class="hof-epitaph">「${esc(h.epitaph)}」</span></div>`
     ).join('')
     : '<div class="hof-row hof-empty">Зал пуст. Пока что.</div>';
+  if (typeof refreshThemeOptions === 'function') refreshThemeOptions();
 }
 
 function esc(s) {
@@ -2459,6 +3026,8 @@ function startSolo() {
   showScreen('screen-game');
   refreshPanelsSolo();
   $('turn-banner').textContent = 'СОЛО · твой ход всегда';
+  wasMyTurn = true;
+  showIntro([world.toUpperCase(), `РЕЖИМ: ${mode === 'sandbox' ? 'ПЕСОЧНИЦА' : 'СЮЖЕТ'}`, `ЭПИЗОД I — ${name}, ${cls.name}`, 'ДАЛЕЕ: ТЬМА, ТРОЛЛИНГ И ПЕРМАСМЕРТЬ']);
 
   if (client) {
     client.chat(introMessages(state), { maxTokens: 500 })
@@ -2475,20 +3044,39 @@ function startSolo() {
 }
 
 function refreshPanelsSolo() {
-  renderMap($('map'), state);
+  renderMap($('map'), state, vis.glyphs);
   renderStats($('stats'), state);
   renderQuests($('quest-list'), state);
   $('floor-label').textContent = state.floorName;
 }
 
+/** Классификация события для расширенной палитры хроники. */
+function classify(kind, text) {
+  if (kind === 'death') return 'danger';
+  if (kind === 'dm') {
+    if (/(маги|заклин|касту|чар|проклят|рун)/i.test(text)) return 'magic';
+    if (/["«]/.test(text)) return 'npc';
+  }
+  return kind;
+}
+
 function logEvent(kind, text) {
   chronicle.push(`[${kind}] ${text}`);
-  typer.add(kind, text);
+  typer.add(classify(kind, text), text);
   switch (kind) {
-    case 'roll': rollSound(text.includes('КРИТ')); break;
-    case 'combat': hitSound(); break;
+    case 'roll': {
+      rollSound(text.includes('КРИТ'));
+      const m = text.match(/d20\D*(\d+)/) || text.match(/(\d+)\s*$/);
+      if (m) showDiceRoll(Number(m[1]));
+      break;
+    }
+    case 'combat':
+      hitSound();
+      shakeScreen();
+      redFlash();
+      break;
     case 'loot': lootSound(); break;
-    case 'death': deathSound(); break;
+    case 'death': deathSound(); shakeScreen(); break;
     default: break;
   }
 }
@@ -2546,7 +3134,7 @@ async function startHostRoom() {
 
 function renderLobby(players) {
   $('lobby-list').innerHTML = players.map(p =>
-    `<div class="quest">◆ ${esc(p.name)}${p.host ? ' <span class="hof-meta">(хост, оплачивает ИИ)</span>' : ''}</div>`
+    `<div class="lobby-card"><pre class="avatar">${asciiAvatar(p.name)}</pre><div class="lobby-name">◆ ${esc(p.name)}${p.host ? ' <span class="hof-meta">(хост, оплачивает ИИ)</span>' : ''}</div></div>`
   ).join('');
   if (sessionMode === 'host') {
     $('btn-launch').disabled = players.length < 1;
@@ -2569,6 +3157,8 @@ async function hostLaunch() {
   typer = createTyper($('log'));
   showScreen('screen-game');
   $('turn-banner').textContent = 'ЖДЁМ ХОДА…';
+  wasMyTurn = false;
+  showIntro([world.toUpperCase(), `РЕЖИМ: ${mode === 'sandbox' ? 'ПЕСОЧНИЦА' : 'СЮЖЕТ'} · КО-ОП`, `ПАРТИЯ: ${classAssignments.map(c => c.name).join(' · ')}`, 'ДАЛЕЕ: ТЬМА, ТРОЛЛИНГ И ПЕРМАСМЕРТЬ']);
   const intro = client
     ? async (game) => {
       try {
@@ -2616,6 +3206,8 @@ async function joinRoom() {
     typer = createTyper($('log'));
     showScreen('screen-game');
     $('turn-banner').textContent = 'ЖДЁМ ХОДА…';
+    wasMyTurn = false;
+    showIntro([`КО-ОП · КОМНАТА ${code}`, 'ДАЛЕЕ: ТЬМА, ТРОЛЛИНГ И ПЕРМАСМЕРТЬ']);
   });
   clientSession.onReject(r => backToSetup(`Отказ: ${r.reason}`));
   clientSession.onKicked(r => backToSetup(`Тебя выгнали: ${r.reason}`));
@@ -2643,20 +3235,26 @@ function backToSetup(note) {
 
 function applySnapshot(snap) {
   mySnapshot = snap;
-  renderSnapshotMap($('map'), snap);
+  renderSnapshotMap($('map'), snap, vis.glyphs);
   renderStatsSnap($('stats'), snap);
   renderQuests($('quest-list'), snap);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`;
   const hero = snap.heroes[snap.you];
+  const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
+  // сигнал «твой ход»
+  if (myTurn && !wasMyTurn) turnSound();
+  wasMyTurn = myTurn;
   if (snap.over) {
     $('turn-banner').textContent = '☠ ПАРТИЯ УНИЧТОЖЕНА';
     typer.onFinish(() => showDeathSnap(snap));
   } else if (!hero.alive) {
     $('turn-banner').textContent = '☠ ТЫ МЁРТВ — наблюдаешь за партией';
-  } else if (snap.turnOf === snap.you) {
+  } else if (myTurn) {
     $('turn-banner').textContent = `▶ ТВОЙ ХОД (${hero.name})`;
+    $('turn-banner').classList.add('mine');
   } else {
     $('turn-banner').textContent = `Ход: ${snap.heroes[snap.turnOf]?.name || '…'} — жди`;
+    $('turn-banner').classList.remove('mine');
   }
   // блокируем ввод чужого хода
   $('input').disabled = !snap.over && hero.alive && snap.turnOf !== snap.you;
@@ -2695,10 +3293,29 @@ function showDeathSnap(snap) {
   );
 }
 
-function showDeathCommon(epitaph, stats) {
+async function showDeathCommon(epitaph, stats) {
+  await deathGlitch();
   $('death-epitaph').textContent = epitaph;
   $('death-stats').textContent = stats;
   $('screen-death').classList.add('active');
+}
+
+const COFFEE_ART =
+  '  ( (\n' +
+  '   ) )\n' +
+  ' ..........\n' +
+  ' |        |]\n' +
+  ' \\        /\n' +
+  '  `------\'\n' +
+  'ДМ наливает тебе кофе. Горячий. Беспощадный.';
+
+/** Пасхалка: «кофе» не тратит ход. Возвращает true, если перехвачено. */
+function tryCoffee(text) {
+  // \b в JS не работает с кириллицей — используем lookahead
+  if (!/^(кофе|coffee)(?![а-яёa-z])/i.test(text.trim())) return false;
+  logEvent('loot', COFFEE_ART);
+  coffeeSound();
+  return true;
 }
 
 function exportChronicle() {
@@ -2731,6 +3348,7 @@ function submitInput() {
     inputHistory.push(text);
     historyIdx = inputHistory.length;
     blip(520);
+    if (tryCoffee(text)) return;
     logEvent('player', `> ${text}`);
     handleEventsSolo(applyIntent(state, parseCommand(text)));
   } else if (sessionMode === 'host') {
@@ -2739,6 +3357,7 @@ function submitInput() {
     inputHistory.push(text);
     historyIdx = inputHistory.length;
     blip(520);
+    if (tryCoffee(text)) return;
     hostSession.localIntent(text); // эхо придёт broadcast'ом — как всем
   } else if (sessionMode === 'client') {
     if (!clientSession || !mySnapshot) return;
@@ -2747,7 +3366,55 @@ function submitInput() {
     inputHistory.push(text);
     historyIdx = inputHistory.length;
     blip(520);
+    if (tryCoffee(text)) return;
     clientSession.sendCommand(text); // эхо придёт broadcast'ом — как всем
+  }
+}
+
+// ---------- визуальные настройки ----------
+
+function wireVis() {
+  applyVis(vis);
+  refreshThemeOptions();
+
+  $('vis-theme').value = THEMES.includes(vis.theme) || vis.theme === 'terminator' ? vis.theme : 'amber';
+  $('vis-glyphs').value = GLYPH_SETS[vis.glyphs] ? vis.glyphs : 'classic';
+  $('vis-flicker').checked = !!vis.flicker;
+  $('vis-vol').value = vis.volume;
+  $('vis-mute').checked = !!vis.muted;
+
+  const update = () => {
+    vis = {
+      theme: $('vis-theme').value,
+      glyphs: $('vis-glyphs').value,
+      flicker: $('vis-flicker').checked,
+      volume: Number($('vis-vol').value),
+      muted: $('vis-mute').checked
+    };
+    saveVis(vis);
+    applyVis(vis);
+  };
+  ['vis-theme', 'vis-glyphs', 'vis-flicker', 'vis-vol', 'vis-mute'].forEach(id =>
+    $(id).addEventListener('change', update)
+  );
+}
+
+/** Опция «терминатор» появляется после 10 смертей в зале славы. */
+function refreshThemeOptions() {
+  const sel = $('vis-theme');
+  const has = [...sel.options].some(o => o.value === 'terminator');
+  const unlocked = deathCount() >= TERMINATOR_AFTER;
+  if (unlocked && !has) {
+    const opt = document.createElement('option');
+    opt.value = 'terminator';
+    opt.textContent = '■ ТЕРМИНАТОР (секретная)';
+    sel.appendChild(opt);
+  } else if (!unlocked && !has) {
+    const opt = document.createElement('option');
+    opt.value = 'terminator';
+    opt.disabled = true;
+    opt.textContent = `Терминатор (откроется после ${TERMINATOR_AFTER} смертей)`;
+    sel.appendChild(opt);
   }
 }
 
@@ -2756,6 +3423,14 @@ function submitInput() {
 function wire() {
   loadCfg();
   renderHof();
+  wireVis();
+  bootCRT();
+  startMatrix();
+
+  // живой предпросмотр аватара из ника
+  const updateAvatar = () => { $('name-avatar').textContent = asciiAvatar($('set-name').value.trim() || 'Безымянный'); };
+  $('set-name').addEventListener('input', updateAvatar);
+  updateAvatar();
 
   $('set-mp').addEventListener('change', () => {
     const mp = $('set-mp').value;

@@ -1,12 +1,33 @@
 // sound.js — синтезированные звуки через WebAudio. Никаких файлов, только математика.
+// Громкость и mute — через мастер-gain.
 
 let ctx = null;
+let master = null;
+let volume = 0.6;   // 0..1
+let muted = false;
 
 export function initAudio() {
   if (!ctx) {
     try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { ctx = null; }
+    if (ctx) {
+      master = ctx.createGain();
+      master.gain.value = muted ? 0 : volume;
+      master.connect(ctx.destination);
+    }
   }
   if (ctx && ctx.state === 'suspended') ctx.resume();
+}
+
+/** Установить громкость 0..1. */
+export function setVolume(v) {
+  volume = Math.max(0, Math.min(1, Number(v) || 0));
+  if (master) master.gain.value = muted ? 0 : volume;
+}
+
+/** Вкл/выкл звук. */
+export function setMuted(m) {
+  muted = !!m;
+  if (master) master.gain.value = muted ? 0 : volume;
 }
 
 function tone(freq, dur, type = 'square', gain = 0.03, when = 0, slideTo = null) {
@@ -19,7 +40,8 @@ function tone(freq, dur, type = 'square', gain = 0.03, when = 0, slideTo = null)
   if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
   g.gain.setValueAtTime(gain, t0);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  osc.connect(g).connect(ctx.destination);
+  osc.connect(g);
+  g.connect(master || ctx.destination);
   osc.start(t0);
   osc.stop(t0 + dur + 0.02);
 }
@@ -55,4 +77,17 @@ export function levelUpSound() {
 /** Смерть — нисходящий стон. */
 export function deathSound() {
   tone(300, 0.9, 'sawtooth', 0.07, 0, 55);
+}
+
+/** Сигнал «твой ход» в коопе — два восходящих блипа. */
+export function turnSound() {
+  tone(660, 0.09, 'triangle', 0.045);
+  tone(990, 0.12, 'triangle', 0.045, 0.09);
+}
+
+/** Наливание кофе — журчание. */
+export function coffeeSound() {
+  tone(220, 0.3, 'sine', 0.03, 0, 180);
+  tone(180, 0.25, 'sine', 0.025, 0.25, 140);
+  lootSound();
 }

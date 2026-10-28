@@ -11,9 +11,18 @@ import { createPeerHostNet, createPeerClientLink } from '../net/peer.js';
 import { PROTOCOL_VER } from '../net/protocol.js';
 import {
   createTyper, renderMap, renderStats, renderQuests,
-  renderSnapshotMap, renderStatsSnap
+  renderSnapshotMap, renderStatsSnap, GLYPH_SETS
 } from './terminal.js';
-import { initAudio, rollSound, hitSound, lootSound, levelUpSound, deathSound, blip } from './sound.js';
+import {
+  initAudio, rollSound, hitSound, lootSound, levelUpSound,
+  deathSound, blip, turnSound, coffeeSound
+} from './sound.js';
+import { asciiAvatar } from './avatar.js';
+import {
+  loadVis, saveVis, applyVis, deathCount, THEMES, TERMINATOR_AFTER,
+  shakeScreen, redFlash, showDiceRoll, deathGlitch, bootCRT,
+  startMatrix, showIntro
+} from './theme.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -24,12 +33,14 @@ const STUB_CLASSES = [
 ];
 
 let cfg = { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini' };
+let vis = loadVis();        // визуальные настройки (тема, глифы, звук)
 let client = null;          // AI-клиент (хост/соло)
 let state = null;           // соло-состояние
 let typer = null;
 let chronicle = [];
 let inputHistory = [];
 let historyIdx = -1;
+let wasMyTurn = false;      // для звукового сигнала хода в коопе
 
 let sessionMode = 'solo';   // 'solo' | 'host' | 'client'
 let hostSession = null;
@@ -72,6 +83,7 @@ function renderHof() {
       `<div class="hof-row"><span class="hof-name">${esc(h.name)}</span> <span class="hof-meta">${esc(h.className)} · ${esc(h.world)} · этаж ${h.depth}</span><span class="hof-epitaph">「${esc(h.epitaph)}」</span></div>`
     ).join('')
     : '<div class="hof-row hof-empty">Зал пуст. Пока что.</div>';
+  if (typeof refreshThemeOptions === 'function') refreshThemeOptions();
 }
 
 function esc(s) {
@@ -177,6 +189,8 @@ function startSolo() {
   showScreen('screen-game');
   refreshPanelsSolo();
   $('turn-banner').textContent = 'СОЛО · твой ход всегда';
+  wasMyTurn = true;
+  showIntro([world.toUpperCase(), `РЕЖИМ: ${mode === 'sandbox' ? 'ПЕСОЧНИЦА' : 'СЮЖЕТ'}`, `ЭПИЗОД I — ${name}, ${cls.name}`, 'ДАЛЕЕ: ТЬМА, ТРОЛЛИНГ И ПЕРМАСМЕРТЬ']);
 
   if (client) {
     client.chat(introMessages(state), { maxTokens: 500 })
@@ -193,20 +207,39 @@ function startSolo() {
 }
 
 function refreshPanelsSolo() {
-  renderMap($('map'), state);
+  renderMap($('map'), state, vis.glyphs);
   renderStats($('stats'), state);
   renderQuests($('quest-list'), state);
   $('floor-label').textContent = state.floorName;
 }
 
+/** Классификация события для расширенной палитры хроники. */
+function classify(kind, text) {
+  if (kind === 'death') return 'danger';
+  if (kind === 'dm') {
+    if (/(маги|заклин|касту|чар|проклят|рун)/i.test(text)) return 'magic';
+    if (/["«]/.test(text)) return 'npc';
+  }
+  return kind;
+}
+
 function logEvent(kind, text) {
   chronicle.push(`[${kind}] ${text}`);
-  typer.add(kind, text);
+  typer.add(classify(kind, text), text);
   switch (kind) {
-    case 'roll': rollSound(text.includes('КРИТ')); break;
-    case 'combat': hitSound(); break;
+    case 'roll': {
+      rollSound(text.includes('КРИТ'));
+      const m = text.match(/d20\D*(\d+)/) || text.match(/(\d+)\s*$/);
+      if (m) showDiceRoll(Number(m[1]));
+      break;
+    }
+    case 'combat':
+      hitSound();
+      shakeScreen();
+      redFlash();
+      break;
     case 'loot': lootSound(); break;
-    case 'death': deathSound(); break;
+    case 'death': deathSound(); shakeScreen(); break;
     default: break;
   }
 }
@@ -264,7 +297,7 @@ async function startHostRoom() {
 
 function renderLobby(players) {
   $('lobby-list').innerHTML = players.map(p =>
-    `<div class="quest">◆ ${esc(p.name)}${p.host ? ' <span class="hof-meta">(хост, оплачивает ИИ)</span>' : ''}</div>`
+    `<div class="lobby-card"><pre class="avatar">${asciiAvatar(p.name)}</pre><div class="lobby-name">◆ ${esc(p.name)}${p.host ? ' <span class="hof-meta">(хост, оплачивает ИИ)</span>' : ''}</div></div>`
   ).join('');
   if (sessionMode === 'host') {
     $('btn-launch').disabled = players.length < 1;
@@ -287,6 +320,8 @@ async function hostLaunch() {
   typer = createTyper($('log'));
   showScreen('screen-game');
   $('turn-banner').textContent = 'ЖДЁМ ХОДА…';
+  wasMyTurn = false;
+  showIntro([world.toUpperCase(), `РЕЖИМ: ${mode === 'sandbox' ? 'ПЕСОЧНИЦА' : 'СЮЖЕТ'} · КО-ОП`, `ПАРТИЯ: ${classAssignments.map(c => c.name).join(' · ')}`, 'ДАЛЕЕ: ТЬМА, ТРОЛЛИНГ И ПЕРМАСМЕРТЬ']);
   const intro = client
     ? async (game) => {
       try {
@@ -334,6 +369,8 @@ async function joinRoom() {
     typer = createTyper($('log'));
     showScreen('screen-game');
     $('turn-banner').textContent = 'ЖДЁМ ХОДА…';
+    wasMyTurn = false;
+    showIntro([`КО-ОП · КОМНАТА ${code}`, 'ДАЛЕЕ: ТЬМА, ТРОЛЛИНГ И ПЕРМАСМЕРТЬ']);
   });
   clientSession.onReject(r => backToSetup(`Отказ: ${r.reason}`));
   clientSession.onKicked(r => backToSetup(`Тебя выгнали: ${r.reason}`));
@@ -361,20 +398,26 @@ function backToSetup(note) {
 
 function applySnapshot(snap) {
   mySnapshot = snap;
-  renderSnapshotMap($('map'), snap);
+  renderSnapshotMap($('map'), snap, vis.glyphs);
   renderStatsSnap($('stats'), snap);
   renderQuests($('quest-list'), snap);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`;
   const hero = snap.heroes[snap.you];
+  const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
+  // сигнал «твой ход»
+  if (myTurn && !wasMyTurn) turnSound();
+  wasMyTurn = myTurn;
   if (snap.over) {
     $('turn-banner').textContent = '☠ ПАРТИЯ УНИЧТОЖЕНА';
     typer.onFinish(() => showDeathSnap(snap));
   } else if (!hero.alive) {
     $('turn-banner').textContent = '☠ ТЫ МЁРТВ — наблюдаешь за партией';
-  } else if (snap.turnOf === snap.you) {
+  } else if (myTurn) {
     $('turn-banner').textContent = `▶ ТВОЙ ХОД (${hero.name})`;
+    $('turn-banner').classList.add('mine');
   } else {
     $('turn-banner').textContent = `Ход: ${snap.heroes[snap.turnOf]?.name || '…'} — жди`;
+    $('turn-banner').classList.remove('mine');
   }
   // блокируем ввод чужого хода
   $('input').disabled = !snap.over && hero.alive && snap.turnOf !== snap.you;
@@ -413,10 +456,29 @@ function showDeathSnap(snap) {
   );
 }
 
-function showDeathCommon(epitaph, stats) {
+async function showDeathCommon(epitaph, stats) {
+  await deathGlitch();
   $('death-epitaph').textContent = epitaph;
   $('death-stats').textContent = stats;
   $('screen-death').classList.add('active');
+}
+
+const COFFEE_ART =
+  '  ( (\n' +
+  '   ) )\n' +
+  ' ..........\n' +
+  ' |        |]\n' +
+  ' \\        /\n' +
+  '  `------\'\n' +
+  'ДМ наливает тебе кофе. Горячий. Беспощадный.';
+
+/** Пасхалка: «кофе» не тратит ход. Возвращает true, если перехвачено. */
+function tryCoffee(text) {
+  // \b в JS не работает с кириллицей — используем lookahead
+  if (!/^(кофе|coffee)(?![а-яёa-z])/i.test(text.trim())) return false;
+  logEvent('loot', COFFEE_ART);
+  coffeeSound();
+  return true;
 }
 
 function exportChronicle() {
@@ -449,6 +511,7 @@ function submitInput() {
     inputHistory.push(text);
     historyIdx = inputHistory.length;
     blip(520);
+    if (tryCoffee(text)) return;
     logEvent('player', `> ${text}`);
     handleEventsSolo(applyIntent(state, parseCommand(text)));
   } else if (sessionMode === 'host') {
@@ -457,6 +520,7 @@ function submitInput() {
     inputHistory.push(text);
     historyIdx = inputHistory.length;
     blip(520);
+    if (tryCoffee(text)) return;
     hostSession.localIntent(text); // эхо придёт broadcast'ом — как всем
   } else if (sessionMode === 'client') {
     if (!clientSession || !mySnapshot) return;
@@ -465,7 +529,55 @@ function submitInput() {
     inputHistory.push(text);
     historyIdx = inputHistory.length;
     blip(520);
+    if (tryCoffee(text)) return;
     clientSession.sendCommand(text); // эхо придёт broadcast'ом — как всем
+  }
+}
+
+// ---------- визуальные настройки ----------
+
+function wireVis() {
+  applyVis(vis);
+  refreshThemeOptions();
+
+  $('vis-theme').value = THEMES.includes(vis.theme) || vis.theme === 'terminator' ? vis.theme : 'amber';
+  $('vis-glyphs').value = GLYPH_SETS[vis.glyphs] ? vis.glyphs : 'classic';
+  $('vis-flicker').checked = !!vis.flicker;
+  $('vis-vol').value = vis.volume;
+  $('vis-mute').checked = !!vis.muted;
+
+  const update = () => {
+    vis = {
+      theme: $('vis-theme').value,
+      glyphs: $('vis-glyphs').value,
+      flicker: $('vis-flicker').checked,
+      volume: Number($('vis-vol').value),
+      muted: $('vis-mute').checked
+    };
+    saveVis(vis);
+    applyVis(vis);
+  };
+  ['vis-theme', 'vis-glyphs', 'vis-flicker', 'vis-vol', 'vis-mute'].forEach(id =>
+    $(id).addEventListener('change', update)
+  );
+}
+
+/** Опция «терминатор» появляется после 10 смертей в зале славы. */
+function refreshThemeOptions() {
+  const sel = $('vis-theme');
+  const has = [...sel.options].some(o => o.value === 'terminator');
+  const unlocked = deathCount() >= TERMINATOR_AFTER;
+  if (unlocked && !has) {
+    const opt = document.createElement('option');
+    opt.value = 'terminator';
+    opt.textContent = '■ ТЕРМИНАТОР (секретная)';
+    sel.appendChild(opt);
+  } else if (!unlocked && !has) {
+    const opt = document.createElement('option');
+    opt.value = 'terminator';
+    opt.disabled = true;
+    opt.textContent = `Терминатор (откроется после ${TERMINATOR_AFTER} смертей)`;
+    sel.appendChild(opt);
   }
 }
 
@@ -474,6 +586,14 @@ function submitInput() {
 function wire() {
   loadCfg();
   renderHof();
+  wireVis();
+  bootCRT();
+  startMatrix();
+
+  // живой предпросмотр аватара из ника
+  const updateAvatar = () => { $('name-avatar').textContent = asciiAvatar($('set-name').value.trim() || 'Безымянный'); };
+  $('set-name').addEventListener('input', updateAvatar);
+  updateAvatar();
 
   $('set-mp').addEventListener('change', () => {
     const mp = $('set-mp').value;

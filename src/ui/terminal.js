@@ -3,6 +3,19 @@
 import { blip } from './sound.js';
 import { TILE } from '../engine/map.js';
 import { playerAc } from '../engine/player.js';
+import { asciiAvatar } from './avatar.js';
+
+/** Наборы символов карты (переключаются в настройках). */
+export const GLYPH_SETS = {
+  classic: { wall: '#', floor: '.', stair: '>', mon: 'м', gold: '$', potion: '!', item: '†' },
+  pseudo:  { wall: '║', floor: '∙', stair: '»', mon: 'м', gold: '$', potion: '!', item: '†' },
+  blocky:  { wall: '▓', floor: '·', stair: '≡', mon: 'м', gold: '$', potion: '!', item: '†' }
+};
+
+/** По умолчанию — классика NetHack. */
+function glyphOf(setName) {
+  return GLYPH_SETS[setName] || GLYPH_SETS.classic;
+}
 
 /**
  * Печатная машинка: очередь строк, появляющихся посимвольно.
@@ -74,9 +87,10 @@ export function createTyper(el) {
 }
 
 /**
- * Рендер карты с туманом войны в <pre>.
+ * Рендер карты с туманом войны в <pre>. glyphs — набор символов из GLYPH_SETS.
  */
-export function renderMap(pre, state) {
+export function renderMap(pre, state, glyphSetName = 'classic') {
+  const g = glyphOf(glyphSetName);
   const parts = [];
   for (let y = 0; y < state.dungeon.h; y++) {
     for (let x = 0; x < state.dungeon.w; x++) {
@@ -86,21 +100,25 @@ export function renderMap(pre, state) {
       }
       if (!state.fov.has(`${x},${y}`)) { parts.push(' '); continue; }
       const tile = state.dungeon.grid[y][x];
-      if (tile === TILE.WALL) { parts.push('<span class="m-wall">#</span>'); continue; }
+      if (tile === TILE.WALL) { parts.push(`<span class="m-wall">${g.wall}</span>`); continue; }
       const mon = state.monsters.find(m => m.hp > 0 && m.x === x && m.y === y);
-      if (mon) { parts.push(`<span class="m-mon" title="${mon.name}">м</span>`); continue; }
+      if (mon) { parts.push(`<span class="m-mon" title="${mon.name}">${g.mon}</span>`); continue; }
       const item = state.floorItems.find(it => it.x === x && it.y === y);
       if (item) {
-        const ch = item.type === 'gold' ? '$' : item.type === 'potion' ? '!' : '†';
+        const ch = item.type === 'gold' ? g.gold : item.type === 'potion' ? g.potion : g.item;
         parts.push(`<span class="m-item" title="${item.name}">${ch}</span>`);
         continue;
       }
-      if (tile === TILE.STAIRS) { parts.push('<span class="m-stair">&gt;</span>'); continue; }
-      parts.push('<span class="m-floor">.</span>');
+      if (tile === TILE.STAIRS) { parts.push(`<span class="m-stair">${escGlyph(g.stair)}</span>`); continue; }
+      parts.push(`<span class="m-floor">${g.floor}</span>`);
     }
     parts.push('\n');
   }
   pre.innerHTML = parts.join('');
+}
+
+function escGlyph(ch) {
+  return ch === '>' ? '&gt;' : ch;
 }
 
 /** Полоска HP из блоков. */
@@ -112,7 +130,10 @@ export function hpBar(player, width = 10) {
 export function renderStats(el, state) {
   const p = state.player;
   el.innerHTML = `
-    <div class="stat-row"><span class="stat-label">${p.name}</span><span>${p.className} · ур.${p.level}</span></div>
+    <div class="stat-row stat-hero">
+      <pre class="avatar avatar-sm">${asciiAvatar(p.name)}</pre>
+      <span class="stat-label">${p.name}</span><span>${p.className} · ур.${p.level}</span>
+    </div>
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${hpBar(p)} ${p.hp}/${p.maxHp}</span></div>
     <div class="stat-row"><span class="stat-label">AC / XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${p.equipment.weapon ? p.equipment.weapon.name : 'кулаки'}</span></div>
@@ -134,13 +155,17 @@ const CELL_CLASS = {
   '†': 'm-item', '$': 'm-item', '>': 'm-stair', '@': 'm-pl'
 };
 
-/** Карта из персонального снапшота (символы уже вырезаны на хосте). */
-export function renderSnapshotMap(pre, snap) {
+/** Карта из персонального снапшота (символы уже вырезаны на хосте; глифы подменяются локально). */
+export function renderSnapshotMap(pre, snap, glyphSetName = 'classic') {
+  const g = glyphOf(glyphSetName);
+  const SUB = { '#': g.wall, '.': g.floor, 'м': g.mon, '!': g.potion, '†': g.item, '$': g.gold, '>': escGlyph(g.stair), '@': '@' };
   const parts = [];
   for (const row of snap.map.cells) {
     for (const ch of row) {
+      const sub = SUB[ch];
+      if (!sub) { parts.push(' '); continue; }
       const cls = CELL_CLASS[ch];
-      parts.push(cls ? `<span class="${cls}">${ch === '>' ? '&gt;' : ch}</span>` : ' ');
+      parts.push(cls ? `<span class="${cls}">${sub}</span>` : sub);
     }
     parts.push('\n');
   }
@@ -158,7 +183,10 @@ export function renderStatsSnap(el, snap) {
     return `<div class="stat-row"><span class="stat-label">${h.glyph} ${h.name}${you}</span><span>ур.${h.level} · ${h.hp}/${h.maxHp} HP${dead}</span></div>`;
   }).join('');
   el.innerHTML = `
-    <div class="stat-row"><span class="stat-label">Уровень ${s.level}</span><span>XP ${s.xp}/${s.xpNext} · золото ${s.gold}</span></div>
+    <div class="stat-row stat-hero">
+      <pre class="avatar avatar-sm">${asciiAvatar((snap.heroes[snap.you] || {}).name || '')}</pre>
+      <span class="stat-label">Уровень ${s.level}</span><span>XP ${s.xp}/${s.xpNext} · золото ${s.gold}</span>
+    </div>
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${bar} ${s.hp}/${s.maxHp}</span></div>
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${s.equipment.weapon ? s.equipment.weapon.name : 'кулаки'}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${s.equipment.armor ? s.equipment.armor.name : 'нет'} (AC ${s.ac})</span></div>
