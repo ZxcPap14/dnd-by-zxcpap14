@@ -138,3 +138,73 @@ test('descend с лестницы углубляет этаж', () => {
   assert.equal(s.floorName, 'Этаж 2');
   assert.ok(events.some(e => e.kind === 'system'));
 });
+
+// ---------- свобода действий: тупики движка уходят ДМу, а не в стену ----------
+
+test('парсер: предлог «в» больше не превращает фразу в шаг на восток', () => {
+  assert.equal(parseCommand('Полез в вентиляцию').intent, 'free');
+  assert.equal(parseCommand('иду в шахту').intent, 'free');
+  assert.equal(parseCommand('прыгнул в шахту лифта').intent, 'free');
+  assert.equal(parseCommand('скрываюсь во тьме и бегу дальше в жнецу').intent, 'free');
+  // полные слова направления работают как раньше
+  assert.equal(parseCommand('иду на север').intent, 'move');
+  assert.equal(parseCommand('на запад').dirVec[0], -1);
+});
+
+test('парсер: осмотр с целью уходит ДМу, без цели — движку', () => {
+  assert.equal(parseCommand('осмотрел порт').intent, 'free');
+  assert.equal(parseCommand('осмотрелся').intent, 'look');
+  assert.equal(parseCommand('осмотреть терминал').intent, 'free');
+});
+
+test('парсер: raw-текст доступен во всех интентах', () => {
+  assert.equal(parseCommand('иду на север').raw, 'иду на север');
+  assert.equal(parseCommand('выпить зелье').raw, 'выпить зелье');
+  assert.equal(parseCommand('спускаюсь').raw, 'спускаюсь');
+});
+
+test('стена: тупик движения превращается в __FREE__ для ДМа, ход не сгорает', () => {
+  const s = freshGame();
+  const hero = s.heroes[0];
+  const room = s.dungeon.rooms[0];
+  hero.pos = { x: room.x, y: room.y };
+  hero.fov = s.heroes[0].fov;
+  if (s.dungeon.grid[hero.pos.y - 1][hero.pos.x] !== TILE.WALL) return; // не угол — пропускаем
+  const before = { ...hero.pos };
+  const turnBefore = s.turn;
+  const monstersBefore = s.monsters.map(m => `${m.x},${m.y}`).join();
+  const events = applyIntent(s, { intent: 'move', dirVec: [0, -1], raw: 'Лезу в вентиляцию' });
+  const free = events.find(e => e.kind === 'dm' && String(e.text).startsWith('__FREE__'));
+  assert.ok(free, 'должен быть __FREE__-маркер для ДМа');
+  assert.ok(free.text.includes('Лезу в вентиляцию'), 'ДМ получает оригинальный текст игрока');
+  assert.deepEqual(hero.pos, before, 'позиция не изменилась');
+  assert.equal(s.turn, turnBefore, 'ход не сгорел на не распознанной попытке');
+  assert.equal(s.monsters.map(m => `${m.x},${m.y}`).join(), monstersBefore, 'монстры не ходили');
+});
+
+test('использование несуществующего предмета уходит ДМу с raw-текстом', () => {
+  const s = freshGame();
+  const events = applyIntent(s, { intent: 'use', target: 'имплант превращения', raw: 'Притворюсь что я Фудзимори используя имплант превращения' });
+  const free = events.find(e => e.kind === 'dm' && String(e.text).startsWith('__FREE__'));
+  assert.ok(free, 'тупик use → __FREE__');
+  assert.ok(free.text.includes('имплант превращения'), 'ДМ видит замысел игрока');
+});
+
+test('descend не на лестнице уходит ДМу', () => {
+  const s = freshGame();
+  if (s.dungeon.grid[s.heroes[0].pos.y][s.heroes[0].pos.x] === TILE.STAIRS) return;
+  const events = applyIntent(s, { intent: 'descend', raw: 'спускаюсь в сектор B' });
+  const free = events.find(e => e.kind === 'dm' && String(e.text).startsWith('__FREE__'));
+  assert.ok(free, 'тупик descend → __FREE__');
+  assert.ok(free.text.includes('сектор B'));
+  assert.equal(s.depth, 1, 'этаж не изменился');
+});
+
+test('атака при отсутствии видимых монстров уходит ДМу', () => {
+  const s = freshGame();
+  s.monsters = []; // вокруг никого
+  const events = applyIntent(s, { intent: 'attack', target: '', raw: 'убиваю дрона за углом' });
+  const free = events.find(e => e.kind === 'dm' && String(e.text).startsWith('__FREE__'));
+  assert.ok(free, 'пустая атака → __FREE__');
+  assert.ok(free.text.includes('дрона за углом'));
+});

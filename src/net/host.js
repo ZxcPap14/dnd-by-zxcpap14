@@ -112,10 +112,20 @@ export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }
       return;
     }
     let events = applyIntent(game, intent, heroIdx);
-    // свободный текст → ДМ
+    // свободный текст → ДМ (в т.ч. перехваченные тупики движка — стена/нет предмета)
     for (const e of events) {
       if (e.kind === 'dm' && e.text.startsWith('__FREE__')) {
         const text = e.text.slice('__FREE__'.length);
+        if (intent.intent !== 'free') {
+          // тупик движка, переадресованный в свободный текст — тоже тратит лимит вольностей
+          const now = Date.now();
+          const wait = FREE_COOLDOWN_MS - (now - (lastFree.get(cooldownKey) || 0));
+          if (wait > 0) {
+            events.push({ kind: 'system', text: `Слишком много вольностей подряд — ДМ переваривает. ${Math.ceil(wait / 1000)} сек.`, turn: 0 });
+            continue;
+          }
+          lastFree.set(cooldownKey, now);
+        }
         const effects = (dm && dm.resolveFree)
           ? await dm.resolveFree(game, text)
           : stubDmTurn(game, text);

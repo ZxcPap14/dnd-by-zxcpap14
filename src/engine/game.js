@@ -13,10 +13,12 @@ import {
 } from './combat.js';
 
 export const DIRS = {
-  'север': [0, -1], 'с': [0, -1], 'north': [0, -1], 'n': [0, -1],
-  'юг': [0, 1], 'ю': [0, 1], 'south': [0, 1], 's': [0, 1],
-  'восток': [1, 0], 'в': [1, 0], 'east': [1, 0], 'e': [1, 0],
-  'запад': [-1, 0], 'з': [-1, 0], 'west': [-1, 0], 'w': [-1, 0]
+  // только ПОЛНЫЕ слова: однобуквенные «в/с/ю/з» — это предлоги русской речи,
+  // они превращали «Полез в вентиляцию» в «шаг на восток» (плейтест: стены)
+  'север': [0, -1], 'north': [0, -1], 'n': [0, -1],
+  'юг': [0, 1], 'south': [0, 1], 's': [0, 1],
+  'восток': [1, 0], 'east': [1, 0], 'e': [1, 0],
+  'запад': [-1, 0], 'west': [-1, 0], 'w': [-1, 0]
 };
 
 export const HERO_GLYPHS = ['@', '#', 'Ω', 'Φ'];
@@ -173,35 +175,43 @@ function W(word, suffix = false) {
 
 /**
  * Парсер свободного текста → интент. Всё, что не распознано, уходит ИИ как 'free'.
+ * Каждый интент несёт raw — исходный текст: если движок не справится,
+ * ДМ получит оригинальную формулировку игрока, а не заглушку.
  */
 export function parseCommand(text) {
   const t = (text || '').toLowerCase().trim();
   if (!t) return { intent: 'none' };
+  const raw = text;
 
   // движение (только целые слова: «с» не должно матчиться внутри «стражу»)
   for (const [word, d] of Object.entries(DIRS)) {
     if (W(word).test(t)) {
-      return { intent: 'move', dir: word, dirVec: d };
+      return { intent: 'move', dir: word, dirVec: d, raw };
     }
   }
-  if (W('инвентарь|рюкзак|вещи|inv', true).test(t)) return { intent: 'inventory' };
-  if (W('карта|карту|map', true).test(t)) return { intent: 'map' };
-  if (W('задач|квест|quest|журнал', true).test(t)) return { intent: 'quests' };
-  if (W('осмотр|огляде|look|где я', true).test(t)) return { intent: 'look' };
-  if (W('ждать|постоять|wait|отдохну', true).test(t)) return { intent: 'wait' };
-  if (W('спус|лестниц|descend', true).test(t)) return { intent: 'descend' };
+  if (W('инвентарь|рюкзак|вещи|inv', true).test(t)) return { intent: 'inventory', raw };
+  if (W('карта|карту|map', true).test(t)) return { intent: 'map', raw };
+  if (W('задач|квест|quest|журнал', true).test(t)) return { intent: 'quests', raw };
+  // осмотр: без цели — дешёвое описание движка; с целью («осмотрел порт») — ДМ
+  let mLook;
+  if ((mLook = t.match(W('осмотр|огляде|look|где я', true)))) {
+    if (afterVerb(t, mLook)) return { intent: 'free', text, raw };
+    return { intent: 'look', raw };
+  }
+  if (W('ждать|постоять|wait|отдохну', true).test(t)) return { intent: 'wait', raw };
+  if (W('спус|лестниц|descend', true).test(t)) return { intent: 'descend', raw };
 
   let m;
   if ((m = t.match(W('выпей|выпить|пью|использ|примен|use|drink', true))))
-    return { intent: 'use', target: afterVerb(t, m) };
+    return { intent: 'use', target: afterVerb(t, m), raw };
   if ((m = t.match(W('надень|надеть|экипир|возьми|equip|wield', true))))
-    return { intent: 'equip', target: afterVerb(t, m) };
+    return { intent: 'equip', target: afterVerb(t, m), raw };
   if ((m = t.match(W('атак|бей|бью|удар|убей|убить|attack|hit|kill', true))))
-    return { intent: 'attack', target: afterVerb(t, m) };
+    return { intent: 'attack', target: afterVerb(t, m), raw };
   if ((m = t.match(W('подним|подобрать|взять|собер|pick|grab', true))))
-    return { intent: 'pickup', target: afterVerb(t, m) };
+    return { intent: 'pickup', target: afterVerb(t, m), raw };
 
-  return { intent: 'free', text };
+  return { intent: 'free', text, raw };
 }
 
 /** Слово(а) после глагола в исходной строке. */
@@ -249,7 +259,8 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       const nx = hero.pos.x + dx, ny = hero.pos.y + dy;
       if (nx < 0 || ny < 0 || nx >= state.dungeon.w || ny >= state.dungeon.h ||
           state.dungeon.grid[ny][nx] === TILE.WALL) {
-        push('system', 'Ты упираешься в холодную стену. Она не впечатлена.');
+        // не глухая стена, а вопрос ДМу: он обыграет попытку с контекстом
+        push('unhandled', 'Ты упираешься в холодную стену. Она не впечатлена.');
         break;
       }
       const monster = state.monsters.find(m => m.hp > 0 && m.x === nx && m.y === ny);
@@ -271,7 +282,8 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
     case 'attack': {
       const targets = visibleMonsters(state, heroIdx);
       if (!targets.length) {
-        push('system', 'Ты угрожающе машешь оружием в пустоту. Пустота не в счёт.');
+        // «убиваю дрона за углом» — пусть ДМ расскажет, что реально рядом
+        push('unhandled', 'Ты угрожающе машешь оружием в пустоту. Пустота не в счёт.');
         break;
       }
       let target = targets[0];
@@ -286,7 +298,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
 
     case 'use': {
       const item = findItem(hero, intent.target);
-      if (!item) { push('system', `Среди вещей ${hero.name} нет ничего похожего на «${intent.target}».`); break; }
+      if (!item) { push('unhandled', `Среди вещей ${hero.name} нет ничего похожего на «${intent.target}».`); break; }
       if (item.type === 'potion') {
         removeItem(hero, item.id);
         const heal = item.heal || 8;
@@ -302,7 +314,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
 
     case 'equip': {
       const item = findItem(hero, intent.target);
-      if (!item) { push('system', `${hero.name} не нашёл «${intent.target}» в инвентаре.`); break; }
+      if (!item) { push('unhandled', `${hero.name} не нашёл «${intent.target}» в инвентаре.`); break; }
       const { equipped, unequipped } = equipItem(hero, item);
       if (equipped) {
         push('loot', `Экипировано: ${equipped.name}` + (unequipped ? ` (в рюкзак уходит ${unequipped.name})` : ''));
@@ -314,14 +326,15 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
 
     case 'pickup': {
       const here = state.floorItems.find(it => it.x === hero.pos.x && it.y === hero.pos.y);
-      if (!here) { push('system', 'Под ногами пусто. Даже пыли нет.'); break; }
+      if (!here) { push('unhandled', 'Под ногами пусто. Даже пыли нет.'); break; }
       events.push(...pickupItem(state, hero, here));
       break;
     }
 
     case 'descend': {
       if (state.dungeon.grid[hero.pos.y][hero.pos.x] !== TILE.STAIRS) {
-        push('system', 'Чтобы спуститься, нужно сначала найти лестницу. Она не под тобой.');
+        // «спускаюсь» как часть замысла игрока — ДМ подскажет, куда реально вниз
+        push('unhandled', 'Чтобы спуститься, нужно сначала найти лестницу. Она не под тобой.');
         break;
       }
       if (!allOnStairs(state)) {
@@ -385,6 +398,18 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       // свободный текст — обрабатывает ИИ-слой (или офлайн-заглушка)
       push('dm', `__FREE__${intent.text}`);
       break;
+  }
+
+  // тупик движка (стена / нет предмета / не та лестница / пустая атака)?
+  // отдаём ДМу ОРИГИНАЛЬНЫЙ текст игрока — он знает контекст и подстроится.
+  // Ход при этом НЕ сгорает и монстры не ходят: действия как такового не было.
+  const stuck = events.find(e => e.kind === 'unhandled');
+  if (stuck) {
+    const i = events.indexOf(stuck);
+    events.splice(i, 1, ev('dm', `__FREE__${intent.raw || stuck.text}`));
+    state.turn--;
+    rememberEvents(state, events);
+    return events;
   }
 
   // мир живёт: монстры ходят и нападают после действия героя
