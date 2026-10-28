@@ -1,0 +1,57 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Тесты движка и сети
+        run: npm test
+
+      - name: Сборка single-file бандла
+        run: npm run build
+
+      - name: Синтаксис бандла
+        run: |
+          node -e "
+          const fs = require('fs');
+          const html = fs.readFileSync('dist/index.html','utf8');
+          const m = html.match(/<script>([\s\S]*?)<\/script>/);
+          fs.writeFileSync('/tmp/bundle.js', m[1]);
+          "
+          node --check /tmp/bundle.js
+          echo "bundle OK"
+
+      - name: Стресс-прогон движка (25 сессий × 200 команд)
+        run: |
+          node -e "
+          import('./src/engine/game.js').then(async G => {
+            const { newGame, parseCommand, applyIntent, applyDmEffects } = G;
+            const { stubDmTurn } = await import('./src/ai/stub.js');
+            const cmds = ['иду на север','иду на юг','иду на запад','иду на восток','атакую','осмотреться','инвентарь','задачи','спускаюсь','выпить зелье','пробую подкупить стражу тортом','постоять'];
+            let errors = 0;
+            for (let seed = 1; seed <= 25; seed++) {
+              const s = newGame({ seed, worldDesc: 'CI-мир', mode: 'sandbox', players: [{ name: 'Бот', className: 'Плут', stats: { str: 12, dex: 14, int: 10, con: 12, cha: 10, luck: 10 } }] });
+              for (let i = 0; i < 200 && !s.over; i++) {
+                try {
+                  const events = applyIntent(s, parseCommand(cmds[Math.floor(Math.random() * cmds.length)]));
+                  for (const e of events) {
+                    if (e.kind === 'dm' && e.text.startsWith('__FREE__')) applyDmEffects(s, stubDmTurn(s, e.text.slice(8)));
+                  }
+                } catch (err) { errors++; console.error('seed', seed, 'cmd', i, err.message); break; }
+              }
+            }
+            if (errors) { console.error('errors:', errors); process.exit(1); }
+            console.log('stress OK');
+          });
+          "
