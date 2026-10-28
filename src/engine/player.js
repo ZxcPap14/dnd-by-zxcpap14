@@ -2,6 +2,9 @@
 
 import { mod } from './rng.js';
 
+// ре-экспорт для удобства потребителей
+export { mod };
+
 export const STAT_NAMES = {
   str: 'Сила', dex: 'Ловкость', int: 'Интеллект',
   con: 'Выносливость', cha: 'Харизма', luck: 'Удача'

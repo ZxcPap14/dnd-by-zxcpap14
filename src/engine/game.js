@@ -12,8 +12,8 @@ import {
 } from './combat.js';
 
 export const DIRS = {
-  'север': [0, -1], 'с': [0, -1], 'north': [0, -1], 'n': [0, -1], 'вверх': [0, -1],
-  'юг': [0, 1], 'ю': [0, 1], 'south': [0, 1], 's': [0, 1], 'вниз': [0, 1],
+  'север': [0, -1], 'с': [0, -1], 'north': [0, -1], 'n': [0, -1],
+  'юг': [0, 1], 'ю': [0, 1], 'south': [0, 1], 's': [0, 1],
   'восток': [1, 0], 'в': [1, 0], 'east': [1, 0], 'e': [1, 0],
   'запад': [-1, 0], 'з': [-1, 0], 'west': [-1, 0], 'w': [-1, 0]
 };
@@ -92,35 +92,51 @@ export function newGame(opts) {
 }
 
 /**
+ * Граница слова для кириллицы: \b в JS не работает с не-ASCII.
+ * suffix=true — стем-режим: «задач» матчит «задачи», «атак» — «атакую».
+ */
+function W(word, suffix = false) {
+  const tail = suffix ? '[а-яёa-z]*' : '';
+  return new RegExp(`(?:^|[^а-яёa-z])(?:${word})${tail}(?![а-яёa-z])`, 'i');
+}
+
+/**
  * Парсер свободного текста → интент. Всё, что не распознано, уходит ИИ как 'free'.
  */
 export function parseCommand(text) {
   const t = (text || '').toLowerCase().trim();
   if (!t) return { intent: 'none' };
 
-  // движение
+  // движение (только целые слова: «с» не должно матчиться внутри «стражу»)
   for (const [word, d] of Object.entries(DIRS)) {
-    if (new RegExp(`(идти|иду|шаг|бег|двиг|move|go|на|^|\\s)${word}\\b`).test(t) && t.includes(word)) {
+    if (W(word).test(t)) {
       return { intent: 'move', dir: word, dirVec: d };
     }
   }
-  if (/(инвентарь|рюкзак|вещи|inventory|inv)/.test(t)) return { intent: 'inventory' };
-  if (/(карта|map)/.test(t)) return { intent: 'map' };
-  if (/(задач|квест|quest|журнал)/.test(t)) return { intent: 'quests' };
-  if (/(осмотреть|оглядеться|look|где я)/.test(t)) return { intent: 'look' };
-  if (/(ждать|постоять|wait|отдохну)/.test(t)) return { intent: 'wait' };
-  if (/(спуст|лестниц|вниз по|descend|спуск)/.test(t)) return { intent: 'descend' };
+  if (W('инвентарь|рюкзак|вещи|inv', true).test(t)) return { intent: 'inventory' };
+  if (W('карта|карту|map', true).test(t)) return { intent: 'map' };
+  if (W('задач|квест|quest|журнал', true).test(t)) return { intent: 'quests' };
+  if (W('осмотр|огляде|look|где я', true).test(t)) return { intent: 'look' };
+  if (W('ждать|постоять|wait|отдохну', true).test(t)) return { intent: 'wait' };
+  if (W('спус|лестниц|descend', true).test(t)) return { intent: 'descend' };
 
-  const useMatch = t.match(/(?:выпей|выпить|использ|пью|пить|use|drink)\s+(?:моё|мою|мой)?\s*(.+)/);
-  if (useMatch) return { intent: 'use', target: useMatch[1] };
-  const equipMatch = t.match(/(?:надень|надеть|экипир|возьми в руки|equip|wield)\s*(.+)/);
-  if (equipMatch) return { intent: 'equip', target: equipMatch[1] };
-  const atkMatch = t.match(/(?:атак|бей|удар|убей|attack|hit|kill)\w*\s*(.*)/);
-  if (atkMatch) return { intent: 'attack', target: atkMatch[1] };
-  const pickMatch = t.match(/(?:подним|подобрать|взять|pick|grab)\w*\s*(.*)/);
-  if (pickMatch) return { intent: 'pickup', target: pickMatch[1] };
+  let m;
+  if ((m = t.match(W('выпей|выпить|пью|использ|примен|use|drink', true))))
+    return { intent: 'use', target: afterVerb(t, m) };
+  if ((m = t.match(W('надень|надеть|экипир|возьми|equip|wield', true))))
+    return { intent: 'equip', target: afterVerb(t, m) };
+  if ((m = t.match(W('атак|бей|бью|удар|убей|убить|attack|hit|kill', true))))
+    return { intent: 'attack', target: afterVerb(t, m) };
+  if ((m = t.match(W('подним|подобрать|взять|собер|pick|grab', true))))
+    return { intent: 'pickup', target: afterVerb(t, m) };
 
   return { intent: 'free', text };
+}
+
+/** Слово(а) после глагола в исходной строке. */
+function afterVerb(t, m) {
+  const idx = t.indexOf(m[0]) + m[0].length;
+  return t.slice(idx).replace(/^[,\s]+/, '').trim();
 }
 
 /** Событие для лога/ИИ. kind: dm|system|roll|combat|loot|death|levelup */

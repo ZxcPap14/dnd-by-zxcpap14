@@ -1,7 +1,7 @@
 // dm.js — ИИ-данж-мастер: сборка контекста, системный промпт, парсинг ответа.
 // Характер по спецификации: юмор и троллинг + беспощадность. Русский язык.
 
-import { playerAc, renderInventory } from '../engine/player.js';
+import { playerAc } from '../engine/player.js';
 
 export const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-игры «dnd by ZxcPap14». 
 
