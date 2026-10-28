@@ -536,7 +536,7 @@
     </div>
     <div class="field">
       <label for="set-model">Модель</label>
-      <input id="set-model" type="text" placeholder="gpt-4o-mini / deepseek-chat / llama3">
+      <input id="set-model" type="text" placeholder="gpt-4o-mini / deepseek-flash / llama3">
     </div>
     <div class="hint" style="margin-left:140px">Любой OpenAI-совместимый: OpenAI, DeepSeek, OpenRouter, локальная Ollama. Ключ хранится только в твоём браузере.</div>
     <div id="setup-note"></div>
@@ -1663,20 +1663,62 @@ function createClient(cfg) {
 
 /**
  * Достать JSON из ответа модели (устойчиво к ```json обёрткам и болтовне).
+ * Умеет спасать JSON, обрезанный по лимиту токенов (finish_reason=length).
  * @returns {object|null}
  */
 function extractJson(text) {
   if (!text) return null;
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidates = [fenced && fenced[1], text];
-  for (const c of candidates) {
+  for (const c of [fenced && fenced[1], text]) {
     if (!c) continue;
-    const start = c.indexOf('{');
-    const end = c.lastIndexOf('}');
-    if (start === -1 || end <= start) continue;
-    try {
-      return JSON.parse(c.slice(start, end + 1));
-    } catch { /* пробуем дальше */ }
+    const obj = tryParseJson(c);
+    if (obj) return obj;
+  }
+  return null;
+}
+
+function tryParseJson(s) {
+  const start = s.indexOf('{');
+  if (start === -1) return null;
+  const body = s.slice(start);
+
+  // 1) точный парс
+  const end = body.lastIndexOf('}');
+  if (end > 0) {
+    try { return JSON.parse(body.slice(0, end + 1)); } catch { /* пробуем дальше */ }
+  }
+
+  // 2) спасение обрезанного: сканируем и закрываем незакрытые строку/скобки
+  let depth = 0, inStr = false, esc = false, lastComplete = -1;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (esc) { esc = false; continue; }
+    if (inStr) {
+      if (ch === '\\') esc = true;
+      else if (ch === '"') { inStr = false; lastComplete = i; }
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) { try { return JSON.parse(body.slice(0, i + 1)); } catch { break; } }
+      lastComplete = i;
+    }
+  }
+  let out = body;
+  if (inStr) out += '"';
+  if (depth > 0) out += '}'.repeat(depth);
+  out = out.replace(/,\s*([\]}])/g, '$1');          // висячая запятая
+  try { return JSON.parse(out); } catch { /* дальше грубее */ }
+
+  // 3) грубая зачистка: отрезаем хвост по последнему разделителю и пробуем снова
+  let s3 = body;
+  for (let i = 0; i < 50 && s3.length > 2; i++) {
+    const cut = Math.max(s3.lastIndexOf(','), s3.lastIndexOf('"'));
+    if (cut <= 0) return null;
+    s3 = s3.slice(0, cut);
+    try { return JSON.parse(s3.replace(/,\s*$/, '') + '}'); } catch { /* ещё короче */ }
   }
   return null;
 }
@@ -2958,7 +3000,7 @@ async function renderClassList() {
   const c = currentClient();
   if (c) {
     try {
-      const raw = await c.chat(classMessages(world), { maxTokens: 300 });
+      const raw = await c.chat(classMessages(world), { maxTokens: 1500 });
       const data = extractJson(raw);
       if (data?.classes?.length) classes = data.classes.slice(0, 4);
     } catch (e) {
@@ -2999,7 +3041,7 @@ function makeDmResolver() {
     resolveFree: async (game, text) => {
       if (client) {
         try {
-          const raw = await client.chat(buildContext(game, text), { maxTokens: 600 });
+          const raw = await client.chat(buildContext(game, text), { maxTokens: 2000 });
           const eff = extractJson(raw);
           return eff || { narrative: raw.slice(0, 800) };
         } catch (e) {
@@ -3037,7 +3079,7 @@ function startSolo() {
   showIntro([world.toUpperCase(), `РЕЖИМ: ${mode === 'sandbox' ? 'ПЕСОЧНИЦА' : 'СЮЖЕТ'}`, `ЭПИЗОД I — ${name}, ${cls.name}`, 'ДАЛЕЕ: ТЬМА, ТРОЛЛИНГ И ПЕРМАСМЕРТЬ']);
 
   if (client) {
-    client.chat(introMessages(state), { maxTokens: 500 })
+    client.chat(introMessages(state), { maxTokens: 2000 })
       .then(raw => {
         const eff = extractJson(raw);
         handleEventsSolo(applyDmEffects(state, eff || { narrative: raw.slice(0, 600) }));
@@ -3201,7 +3243,7 @@ async function hostLaunch() {
   const intro = client
     ? async (game) => {
       try {
-        const raw = await client.chat(introMessages(game), { maxTokens: 500 });
+        const raw = await client.chat(introMessages(game), { maxTokens: 2000 });
         return extractJson(raw) || { narrative: raw.slice(0, 600) };
       } catch (e) {
         return { narrative: `ДМ не отвечает (${e.message}). Партия очнулась в темноте. Как обычно.` };

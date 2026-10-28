@@ -42,20 +42,62 @@ export function createClient(cfg) {
 
 /**
  * Достать JSON из ответа модели (устойчиво к ```json обёрткам и болтовне).
+ * Умеет спасать JSON, обрезанный по лимиту токенов (finish_reason=length).
  * @returns {object|null}
  */
 export function extractJson(text) {
   if (!text) return null;
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidates = [fenced && fenced[1], text];
-  for (const c of candidates) {
+  for (const c of [fenced && fenced[1], text]) {
     if (!c) continue;
-    const start = c.indexOf('{');
-    const end = c.lastIndexOf('}');
-    if (start === -1 || end <= start) continue;
-    try {
-      return JSON.parse(c.slice(start, end + 1));
-    } catch { /* пробуем дальше */ }
+    const obj = tryParseJson(c);
+    if (obj) return obj;
+  }
+  return null;
+}
+
+function tryParseJson(s) {
+  const start = s.indexOf('{');
+  if (start === -1) return null;
+  const body = s.slice(start);
+
+  // 1) точный парс
+  const end = body.lastIndexOf('}');
+  if (end > 0) {
+    try { return JSON.parse(body.slice(0, end + 1)); } catch { /* пробуем дальше */ }
+  }
+
+  // 2) спасение обрезанного: сканируем и закрываем незакрытые строку/скобки
+  let depth = 0, inStr = false, esc = false, lastComplete = -1;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (esc) { esc = false; continue; }
+    if (inStr) {
+      if (ch === '\\') esc = true;
+      else if (ch === '"') { inStr = false; lastComplete = i; }
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) { try { return JSON.parse(body.slice(0, i + 1)); } catch { break; } }
+      lastComplete = i;
+    }
+  }
+  let out = body;
+  if (inStr) out += '"';
+  if (depth > 0) out += '}'.repeat(depth);
+  out = out.replace(/,\s*([\]}])/g, '$1');          // висячая запятая
+  try { return JSON.parse(out); } catch { /* дальше грубее */ }
+
+  // 3) грубая зачистка: отрезаем хвост по последнему разделителю и пробуем снова
+  let s3 = body;
+  for (let i = 0; i < 50 && s3.length > 2; i++) {
+    const cut = Math.max(s3.lastIndexOf(','), s3.lastIndexOf('"'));
+    if (cut <= 0) return null;
+    s3 = s3.slice(0, cut);
+    try { return JSON.parse(s3.replace(/,\s*$/, '') + '}'); } catch { /* ещё короче */ }
   }
   return null;
 }
