@@ -693,28 +693,6 @@ function wire() {
   });
   $('log').addEventListener('click', () => { typer && typer.skipAll(); });
 
-  // статусная строка сетевого слоя (какой брокер/транспорт реально используются)
-  const NET_LABELS = {
-    'host-broker': 'хост на брокере',
-    'probe': 'проверяю брокеров',
-    'broker': 'брокер',
-    'transport': 'канал',
-    'attempt': 'путь',
-    'attempt-failed': 'не вышел'
-  };
-  document.addEventListener('dnd-net-status', e => {
-    const el = $('net-status');
-    if (!el) return;
-    const d = e.detail || {};
-    const label = NET_LABELS[d.stage] || d.stage;
-    let text = '';
-    if (d.stage === 'attempt') text = 'путь: ' + d.via + '…';
-    else if (d.stage === 'attempt-failed') text = 'путь ' + d.via + ' не удался, пробую следующий…';
-    else if (d.stage === 'transport') text = 'канал: ' + d.via + (d.broker ? ' · ' + d.broker : '');
-    else text = label + (d.broker ? ': ' + d.broker : '') + (d.brokers ? ': ' + d.brokers.join(', ') : '');
-    el.textContent = text;
-  });
-
   const input = $('input');
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') submitInput();

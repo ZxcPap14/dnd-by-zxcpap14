@@ -5,7 +5,6 @@ import { createHostSession } from '../net/host.js';
 import { createClientSession } from '../net/client.js';
 import { PROTOCOL_VER } from '../net/protocol.js';
 import { describePeerError } from '../net/peer.js';
-import { MQTT_BROKERS, roomTopic, clientTopic, parseEnvelope } from '../net/mqtt-signal.js';
 
 const CLASSES = [
   { name: 'Воин', className: 'Воин', stats: { str: 16, dex: 12, int: 8, con: 14, cha: 10, luck: 12 } },
@@ -43,31 +42,6 @@ test('describePeerError: сырые типы PeerJS превращаются в 
   assert.match(describePeerError('что-то новое'), /что-то новое/);
   // без точки в конце сообщений-инструкций
   assert.ok(describePeerError('network').endsWith('ещё раз.'));
-});
-
-test('mqtt-signal: топики неймспейсованы, код в нижний регистр', () => {
-  assert.equal(roomTopic('AB2X'), 'dndzxc14/v1/r/ab2x');
-  assert.equal(clientTopic('h-deadbeef'), 'dndzxc14/v1/c/h-deadbeef');
-  assert.ok(MQTT_BROKERS.length >= 2, 'минимум два брокера в fallback-цепочке');
-  assert.ok(MQTT_BROKERS[0].startsWith('wss://'), 'продовый брокер — только wss');
-});
-
-test('mqtt-signal: parseEnvelope режет мусор, пропускает валидные конверты', () => {
-  assert.equal(parseEnvelope('не json'), null);
-  assert.equal(parseEnvelope(null), null);
-  assert.equal(parseEnvelope({ kind: 'offer' }), null, 'нет from');
-  assert.equal(parseEnvelope({ kind: 'взлом', from: 'x' }), null, 'неизвестный kind');
-  assert.equal(parseEnvelope({ kind: 'offer', from: 'c-1', payload: {} }).kind, 'offer');
-  assert.equal(parseEnvelope('{"kind":"ice","from":"h-1","candidate":{"candidate":"x"}}').kind, 'ice');
-  assert.equal(parseEnvelope({ kind: 'host-here', from: 'h-1', ts: 1 }).kind, 'host-here');
-  // relay-конверты
-  assert.equal(parseEnvelope({ kind: 'relay-hello', from: 'c-1' }).kind, 'relay-hello');
-  assert.equal(parseEnvelope({ kind: 'relay-bye', from: 'h-1' }).kind, 'relay-bye');
-  assert.equal(parseEnvelope({ kind: 'relay-msg', from: 'c-1' }), null, 'relay-msg без msg отбраковывается');
-  assert.equal(parseEnvelope({ kind: 'relay-msg', from: 'c-1', msg: 'строка' }), null, 'msg должен быть объектом');
-  const ok = parseEnvelope({ kind: 'relay-msg', from: 'c-1', msg: { t: 'intent' } });
-  assert.equal(ok.kind, 'relay-msg');
-  assert.deepEqual(ok.msg, { t: 'intent' });
 });
 
 test('makeRoomCode: 4 символа из безопасного алфавита', () => {
