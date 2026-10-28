@@ -29,7 +29,7 @@ export function parseEnvelope(raw) {
   if (!env || typeof env !== 'object') return null;
   if (typeof env.kind !== 'string') return null;
   if (typeof env.from !== 'string' || !env.from) return null;
-  if (!['host-here', 'offer', 'answer', 'ice', 'bye', 'relay-hello', 'relay-msg', 'relay-bye'].includes(env.kind)) return null;
+  if (!['host-here', 'offer', 'answer', 'ice', 'bye', 'relay-hello', 'relay-msg', 'relay-bye', 'relay-ping'].includes(env.kind)) return null;
   if (env.kind === 'relay-msg' && typeof env.msg !== 'object') return null;
   return env;
 }

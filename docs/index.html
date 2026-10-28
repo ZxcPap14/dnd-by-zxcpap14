@@ -2281,7 +2281,7 @@ function parseEnvelope(raw) {
   if (!env || typeof env !== 'object') return null;
   if (typeof env.kind !== 'string') return null;
   if (typeof env.from !== 'string' || !env.from) return null;
-  if (!['host-here', 'offer', 'answer', 'ice', 'bye', 'relay-hello', 'relay-msg', 'relay-bye'].includes(env.kind)) return null;
+  if (!['host-here', 'offer', 'answer', 'ice', 'bye', 'relay-hello', 'relay-msg', 'relay-bye', 'relay-ping'].includes(env.kind)) return null;
   if (env.kind === 'relay-msg' && typeof env.msg !== 'object') return null;
   return env;
 }
@@ -2352,6 +2352,20 @@ async function connectMqttBroker(customUrl, opts = {}) {
 
 const randId = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(16).padStart(2, '0')).join('');
 
+const QOS = 1; // QoS 1: публичные брокеры могут ронять QoS 0 при всплесках
+
+/**
+ * Подписки, переживающие переподключение. mqtt.js сам восстанавливает соединение,
+ * но при clean:true подписки после обрыва ТЕРЯЮТСЯ — надо пересабскрайбиться.
+ */
+function makeSubscriber(mqttClient) {
+  const topics = new Set();
+  mqttClient.on('connect', () => { if (topics.size) mqttClient.subscribe([...topics], { qos: QOS }); });
+  return {
+    subscribe(t) { const arr = Array.isArray(t) ? t : [t]; arr.forEach(x => topics.add(x)); mqttClient.subscribe(arr, { qos: QOS }); }
+  };
+}
+
 /** Очередь ICE-кандидатов до setRemoteDescription (trickle может приходить раньше answer). */
 function makeIceQueue(pc) {
   const pending = [];
@@ -2367,13 +2381,15 @@ function makeIceQueue(pc) {
  */
 async function createMqttHostNet(code, { brokerUrl } = {}) {
   const mqttClient = await connectMqttBroker(brokerUrl);
+  const sub = makeSubscriber(mqttClient);
   const hostId = 'h-' + randId();
   const room = roomTopic(code);
   const relayClients = new Set();
+  const lastSeen = new Map(); // relay clientId → ts последнего конверта от него
   const webrtcConns = new Map(); // clientId -> { pc, channel, iceQ }
   let onMsg = null, onJoin = null, onLeave = null;
 
-  const sendToTopic = (topic, env, opts) => mqttClient.publish(topic, JSON.stringify({ ...env, from: hostId }), opts);
+  const sendToTopic = (topic, env, opts) => mqttClient.publish(topic, JSON.stringify({ ...env, from: hostId }), { qos: QOS, ...opts });
   const send = (toId, env) => sendToTopic(clientTopic(toId), env);
   const toRoom = (env, opts) => sendToTopic(room, env, opts);
 
@@ -2382,6 +2398,7 @@ async function createMqttHostNet(code, { brokerUrl } = {}) {
     if (e) { try { e.channel && e.channel.close(); } catch { /* ignore */ } try { e.pc && e.pc.close(); } catch { /* ignore */ } }
     const wasWeb = webrtcConns.delete(id);
     const wasRelay = relayClients.delete(id);
+    lastSeen.delete(id);
     if ((wasWeb || wasRelay) && onLeave) onLeave(id);
   }
 
@@ -2414,20 +2431,30 @@ async function createMqttHostNet(code, { brokerUrl } = {}) {
     entry.iceQ.flush();
   }
 
-  mqttClient.subscribe(room, () => {
-    toRoom({ kind: 'host-here', ts: Date.now() }, { retain: true });
-  });
+  sub.subscribe(room);
+  toRoom({ kind: 'host-here', ts: Date.now() }, { retain: true });
+  // страховка: некоторые публичные брокеры вымывают retained — обновляем присутствие
+  const presenceTimer = setInterval(() => toRoom({ kind: 'host-here', ts: Date.now() }, { retain: true }), 25000);
+
+  // релейные клиенты пингуют каждые 10с; молчание 45с = отвалился
+  // (вместо LWT: завещание убивало игрока при любом микро-обрыве)
+  const watchdog = setInterval(() => {
+    const now = Date.now();
+    for (const [id, ts] of lastSeen) if (now - ts > 45000) leaveClient(id);
+  }, 15000);
 
   mqttClient.on('message', async (topic, raw) => {
     if (topic !== room) return;
     const env = parseEnvelope(raw.toString());
     if (!env || env.from === hostId) return;
+    if (relayClients.has(env.from)) lastSeen.set(env.from, Date.now());
     try {
       switch (env.kind) {
         case 'offer': await handleOffer(env.from, env.payload); break;
         case 'ice': { const e = webrtcConns.get(env.from); if (e) e.iceQ.add(env.candidate); break; }
-        case 'relay-hello': if (!relayClients.has(env.from)) { relayClients.add(env.from); if (onJoin) onJoin(env.from); } break;
+        case 'relay-hello': if (!relayClients.has(env.from)) { relayClients.add(env.from); lastSeen.set(env.from, Date.now()); if (onJoin) onJoin(env.from); } break;
         case 'relay-msg': if (relayClients.has(env.from) && onMsg) onMsg(env.from, env.msg); break;
+        case 'relay-ping': break; // только обновил lastSeen
         case 'relay-bye': case 'bye': leaveClient(env.from); break;
       }
     } catch { /* битый envelope — игнор */ }
@@ -2447,6 +2474,8 @@ async function createMqttHostNet(code, { brokerUrl } = {}) {
     onClientJoin(cb) { onJoin = cb; },
     onClientLeave(cb) { onLeave = cb; },
     close() {
+      clearInterval(presenceTimer);
+      clearInterval(watchdog);
       try { toRoom({ kind: 'relay-bye' }); } catch { /* ignore */ }
       try { mqttClient.publish(room, '', { retain: true }); } catch { /* ignore */ } // снять retained-присутствие
       [...webrtcConns.keys()].forEach(leaveClient);
@@ -2464,10 +2493,8 @@ async function createMqttClientLink(code, { brokerUrl, mode = 'webrtc', hostWait
   const room = roomTopic(code);
   const myTopic = clientTopic(myId);
 
-  // LWT: если соединение клиента умрёт — брокер сам скажет хосту «relay-bye»
-  const mqttClient = await connectMqttBroker(brokerUrl, {
-    will: { topic: room, payload: JSON.stringify({ kind: 'relay-bye', from: myId }), qos: 0, retain: false }
-  });
+  const mqttClient = await connectMqttBroker(brokerUrl);
+  const sub = makeSubscriber(mqttClient);
 
   let hostId = null;
   let onClose = null;
@@ -2481,7 +2508,7 @@ async function createMqttClientLink(code, { brokerUrl, mode = 'webrtc', hostWait
         if (env && env.kind === 'host-here' && env.from !== myId) { clearTimeout(t); hostId = env.from; resolve(); }
       };
       mqttClient.on('message', onPresence);
-      mqttClient.subscribe([room, myTopic], () => { /* retained может прийти уже тут */ });
+      sub.subscribe([room, myTopic]);
     });
   } catch {
     mqttClient.end(true);
@@ -2494,27 +2521,37 @@ async function createMqttClientLink(code, { brokerUrl, mode = 'webrtc', hostWait
   if (mode === 'relay') {
     let closed = false;
     let downTimer = null;
+    let lastHostMsg = Date.now();
     const cleanup = () => {
-      closed = true; clearTimeout(downTimer);
-      try { mqttClient.publish(room, JSON.stringify({ kind: 'relay-bye', from: myId })); } catch { /* ignore */ }
+      closed = true; clearTimeout(downTimer); clearInterval(pingTimer); clearInterval(hdTimer);
+      try { mqttClient.publish(room, JSON.stringify({ kind: 'relay-bye', from: myId }), { qos: QOS }); } catch { /* ignore */ }
       try { mqttClient.end(true); } catch { /* ignore */ }
     };
+    // пинг хосту: он считает нас живыми; QoS 0 — потеря пинга не смертельна
+    const pingTimer = setInterval(() => {
+      try { mqttClient.publish(room, JSON.stringify({ kind: 'relay-ping', from: myId })); } catch { /* ignore */ }
+    }, 10000);
+    // хост публикует host-here каждые 25с; тишина 65с = хост мёртв
+    const hdTimer = setInterval(() => {
+      if (!closed && Date.now() - lastHostMsg > 65000) { closed = true; clearInterval(pingTimer); clearInterval(hdTimer); try { mqttClient.end(true); } catch { /* ignore */ } if (onClose) onClose(); }
+    }, 10000);
+    mqttClient.on('message', () => { lastHostMsg = Date.now(); });
     // mqtt.js сам переподключается; если связь не вернулась за 12с — линк мёртв
     mqttClient.on('close', () => {
       if (closed) return;
       clearTimeout(downTimer);
-      downTimer = setTimeout(() => { if (!closed) { closed = true; if (onClose) onClose(); } }, 12000);
+      downTimer = setTimeout(() => { if (!closed) { closed = true; clearInterval(pingTimer); clearInterval(hdTimer); if (onClose) onClose(); } }, 12000);
     });
     mqttClient.on('connect', () => clearTimeout(downTimer));
 
-    mqttClient.publish(room, JSON.stringify({ kind: 'relay-hello', from: myId }));
+    mqttClient.publish(room, JSON.stringify({ kind: 'relay-hello', from: myId }), { qos: QOS });
 
     // буфер: хост отвечает мгновенно, а onMessage регистрируется чуть позже
     const pending = [];
     let delivering = false;
 
     return {
-      send(msg) { if (!closed) mqttClient.publish(room, JSON.stringify({ kind: 'relay-msg', from: myId, msg })); },
+      send(msg) { if (!closed) mqttClient.publish(room, JSON.stringify({ kind: 'relay-msg', from: myId, msg }), { qos: QOS }); },
       onMessage(cb) {
         delivering = true;
         pending.splice(0).forEach(cb);
@@ -2536,7 +2573,7 @@ async function createMqttClientLink(code, { brokerUrl, mode = 'webrtc', hostWait
   const dc = pc.createDataChannel('game', { ordered: true });
 
   pc.onicecandidate = ev => {
-    if (ev.candidate) mqttClient.publish(clientTopic(hostId), JSON.stringify({ kind: 'ice', candidate: ev.candidate.toJSON(), from: myId }));
+    if (ev.candidate) mqttClient.publish(clientTopic(hostId), JSON.stringify({ kind: 'ice', candidate: ev.candidate.toJSON(), from: myId }), { qos: QOS });
   };
 
   let onMsg = null;
@@ -2550,7 +2587,7 @@ async function createMqttClientLink(code, { brokerUrl, mode = 'webrtc', hostWait
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-  mqttClient.publish(room, JSON.stringify({ kind: 'offer', payload: pc.localDescription, from: myId }));
+  mqttClient.publish(room, JSON.stringify({ kind: 'offer', payload: pc.localDescription, from: myId }), { qos: QOS });
 
   mqttClient.on('message', async (topic, raw) => {
     if (topic !== myTopic) return;
@@ -2578,7 +2615,7 @@ async function createMqttClientLink(code, { brokerUrl, mode = 'webrtc', hostWait
     send(msg) { if (dc.readyState === 'open') dc.send(JSON.stringify(msg)); },
     onMessage(cb) { onMsg = cb; },
     onClose(cb) { onClose = cb; },
-    close() { try { mqttClient.publish(room, JSON.stringify({ kind: 'bye', from: myId })); } catch { /* ignore */ } cleanup(); }
+    close() { try { mqttClient.publish(room, JSON.stringify({ kind: 'bye', from: myId }), { qos: QOS }); } catch { /* ignore */ } cleanup(); }
   };
 }
 
