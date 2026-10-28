@@ -1,6 +1,13 @@
-// peer.js — WebRTC-транспорт поверх PeerJS (ленивая загрузка с CDN).
-// Хост: принимает несколько подключений. Клиент: один линк к хосту.
-// Room code → namespaced peer-id на публичном signaling-брокере.
+// peer.js — оркестрация транспортов мультиплеера.
+// РФ-плейтест показал: 0.peerjs.com (signaling PeerJS) заблокирован без VPN.
+// Решение: хост регистрируется СРАЗУ на двух транспортах —
+//   1) MQTT-сигналинг + прямой WebRTC (wss://broker.emqx.io и др., доступны из РФ)
+//   2) классический PeerJS (работает за VPN и за пределами РФ)
+// Клиент стучится сначала в MQTT-транспорт, при неудаче — в PeerJS.
+// Игровой трафик в обоих случаях идёт по P2P WebRTC DataChannel.
+
+import { ICE_SERVERS } from './ice.js';
+import { createWebRtcHostNet, createWebRtcClientLink } from './webrtc.js';
 
 const PEER_NAMESPACE = 'dndzxc14-';
 const PEER_CDNS = [
@@ -11,25 +18,17 @@ const CONNECT_TIMEOUT_MS = 15000;
 const JOIN_TIMEOUT_MS = 25000; // TURN-согласование через NAT занимает дольше
 const REG_ATTEMPTS = 3;        // публичный брокер PeerJS бывает флакает — ретраим
 
-/**
- * ICE-серверы: несколько STUN + бесплатный публичный TURN (Open Relay Project).
- * Без TURN соединение между разными сетями за строгим NAT/CGNAT молча умирает
- * (найдено плейтестом: вкладки одного ПК работают, другой ПК — нет).
- */
-const ICE_SERVERS = [
-  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
-  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:80?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-];
-
 const PEER_OPTS = {
   config: { iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 },
   debug: 1
 };
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/** Оверрайд MQTT-брокера из URL (?mqtt=ws://localhost:8080) — для локальных e2e. */
+export function brokerOverride() {
+  try { return new URLSearchParams(globalThis.location.search).get('mqtt') || undefined; } catch { return undefined; }
+}
 
 /** Человекочитаемый текст для типа ошибки PeerJS (экспортируется для тестов). */
 export function describePeerError(type, extra) {
@@ -79,8 +78,6 @@ export function loadPeerJS() {
 
 /**
  * Регистрация пира на signaling-брокере с ретраями.
- * Публичный брокер PeerJS (0.peerjs.com) нередко отдаёт network/server-error —
- * поэтому до REG_ATTEMPTS попыток с нарастающей паузой.
  */
 async function registerPeer(makePeer, { timeout = CONNECT_TIMEOUT_MS, attempts = REG_ATTEMPTS } = {}) {
   let lastErr = null;
@@ -104,10 +101,9 @@ async function registerPeer(makePeer, { timeout = CONNECT_TIMEOUT_MS, attempts =
   throw lastErr;
 }
 
-/**
- * Сеть хоста. Интерфейс: { broadcast, sendTo, onClientMessage, onClientJoin, onClientLeave, close }
- */
-export async function createPeerHostNet(code) {
+// ---------- Транспорт 2: классический PeerJS ----------
+
+async function createPeerJsHostNet(code) {
   await loadPeerJS();
   const Peer = globalThis.Peer;
 
@@ -135,10 +131,7 @@ export async function createPeerHostNet(code) {
   };
 }
 
-/**
- * Линк клиента. Интерфейс: { send, onMessage, onClose, close }
- */
-export async function createPeerClientLink(code) {
+async function createPeerJsClientLink(code) {
   await loadPeerJS();
   const Peer = globalThis.Peer;
 
@@ -177,4 +170,61 @@ export async function createPeerClientLink(code) {
     onClose(cb) { onClose = cb; },
     close() { try { conn.close(); } catch { /*ignore*/ } try { peer.destroy(); } catch { /*ignore*/ } }
   };
+}
+
+// ---------- Оркестрация: хост на обоих транспортах, клиент — по цепочке ----------
+
+function mergeNets(nets) {
+  let onMsg = null, onJoin = null, onLeave = null;
+  nets.forEach(n => {
+    n.onClientMessage((id, m) => { if (onMsg) onMsg(id, m); });
+    n.onClientJoin(id => { if (onJoin) onJoin(id); });
+    n.onClientLeave(id => { if (onLeave) onLeave(id); });
+  });
+  return {
+    broadcast(msg) { nets.forEach(n => n.broadcast(msg)); },
+    sendTo(id, msg) { nets.forEach(n => n.sendTo(id, msg)); },
+    onClientMessage(cb) { onMsg = cb; },
+    onClientJoin(cb) { onJoin = cb; },
+    onClientLeave(cb) { onLeave = cb; },
+    close() { nets.forEach(n => n.close()); }
+  };
+}
+
+/**
+ * Сеть хоста: MQTT/WebRTC (RF-путь) + PeerJS параллельно; живёт хотя бы один.
+ */
+export async function createPeerHostNet(code) {
+  const opts = { brokerUrl: brokerOverride() };
+  const results = await Promise.allSettled([
+    createWebRtcHostNet(code, opts),
+    createPeerJsHostNet(code)
+  ]);
+  const nets = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+  if (!nets.length) {
+    const reasons = results.map(r => (r.reason && r.reason.message) || '?').join(' / ');
+    throw new Error('Не удалось создать комнату: ' + reasons);
+  }
+  return nets.length === 1 ? nets[0] : mergeNets(nets);
+}
+
+/**
+ * Линк клиента: сперва MQTT/WebRTC (работает из РФ), затем PeerJS.
+ */
+export async function createPeerClientLink(code) {
+  const opts = { brokerUrl: brokerOverride() };
+  let mqttErr = null;
+  try {
+    return await createWebRtcClientLink(code, opts);
+  } catch (e) {
+    mqttErr = e;
+  }
+  try {
+    return await createPeerJsClientLink(code);
+  } catch (peerErr) {
+    // room-not-found — самый полезный ответ (хост действительно нигде не живёт)
+    if (peerErr.peerType === 'peer-unavailable') throw peerErr;
+    const parts = [mqttErr && mqttErr.message, peerErr.message].filter(Boolean).join(' / ');
+    throw new Error('Не удалось подключиться: ' + parts);
+  }
 }
