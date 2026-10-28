@@ -69,18 +69,19 @@ test('applyDmEffects бьёт конкретного героя, а не всю 
 
 test('descend требует всю партию на лестнице', () => {
   const s = coopGame();
-  // телепортируем обоих на лестницу
-  s.heroes.forEach(h => { h.pos = { ...s.dungeon.stairs }; h.fov = new Set([`${h.pos.x},${h.pos.y}`]); });
-  // Дима отходит на любой пол не-лестницу (глупо, но для теста)
+  // оба на лестнице, затем Катя (не активный) отходит на пол
+  s.heroes.forEach(h => { h.pos = { ...s.dungeon.stairs }; });
+  let floor = null;
   outer:
   for (let y = 0; y < s.dungeon.h; y++) {
     for (let x = 0; x < s.dungeon.w; x++) {
       if (s.dungeon.grid[y][x] === TILE.FLOOR && !(x === s.dungeon.stairs.x && y === s.dungeon.stairs.y)) {
-        s.heroes[0].pos = { x, y };
+        floor = { x, y };
         break outer;
       }
     }
   }
+  s.heroes[1].pos = floor;
   const depth0 = s.depth;
   const ev0 = applyIntent(s, { intent: 'descend' }, s.activeIdx);
   assert.equal(s.depth, depth0);
