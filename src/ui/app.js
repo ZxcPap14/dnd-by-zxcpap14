@@ -211,6 +211,38 @@ function refreshPanelsSolo() {
   renderStats($('stats'), state);
   renderQuests($('quest-list'), state);
   $('floor-label').textContent = state.floorName;
+  fitMap();
+}
+
+/**
+ * Автоподгонка ASCII-арта: измеряем реальную ширину содержимого при базовом
+ * размере и масштабируем шрифт так, чтобы арт занимал всю ширину, но влезал.
+ */
+function fitPre(el, availPx, minPx, maxPx) {
+  if (!el) return;
+  const prev = parseFloat(getComputedStyle(el).fontSize) || 10;
+  el.style.display = 'inline-block'; // shrink-to-fit → честная ширина контента
+  const w = el.getBoundingClientRect().width;
+  el.style.display = '';
+  if (!w) return;
+  el.style.fontSize = Math.max(minPx, Math.min(maxPx, prev * (availPx / w))) + 'px';
+}
+
+function fitArt() {
+  const box = document.querySelector('.setup-box');
+  if (!box) return;
+  const avail = box.clientWidth - 56;
+  fitPre($('logo'), avail, 6, 20);
+  fitPre($('logo-sub'), avail, 3, 8);
+}
+
+/** Карта растягивается на всю панель (или сжимается, чтобы влезть). */
+function fitMap() {
+  const panel = $('map-panel');
+  const el = $('map');
+  if (!panel || !el || panel.offsetParent === null) return; // на мобиле карта скрыта
+  const avail = panel.clientWidth - 24;
+  fitPre(el, avail, 5, 12);
 }
 
 /** Классификация события для расширенной палитры хроники. */
@@ -402,6 +434,7 @@ function applySnapshot(snap) {
   renderStatsSnap($('stats'), snap);
   renderQuests($('quest-list'), snap);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`;
+  fitMap();
   const hero = snap.heroes[snap.you];
   const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
   // сигнал «твой ход»
@@ -594,6 +627,11 @@ function wire() {
   const updateAvatar = () => { $('name-avatar').textContent = asciiAvatar($('set-name').value.trim() || 'Безымянный'); };
   $('set-name').addEventListener('input', updateAvatar);
   updateAvatar();
+
+  // автоподгонка арта: при загрузке, ресайзе и после загрузки пиксельного шрифта
+  fitArt();
+  window.addEventListener('resize', () => { fitArt(); fitMap(); });
+  if (document.fonts?.ready) document.fonts.ready.then(() => { fitArt(); fitMap(); });
 
   $('set-mp').addEventListener('change', () => {
     const mp = $('set-mp').value;
