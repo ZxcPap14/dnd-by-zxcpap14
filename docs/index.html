@@ -2570,6 +2570,25 @@ function createClientSession({ link, name }) {
 const PEER_NAMESPACE = 'dndzxc14-';
 const PEER_CDN = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
 const CONNECT_TIMEOUT_MS = 15000;
+const JOIN_TIMEOUT_MS = 25000; // TURN-согласование через NAT занимает дольше
+
+/**
+ * ICE-серверы: несколько STUN + бесплатный публичный TURN (Open Relay Project).
+ * Без TURN соединение между разными сетями за строгим NAT/CGNAT молча умирает
+ * (найдено плейтестом: вкладки одного ПК работают, другой ПК — нет).
+ */
+const ICE_SERVERS = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:80?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+];
+
+const PEER_OPTS = {
+  config: { iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 },
+  debug: 1
+};
 
 function loadPeerJS() {
   if (globalThis.Peer) return Promise.resolve();
@@ -2588,7 +2607,7 @@ function loadPeerJS() {
 async function createPeerHostNet(code) {
   await loadPeerJS();
   const Peer = globalThis.Peer;
-  const peer = new Peer(PEER_NAMESPACE + String(code).toLowerCase());
+  const peer = new Peer(PEER_NAMESPACE + String(code).toLowerCase(), PEER_OPTS);
   const conns = new Map();
   let onMsg = null, onJoin = null, onLeave = null;
 
@@ -2623,7 +2642,7 @@ async function createPeerHostNet(code) {
 async function createPeerClientLink(code) {
   await loadPeerJS();
   const Peer = globalThis.Peer;
-  const peer = new Peer();
+  const peer = new Peer(PEER_OPTS);
 
   // СНАЧАЛА ждём регистрации на signaling-брокере — peer.connect() до 'open'
   // молча теряется (найдено e2e-тестом: таймаут «хост не отвечает»)
@@ -2651,7 +2670,7 @@ async function createPeerClientLink(code) {
         else rej(new Error('PeerJS: ' + (type || e.message)));
       });
     }),
-    new Promise((_, rej) => setTimeout(() => rej(new Error('Хост не отвечает — проверь код комнаты')), CONNECT_TIMEOUT_MS))
+    new Promise((_, rej) => setTimeout(() => rej(new Error('Хост не отвечает: проверь код и что хост ещё в лобби. Если сети не пробиваются через NAT — подожди 20 секунд и попробуй снова')), JOIN_TIMEOUT_MS))
   ]);
 
   return {
