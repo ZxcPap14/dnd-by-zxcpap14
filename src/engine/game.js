@@ -1,4 +1,5 @@
 // game.js — оркестратор: состояние партии, парсер русских команд, применение интентов.
+// v0.5: мультигеройность — heroes[], очерёдность ходов, смерть партии.
 // Принцип «ИИ предлагает — код решает»: любые изменения состояния проходят отсюда.
 
 import { createRng, makeDice, mod } from './rng.js';
@@ -18,9 +19,11 @@ export const DIRS = {
   'запад': [-1, 0], 'з': [-1, 0], 'west': [-1, 0], 'w': [-1, 0]
 };
 
+export const HERO_GLYPHS = ['@', '#', 'Ω', 'Φ'];
+
 let monSeq = 0;
 
-/** Офлайн-спавн: монстры и лут по этажу. При подключённом ИИ вместо этого — мир ИИ. */
+/** Офлайн-спавн: монстры и лут по этажу. */
 export function populateFloor(state) {
   const rng = state.rng;
   state.monsters = [];
@@ -30,7 +33,7 @@ export function populateFloor(state) {
   const count = 3 + Math.floor(rng() * 3);
   for (let i = 0; i < count; i++) {
     const pos = randomFloor(rng, state.dungeon);
-    if (dist(pos.x, pos.y, state.pos.x, state.pos.y) < 4) continue;
+    if (dist(pos.x, pos.y, state.heroes[0].pos.x, state.heroes[0].pos.y) < 4) continue;
     const hpBase = 4 + depthBoost;
     state.monsters.push({
       id: `m${++monSeq}`,
@@ -52,7 +55,6 @@ export function populateFloor(state) {
 function pickMonsterName(rng, worldDesc) {
   const generic = ['крыса-мутант', 'скелет', 'гоблин-мародёр', 'слизь', 'летучая мышь-убийца', 'злой дух'];
   if (rng() < 0.5) return generic[Math.floor(rng() * generic.length)];
-  // вытащим существительное из описания мира — минимальная генерация без ИИ
   const words = (worldDesc || '').split(/\s+/).filter(w => w.length > 4 && /[а-яёa-z]/i.test(w));
   if (words.length) {
     const w = words[Math.floor(rng() * words.length)].toLowerCase().replace(/[.,!?]/g, '');
@@ -63,10 +65,16 @@ function pickMonsterName(rng, worldDesc) {
 
 /**
  * Новая партия.
- * @param {{seed?: number, mode?: string, worldDesc: string, className: string, name: string}} opts
+ * @param {{seed?: number, mode?: string, worldDesc: string, players: Array<{name,className,stats?}>,
+ *           name?: string, className?: string, stats?: object}} opts
+ *   (opts.name/className/stats — совместимость с соло-вызовом)
  */
 export function newGame(opts) {
   const seed = opts.seed ?? (Date.now() ^ (Math.random() * 0xffffffff));
+  const players = opts.players || [
+    { name: opts.name || 'Безымянный', className: opts.className || 'Искатель приключений', stats: opts.stats }
+  ].filter(Boolean);
+
   const state = {
     seed,
     rng: createRng(seed),
@@ -78,23 +86,58 @@ export function newGame(opts) {
     epitaph: null,
     turn: 0,
     quests: [],
-    log: [],
-    floorName: `Этаж 1`
+    floorName: `Этаж 1`,
+    heroes: [],
+    activeIdx: 0,
+    monsters: [],
+    floorItems: []
   };
   state.dice = makeDice(state.rng);
+
+  // герои — createPlayer + позиция/FOV/жизнь
+  const taken = new Set();
   state.dungeon = generateDungeon(state.rng);
-  state.player = createPlayer({ name: opts.name, className: opts.className, stats: opts.stats });
-  const start = randomFloor(state.rng, state.dungeon);
-  state.pos = start;
+  state.heroes = players.map(pd => {
+    const hero = { ...createPlayer(pd), pos: { x: 0, y: 0 }, fov: new Set(), alive: true, epitaph: null };
+    let spot = randomFloor(state.rng, state.dungeon);
+    let tries = 0;
+    while (taken.has(`${spot.x},${spot.y}`) && tries++ < 50) spot = randomFloor(state.rng, state.dungeon);
+    taken.add(`${spot.x},${spot.y}`);
+    hero.pos = spot;
+    hero.fov = computeFov(state.dungeon, spot.x, spot.y);
+    return hero;
+  });
+
+  // совместимость: state.player / state.pos / state.fov → активный герой
+  Object.defineProperties(state, {
+    player: { get() { return state.heroes[state.activeIdx]; }, configurable: true },
+    pos: {
+      get() { return state.heroes[state.activeIdx].pos; },
+      set(v) { state.heroes[state.activeIdx].pos = v; },
+      configurable: true
+    },
+    fov: {
+      get() { return state.heroes[state.activeIdx].fov; },
+      set(v) { state.heroes[state.activeIdx].fov = v; },
+      configurable: true
+    }
+  });
+
   populateFloor(state);
-  state.fov = computeFov(state.dungeon, start.x, start.y);
   return state;
 }
 
-/**
- * Граница слова для кириллицы: \b в JS не работает с не-ASCII.
- * suffix=true — стем-режим: «задач» матчит «задачи», «атак» — «атакую».
- */
+/** Передать ход следующему живому герою. */
+export function advanceTurn(state) {
+  if (state.heroes.length <= 1) return;
+  const n = state.heroes.length;
+  for (let i = 1; i <= n; i++) {
+    const idx = (state.activeIdx + i) % n;
+    if (state.heroes[idx].alive) { state.activeIdx = idx; return; }
+  }
+}
+
+/** Граница слова для кириллицы: \b в JS не работает с не-ASCII. */
 function W(word, suffix = false) {
   const tail = suffix ? '[а-яёa-z]*' : '';
   return new RegExp(`(?:^|[^а-яёa-z])(?:${word})${tail}(?![а-яёa-z])`, 'i');
@@ -144,27 +187,38 @@ export function ev(kind, text) {
   return { kind, text, turn: 0 };
 }
 
-/** Монстры в зоне видимости. */
-export function visibleMonsters(state) {
-  return state.monsters.filter(m => state.fov.has(`${m.x},${m.y}`) && m.hp > 0);
+/** Монстры в зоне видимости героя. */
+export function visibleMonsters(state, heroIdx = state.activeIdx) {
+  const hero = state.heroes[heroIdx];
+  if (!hero) return [];
+  return state.monsters.filter(m => hero.fov.has(`${m.x},${m.y}`) && m.hp > 0);
+}
+
+/** Все живые герои на лестнице? (правило общего спуска) */
+export function allOnStairs(state) {
+  const s = state.dungeon.stairs;
+  return state.heroes.filter(h => h.alive).every(h => h.pos.x === s.x && h.pos.y === s.y);
 }
 
 /**
- * Применение интента к состоянию. Возвращает массив событий.
- * @param state — мутируется
+ * Применение интента к состоянию от конкретного героя. Возвращает события.
+ * Действовать может только активный герой (очередь ходов).
  */
-export function applyIntent(state, intent) {
+export function applyIntent(state, intent, heroIdx = state.activeIdx) {
+  if (state.over || intent.intent === 'none') return [];
+  if (heroIdx !== state.activeIdx) return []; // не твой ход
+  const hero = state.heroes[heroIdx];
+  if (!hero || !hero.alive) return [];
+
   const events = [];
-  if (state.over || intent.intent === 'none') return events;
   const push = (kind, text) => events.push(ev(kind, text));
   const dice = state.dice;
-  const player = state.player;
   state.turn++;
 
   switch (intent.intent) {
     case 'move': {
       const [dx, dy] = intent.dirVec;
-      const nx = state.pos.x + dx, ny = state.pos.y + dy;
+      const nx = hero.pos.x + dx, ny = hero.pos.y + dy;
       if (nx < 0 || ny < 0 || nx >= state.dungeon.w || ny >= state.dungeon.h ||
           state.dungeon.grid[ny][nx] === TILE.WALL) {
         push('system', 'Ты упираешься в холодную стену. Она не впечатлена.');
@@ -173,22 +227,21 @@ export function applyIntent(state, intent) {
       const monster = state.monsters.find(m => m.hp > 0 && m.x === nx && m.y === ny);
       if (monster) {
         push('combat', `Путь преграждает ${monster.name}. Бой!`);
-        events.push(...resolveCombatRound(state, monster, dice));
+        events.push(...resolveCombatRound(state, hero, monster, dice));
         break;
       }
-      state.pos = { x: nx, y: ny };
+      hero.pos = { x: nx, y: ny };
       const tile = state.dungeon.grid[ny][nx];
-      if (tile === TILE.STAIRS) push('system', 'Ты стоишь на лестнице вниз. (Скажи «спускаюсь»)');
-      gainXp(state.player, 2); // опыт за исследование
-      state.fov = computeFov(state.dungeon, nx, ny);
-      // подбор предмета под ногами
+      if (tile === TILE.STAIRS) push('system', 'Ты стоишь на лестнице вниз. (Скажи «спускаюсь» — когда вся партия будет готова)');
+      gainXp(hero, 2); // опыт за исследование
+      hero.fov = computeFov(state.dungeon, nx, ny);
       const here = state.floorItems.find(it => it.x === nx && it.y === ny);
-      if (here) events.push(...pickupItem(state, here, push));
+      if (here) events.push(...pickupItem(state, hero, here));
       break;
     }
 
     case 'attack': {
-      const targets = visibleMonsters(state);
+      const targets = visibleMonsters(state, heroIdx);
       if (!targets.length) {
         push('system', 'Ты угрожающе машешь оружием в пустоту. Пустота не в счёт.');
         break;
@@ -198,21 +251,21 @@ export function applyIntent(state, intent) {
         const found = targets.find(m => m.name.toLowerCase().includes(intent.target.toLowerCase()));
         if (found) target = found;
       }
-      push('combat', `Ты бросаешься на ${target.name}!`);
-      events.push(...resolveCombatRound(state, target, dice));
+      push('combat', `${hero.name} бросается на ${target.name}!`);
+      events.push(...resolveCombatRound(state, hero, target, dice));
       break;
     }
 
     case 'use': {
-      const item = findItem(player, intent.target);
-      if (!item) { push('system', `Среди вещей нет ничего похожего на «${intent.target}».`); break; }
+      const item = findItem(hero, intent.target);
+      if (!item) { push('system', `Среди вещей ${hero.name} нет ничего похожего на «${intent.target}».`); break; }
       if (item.type === 'potion') {
-        removeItem(player, item.id);
+        removeItem(hero, item.id);
         const heal = item.heal || 8;
-        player.hp = Math.min(player.maxHp, player.hp + heal);
-        push('loot', `Ты вливаешь в себя ${item.name} (+${heal} HP). Жизнь налаживается.`);
+        hero.hp = Math.min(hero.maxHp, hero.hp + heal);
+        push('loot', `${hero.name} вливает в себя ${item.name} (+${heal} HP). Жизнь налаживается.`);
       } else if (item.type === 'weapon' || item.type === 'armor') {
-        events.push(...applyIntent(state, { intent: 'equip', target: item.name }));
+        events.push(...applyIntent(state, { intent: 'equip', target: item.name }, heroIdx));
       } else {
         push('system', `${item.name}: на вкус как побитая жизнь. Больше не будем.`);
       }
@@ -220,9 +273,9 @@ export function applyIntent(state, intent) {
     }
 
     case 'equip': {
-      const item = findItem(player, intent.target);
-      if (!item) { push('system', `Не нашёл «${intent.target}» в инвентаре.`); break; }
-      const { equipped, unequipped } = equipItem(player, item);
+      const item = findItem(hero, intent.target);
+      if (!item) { push('system', `${hero.name} не нашёл «${intent.target}» в инвентаре.`); break; }
+      const { equipped, unequipped } = equipItem(hero, item);
       if (equipped) {
         push('loot', `Экипировано: ${equipped.name}` + (unequipped ? ` (в рюкзак уходит ${unequipped.name})` : ''));
       } else {
@@ -232,31 +285,41 @@ export function applyIntent(state, intent) {
     }
 
     case 'pickup': {
-      const here = state.floorItems.find(it => it.x === state.pos.x && it.y === state.pos.y);
+      const here = state.floorItems.find(it => it.x === hero.pos.x && it.y === hero.pos.y);
       if (!here) { push('system', 'Под ногами пусто. Даже пыли нет.'); break; }
-      events.push(...pickupItem(state, here, push));
+      events.push(...pickupItem(state, hero, here));
       break;
     }
 
     case 'descend': {
-      if (state.dungeon.grid[state.pos.y][state.pos.x] !== TILE.STAIRS) {
+      if (state.dungeon.grid[hero.pos.y][hero.pos.x] !== TILE.STAIRS) {
         push('system', 'Чтобы спуститься, нужно сначала найти лестницу. Она не под тобой.');
+        break;
+      }
+      if (!allOnStairs(state)) {
+        push('system', 'Партия не собрана: не все живые герои на лестнице. Ждём отстающих.');
         break;
       }
       state.depth++;
       state.dungeon = generateDungeon(state.rng);
-      const start = randomFloor(state.rng, state.dungeon);
-      state.pos = start;
+      const taken = new Set();
+      state.heroes.forEach(h => {
+        let spot = randomFloor(state.rng, state.dungeon);
+        let tries = 0;
+        while (taken.has(`${spot.x},${spot.y}`) && tries++ < 50) spot = randomFloor(state.rng, state.dungeon);
+        taken.add(`${spot.x},${spot.y}`);
+        h.pos = spot;
+        h.fov = computeFov(state.dungeon, spot.x, spot.y);
+      });
       state.floorName = `Этаж ${state.depth}`;
       populateFloor(state);
-      state.fov = computeFov(state.dungeon, start.x, start.y);
-      gainXp(player, 30);
-      push('system', `Ты спускаешься глубже. ${state.floorName}. Воздух гуще, тьма наглее.`);
+      gainXp(hero, 30);
+      push('system', `Партия спускается глубже. ${state.floorName}. Воздух гуще, тьма наглее.`);
       break;
     }
 
     case 'inventory':
-      push('system', renderInventory(player));
+      push('system', renderInventory(hero));
       break;
 
     case 'quests':
@@ -270,7 +333,7 @@ export function applyIntent(state, intent) {
       break;
 
     case 'look':
-      push('system', describeSurroundings(state));
+      push('system', describeSurroundings(state, heroIdx));
       break;
 
     case 'wait':
@@ -283,55 +346,59 @@ export function applyIntent(state, intent) {
       break;
   }
 
-  // смерть?
-  if (player.hp <= 0 && !state.over) {
-    state.over = true;
-    state.epitaph = state.deathCause || 'умер при невыясненных обстоятельствах';
-    push('death', `☠ ${player.name} мёртв. Эпитафия: ${state.epitaph}`);
+  // смерть героя?
+  if (hero.hp <= 0 && hero.alive) {
+    hero.alive = false;
+    hero.epitaph = state.deathCause || 'умер при невыясненных обстоятельствах';
+    push('death', `☠ ${hero.name} мёртв. Эпитафия: ${hero.epitaph}`);
+    if (state.heroes.every(h => !h.alive)) {
+      state.over = true;
+      state.epitaph = hero.epitaph;
+      push('death', `☠ Партия уничтожена. Подземелье победило.`);
+    }
   }
+
+  if (!state.over) advanceTurn(state);
   return events;
 }
 
-function pickupItem(state, item, push) {
+function pickupItem(state, hero, item) {
   const events = [];
   state.floorItems = state.floorItems.filter(it => it !== item);
   if (item.type === 'gold') {
-    state.player.gold += item.qty;
-    events.push(ev('loot', `Подобрано: ${item.qty} золота. Капиталист внутри доволен.`));
+    hero.gold += item.qty;
+    events.push(ev('loot', `${hero.name} подбирает ${item.qty} золота. Капиталист внутри доволен.`));
   } else {
-    addItem(state.player, item);
-    events.push(ev('loot', `Подобрано: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`));
+    addItem(hero, item);
+    events.push(ev('loot', `${hero.name} подбирает: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`));
   }
-  gainXp(state.player, 5);
+  gainXp(hero, 5);
   return events;
 }
 
-/** Один раунд боя: игрок бьёт, если враг жив — враг отвечает. */
-export function resolveCombatRound(state, monster, dice) {
+/** Один раунд боя: герой бьёт, если враг жив — враг отвечает ближайшему видимому герою. */
+export function resolveCombatRound(state, hero, monster, dice) {
   const events = [];
   const push = (kind, text) => events.push(ev(kind, text));
-  const player = state.player;
-  const weapon = playerWeapon(player);
+  const weapon = playerWeapon(hero);
 
-  // инициатива решает, кто первым в этом раунде
-  const pInit = rollInitiative(dice, player.stats.dex).total;
-  const mInit = rollInitiative(dice, player.stats.dex).total + 1; // монстру чуть легче
+  const pInit = rollInitiative(dice, hero.stats.dex).total;
+  const mInit = rollInitiative(dice, hero.stats.dex).total + 1;
   const playerFirst = pInit >= mInit;
 
   const playerStrike = () => {
-    const atk = attackRoll(dice, player.stats, weapon, 10 + (monster.toHit || 0));
-    const rollEv = ev('roll', `d20: [${atk.raw}]${atk.crit ? ' КРИТ!' : atk.fumble ? ' провал...' : ''} → атака ${atk.total}`);
-    events.push(rollEv);
+    const atk = attackRoll(dice, hero.stats, weapon, 10 + (monster.toHit || 0));
+    events.push(ev('roll', `${hero.name}: d20 [${atk.raw}]${atk.crit ? ' КРИТ!' : atk.fumble ? ' провал...' : ''} → атака ${atk.total}`));
     if (!atk.hit) {
-      push('combat', `Ты промахиваешься по ${monster.name}. ${atk.fumble ? 'Очень зрелищно промахиваешься.' : ''}`);
+      push('combat', `${hero.name} промахивается по ${monster.name}. ${atk.fumble ? 'Очень зрелищно промахивается.' : ''}`);
       return;
     }
-    const dmg = damageRoll(dice, weapon, player.stats.str, atk.crit);
+    const dmg = damageRoll(dice, weapon, hero.stats.str, atk.crit);
     monster.hp -= dmg.total;
-    push('combat', `${atk.crit ? 'КРИТИЧЕСКИЙ УДАР! ' : ''}Ты наносишь ${dmg.total} урона ${monster.name} ${dmg.rolls.map(r => `[${r}]`).join('')}. ${monster.hp <= 0 ? `${monster.name} повержен!` : `У него осталось ${monster.hp} HP.`}`);
+    push('combat', `${atk.crit ? 'КРИТИЧЕСКИЙ УДАР! ' : ''}${hero.name} наносит ${dmg.total} урона ${monster.name} ${dmg.rolls.map(r => `[${r}]`).join('')}. ${monster.hp <= 0 ? `${monster.name} повержен!` : `У него осталось ${monster.hp} HP.`}`);
     if (monster.hp <= 0) {
-      const levels = gainXp(player, monster.xp);
-      push('loot', `Получено ${monster.xp} опыта.` + (levels ? ` УРОВЕНЬ ${player.level}!` : ''));
+      const levels = gainXp(hero, monster.xp);
+      push('loot', `${hero.name} получает ${monster.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
       const drop = rollDrop(dice, BASIC_DROP_TABLE, state.depth);
       if (drop) {
         state.floorItems.push({ ...drop, x: monster.x, y: monster.y });
@@ -341,24 +408,29 @@ export function resolveCombatRound(state, monster, dice) {
   };
 
   const monsterStrike = () => {
-    const atk = monsterAttack(dice, monster, playerAc(player));
+    // монстр бьёт ближайшего видимого ему героя, а не только атакующего
+    const candidates = state.heroes
+      .filter(h => h.alive && h.fov.has(`${monster.x},${monster.y}`))
+      .sort((a, b) => dist(a.pos.x, a.pos.y, monster.x, monster.y) - dist(b.pos.x, b.pos.y, monster.x, monster.y));
+    const target = candidates[0] || hero;
+    const atk = monsterAttack(dice, monster, playerAc(target));
     if (!atk.hit) {
-      push('combat', `${monster.name} бьёт мимо ${atk.crit ? '(а ведь чуть не кританул)' : ''}.`);
+      push('combat', `${monster.name} бьёт мимо ${target.name} ${atk.crit ? '(а ведь чуть не кританул)' : ''}.`);
       return;
     }
-    player.hp -= atk.dmg;
+    target.hp -= atk.dmg;
     state.deathCause = `убит ${monster.name}`;
-    push('combat', `${monster.name} ${atk.crit ? 'КРИТУЕТ' : 'попадает'} по тебе: -${atk.dmg} HP (осталось ${Math.max(0, player.hp)}).`);
+    push('combat', `${monster.name} ${atk.crit ? 'КРИТУЕТ' : 'попадает'} по ${target.name}: -${atk.dmg} HP (осталось ${Math.max(0, target.hp)}).`);
   };
 
   if (playerFirst) { playerStrike(); if (monster.hp > 0) monsterStrike(); }
-  else { monsterStrike(); if (player.hp > 0) playerStrike(); }
+  else { monsterStrike(); if (hero.hp > 0) playerStrike(); }
 
   return events;
 }
 
 export function renderInventory(player) {
-  const lines = [`HP: ${player.hp}/${player.maxHp} | Ур.${player.level} | XP ${player.xp}/${xpNeed(player)} | Золото: ${player.gold}`];
+  const lines = [`HP: ${player.hp}/${player.maxHp} | Ур.${player.level} | XP ${player.xp}/${player.level * 100} | Золото: ${player.gold}`];
   lines.push(`Оружие: ${player.equipment.weapon ? player.equipment.weapon.name : 'кулаки'} | Броня: ${player.equipment.armor ? player.equipment.armor.name : 'нет'} (AC ${playerAc(player)})`);
   lines.push('Рюкзак:');
   if (!player.inventory.length) lines.push('  (пусто)');
@@ -366,18 +438,16 @@ export function renderInventory(player) {
   return lines.join('\n');
 }
 
-function xpNeed(player) {
-  return player.level * 100;
-}
-
-export function describeSurroundings(state) {
-  const mons = visibleMonsters(state).map(m => `${m.name} (HP ${m.hp}/${m.maxHp})`);
-  const items = state.floorItems.filter(it => state.fov.has(`${it.x},${it.y}`));
-  const parts = [];
-  parts.push(`${state.floorName}. `);
+export function describeSurroundings(state, heroIdx = state.activeIdx) {
+  const hero = state.heroes[heroIdx];
+  const mons = visibleMonsters(state, heroIdx).map(m => `${m.name} (HP ${m.hp}/${m.maxHp})`);
+  const items = state.floorItems.filter(it => hero.fov.has(`${it.x},${it.y}`));
+  const party = state.heroes.filter((h, i) => i !== heroIdx && h.alive && h.fov.has(`${hero.pos.x},${hero.pos.y}`) && hero.fov.has(`${h.pos.x},${h.pos.y}`));
+  const parts = [`${state.floorName}. `];
+  if (party.length) parts.push(`Рядом товарищи: ${party.map(p => p.name).join(', ')}. `);
   if (mons.length) parts.push(`Рядом: ${mons.join(', ')}. `);
   if (items.length) parts.push(`На земле: ${items.map(i => i.name).join(', ')}. `);
-  if (!mons.length && !items.length) parts.push('Пока ничего интересного.');
+  if (!mons.length && !items.length && !party.length) parts.push('Пока ничего интересного.');
   return parts.join('');
 }
 
@@ -387,17 +457,68 @@ export function addQuest(state, text) {
 }
 
 /**
- * Применение эффектов, предложенных ИИ. Движок ВАЛИДИРУЕТ всё: ИИ не может
- * оживить мёртвого, выдать золотые горы или обнулить HP игрока.
- * @param {object} effects — {narrative?, playerDamage?, heal?, xpGain?, goldGain?,
- *   itemGain?, questAdd?, questDone?, enemyName?, enemyDamage?, enemySpawn?, causeOfDeath?}
- * @returns {object[]} события
+ * Персональный снапшот для сетевой игры: только то, что видит герой.
  */
-export function applyDmEffects(state, effects) {
+export function buildSnapshot(state, heroIdx = state.activeIdx) {
+  const hero = state.heroes[heroIdx];
+  const cells = [];
+  const monsters = [], items = [];
+  for (let y = 0; y < state.dungeon.h; y++) {
+    let row = '';
+    for (let x = 0; x < state.dungeon.w; x++) {
+      if (x === hero.pos.x && y === hero.pos.y) { row += '@'; continue; }
+      if (!hero.fov.has(`${x},${y}`)) { row += ' '; continue; }
+      const mon = state.monsters.find(m => m.hp > 0 && m.x === x && m.y === y);
+      if (mon) {
+        row += 'м';
+        monsters.push({ name: mon.name, x, y, hp: mon.hp, maxHp: mon.maxHp });
+        continue;
+      }
+      const otherIdx = state.heroes.findIndex((h, i) => i !== heroIdx && h.alive && h.pos.x === x && h.pos.y === y);
+      if (otherIdx !== -1) { row += HERO_GLYPHS[otherIdx] || '?'; continue; }
+      const item = state.floorItems.find(it => it.x === x && it.y === y);
+      if (item) {
+        row += item.type === 'gold' ? '$' : item.type === 'potion' ? '!' : '†';
+        items.push({ name: item.name, type: item.type, x, y });
+        continue;
+      }
+      const t = state.dungeon.grid[y][x];
+      row += t === TILE.WALL ? '#' : t === TILE.STAIRS ? '>' : '.';
+    }
+    cells.push(row);
+  }
+  return {
+    t: 'snapshot',
+    depth: state.depth, floorName: state.floorName, turnOf: state.activeIdx,
+    over: state.over, mode: state.mode, worldDesc: state.worldDesc, quests: [...state.quests],
+    you: heroIdx,
+    heroes: state.heroes.map((h, i) => ({
+      idx: i, name: h.name, className: h.className, alive: h.alive,
+      pos: { ...h.pos }, hp: h.hp, maxHp: h.maxHp, level: h.level, glyph: HERO_GLYPHS[i] || '?'
+    })),
+    self: {
+      hp: hero.hp, maxHp: hero.maxHp, level: hero.level, xp: hero.xp,
+      xpNext: hero.level * 100, gold: hero.gold, stats: { ...hero.stats },
+      inventory: hero.inventory.map(i => ({ ...i })),
+      equipment: {
+        weapon: hero.equipment.weapon && { ...hero.equipment.weapon },
+        armor: hero.equipment.armor && { ...hero.equipment.armor }
+      },
+      ac: playerAc(hero)
+    },
+    map: { w: state.dungeon.w, h: state.dungeon.h, cells, monsters, items }
+  };
+}
+
+/**
+ * Применение эффектов, предложенных ИИ. Движок ВАЛИДИРУЕТ всё.
+ * playerDamage/heal/goldGain/itemGain/xpGain бьют по герою heroIdx (по умолчанию — активному).
+ */
+export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
   const events = [];
   const push = (kind, text) => events.push(ev(kind, text));
   if (!effects || typeof effects !== 'object') return events;
-  const player = state.player;
+  const hero = state.heroes[heroIdx] || state.heroes[state.activeIdx];
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v | 0));
 
   if (effects.enemySpawn && !state.over) {
@@ -415,7 +536,7 @@ export function applyDmEffects(state, effects) {
   }
 
   if (effects.enemyDamage) {
-    const mons = visibleMonsters(state);
+    const mons = visibleMonsters(state, heroIdx);
     const target = (effects.enemyName &&
       mons.find(m => m.name.toLowerCase().includes(String(effects.enemyName).toLowerCase()))) || mons[0];
     if (target) {
@@ -423,8 +544,8 @@ export function applyDmEffects(state, effects) {
       target.hp -= dmg;
       push('combat', `${target.name} получает ${dmg} урона. ${target.hp <= 0 ? 'Повержен!' : `Осталось ${target.hp} HP.`}`);
       if (target.hp <= 0) {
-        const levels = gainXp(player, target.xp);
-        push('loot', `Получено ${target.xp} опыта.` + (levels ? ` УРОВЕНЬ ${player.level}!` : ''));
+        const levels = gainXp(hero, target.xp);
+        push('loot', `${hero.name} получает ${target.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
       }
     }
   }
@@ -439,35 +560,35 @@ export function applyDmEffects(state, effects) {
       qty: clamp(effects.itemGain.qty || 1, 1, 5)
     });
     if (item.type === 'misc' && !item.dmg && !item.ac && !item.heal && effects.itemGain.gold) {
-      player.gold += clamp(effects.itemGain.gold, 1, 500);
-      push('loot', `Получено: ${clamp(effects.itemGain.gold, 1, 500)} золота.`);
+      hero.gold += clamp(effects.itemGain.gold, 1, 500);
+      push('loot', `${hero.name} получает: ${clamp(effects.itemGain.gold, 1, 500)} золота.`);
     } else {
-      addItem(player, item);
-      push('loot', `Получено: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`);
+      addItem(hero, item);
+      push('loot', `${hero.name} получает: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`);
     }
-    gainXp(player, 5);
+    gainXp(hero, 5);
   }
 
   if (effects.goldGain) {
-    player.gold += clamp(effects.goldGain, 1, 500);
-    push('loot', `Получено ${clamp(effects.goldGain, 1, 500)} золота.`);
+    hero.gold += clamp(effects.goldGain, 1, 500);
+    push('loot', `${hero.name} получает ${clamp(effects.goldGain, 1, 500)} золота.`);
   }
 
   if (effects.heal && !state.over) {
-    player.hp = Math.min(player.maxHp, player.hp + clamp(effects.heal, 0, 20));
-    push('loot', `Восстановлено ${clamp(effects.heal, 0, 20)} HP.`);
+    hero.hp = Math.min(hero.maxHp, hero.hp + clamp(effects.heal, 0, 20));
+    push('loot', `${hero.name} восстанавливает ${clamp(effects.heal, 0, 20)} HP.`);
   }
 
   if (effects.playerDamage && !state.over) {
     const dmg = clamp(effects.playerDamage, 0, 15);
-    player.hp -= dmg;
+    hero.hp -= dmg;
     state.deathCause = effects.causeOfDeath ? String(effects.causeOfDeath).slice(0, 80) : 'мир оказался хуже игрока';
-    push('combat', `Ты получаешь ${dmg} урона (осталось ${Math.max(0, player.hp)} HP).`);
+    push('combat', `${hero.name} получает ${dmg} урона (осталось ${Math.max(0, hero.hp)} HP).`);
   }
 
   if (effects.xpGain) {
-    const levels = gainXp(player, clamp(effects.xpGain, 0, 100));
-    push('loot', `Получено ${clamp(effects.xpGain, 0, 100)} опыта.` + (levels ? ` УРОВЕНЬ ${player.level}!` : ''));
+    const levels = gainXp(hero, clamp(effects.xpGain, 0, 100));
+    push('loot', `${hero.name} получает ${clamp(effects.xpGain, 0, 100)} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
   }
 
   if (effects.questAdd) addQuest(state, String(effects.questAdd).slice(0, 100));
@@ -478,10 +599,15 @@ export function applyDmEffects(state, effects) {
 
   if (effects.narrative) push('dm', String(effects.narrative).slice(0, 1200));
 
-  if (player.hp <= 0 && !state.over) {
-    state.over = true;
-    state.epitaph = state.deathCause || 'кончилось плохо';
-    push('death', `☠ ${player.name} мёртв. Эпитафия: ${state.epitaph}`);
+  if (hero.hp <= 0 && hero.alive) {
+    hero.alive = false;
+    hero.epitaph = state.deathCause || 'кончилось плохо';
+    push('death', `☠ ${hero.name} мёртв. Эпитафия: ${hero.epitaph}`);
+    if (state.heroes.every(h => !h.alive)) {
+      state.over = true;
+      state.epitaph = hero.epitaph;
+      push('death', `☠ Партия уничтожена.`);
+    }
   }
   return events;
 }
