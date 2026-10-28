@@ -14,6 +14,7 @@ export const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой 
 - ЕСЛИ есть блок «СЮЖЕТ» — ты ведёшь историю с аркой: в акте I намекай на злодея и его планы, в акте II нагнетай и ставь выбор, в акте III веди к финальной схватке. Держи одну линию, эскалируй ставки.
 - Свободные действия игрока — твоя главная работа. Игрок может попытаться ЛЮБОЕ: залезть куда-то, притвориться кем-то, использовать предмет не по назначению, договориться, обмануть, сбежать. Обыгрывай попытку в контексте сцены: чаще давай ей шанс (особенно при подходящих статтах или инвентаре), а неудачу превращай в смешную и логичную развязку, а не в «не получилось». Если действие меняет сцену — опиши новое место так, чтобы игрок понимал, где он теперь и что видит вокруг.
 - Если игрок спрашивает «что делать?» — не издевайся бесконечно, а дай 1-2 КОНКРЕТНЫХ варианта, исходя из текущей сцены и сюжета.
+- КООП: в партии НЕСКОЛЬКО героев, и за каждого играет ОТДЕЛЬНЫЙ живой человек. Действие в строке «ДЕЙСТВИЕ (Имя)» принадлежит ИМЕННО этому герою — обращайся к нему ПО ИМЕНИ, реагируй на ЕГО статы, инвентарь и характер. Реплики и действия других игроков лежат в памяти строками вида «player: Имя: …» — помни, кто что сделал и кто где. Герои — разные личности: НЕ сливай их в одно существо, не отвечай за них, не двигай их без их действия. В коопе распределяй внимание между героями: у каждого должна быть своя роль в истории, свои моменты славы и свои неприятности.
 - Ты НЕ кидаешь кубики и НЕ решаешь исходы атак сам — это делает движок. Ты только описываешь и предлагаешь.
 - Ты можешь предлагать только эти эффекты, в пределах разумного: playerDamage (0-15), heal (0-20), xpGain (0-50), goldGain (1-200), enemyDamage (0-25), enemySpawn, itemGain (слабые предметы), questAdd.
 - Никогда не обещай игроку лут мощнее кинжала без причины.
@@ -35,48 +36,59 @@ export const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой 
 
 /**
  * Компактный контекст текущего состояния для модели.
+ * heroIdx — чей сейчас ход (в коопе героев несколько, и у каждого свой игрок).
  */
-export function buildContext(state, playerInput) {
-  const p = state.player;
+export function buildContext(state, playerInput, heroIdx = null) {
+  const p = (heroIdx != null && state.heroes[heroIdx]) || state.player;
   const nearby = (state.monsters || [])
-    .filter(m => m.hp > 0 && state.fov?.has(`${m.x},${m.y}`))
+    .filter(m => m.hp > 0 && p.fov?.has(`${m.x},${m.y}`))
     .map(m => `${m.name} (HP ${m.hp}/${m.maxHp})`);
-  const items = (state.floorItems || []).filter(it => state.fov?.has(`${it.x},${it.y}`)).map(i => i.name);
+  const items = (state.floorItems || []).filter(it => p.fov?.has(`${it.x},${it.y}`)).map(i => i.name);
+  const party = (state.heroes || [p]).map(h =>
+    `${h.name} (${h.className}, HP ${h.hp}/${h.maxHp}${h.alive ? '' : ', МЁРТВ'}${h === p ? ' — ХОДИТ СЕЙЧАС' : ''})`
+  ).join('; ');
+  const others = (state.heroes || []).filter(h => h !== p).map(h => h.name);
   return [
     { role: 'system', content: SYSTEM_PROMPT },
     {
       role: 'user',
       content: [
         `МИР: ${state.worldDesc}. Режим: ${state.mode}. ${state.floorName}.`,
-        `ГЕРОЙ: ${p.name}, ${p.className}, ур.${p.level}, HP ${p.hp}/${p.maxHp}, AC ${playerAc(p)}, золото ${p.gold}.`,
-        `ПАРТИЯ: ${state.heroes.map(h => `${h.name} (${h.className}, HP ${h.hp}/${h.maxHp}${h.alive ? '' : ', МЁРТВ'})`).join('; ')}.`,
-        `СТАТЫ: ${Object.entries(p.stats).map(([k, v]) => `${k} ${v}`).join(', ')}.`,
-        `ИНВЕНТАРЬ: ${p.inventory.map(i => i.name).join(', ') || 'пуст'}; оружие: ${p.equipment.weapon?.name || 'кулаки'}; броня: ${p.equipment.armor?.name || 'нет'}.`,
-        nearby.length ? `ВИДИТ ВРАГОВ: ${nearby.join(', ')}.` : 'ВРАГОВ НЕ ВИДИТ.',
+        `ТЕКУЩИЙ ХОД: ${p.name} (${p.className}) — действие ниже принадлежит ЕМУ. Отвечай ему, обращайся по имени.`,
+        `СТАТЫ ${p.name}: ${Object.entries(p.stats).map(([k, v]) => `${k} ${v}`).join(', ')}, ур.${p.level}, HP ${p.hp}/${p.maxHp}, AC ${playerAc(p)}, золото ${p.gold}.`,
+        `ИНВЕНТАРЬ ${p.name}: ${p.inventory.map(i => i.name).join(', ') || 'пуст'}; оружие: ${p.equipment.weapon?.name || 'кулаки'}; броня: ${p.equipment.armor?.name || 'нет'}.`,
+        `ПАРТИЯ: ${party}.`,
+        others.length ? `ДРУГИЕ ГЕРОИ (за них играют другие люди, не действуй за них): ${others.join(', ')}.` : '',
+        nearby.length ? `${p.name} ВИДИТ ВРАГОВ: ${nearby.join(', ')}.` : `${p.name} ВРАГОВ НЕ ВИДИТ.`,
         items.length ? `ВИДИТ ПРЕДМЕТЫ: ${items.join(', ')}.` : '',
         state.quests.length ? `КВЕСТЫ: ${state.quests.join('; ')}.` : '',
         (() => { const mem = memoryDigest(state); return mem ? `НЕДАВНИЕ СОБЫТИЯ: ${mem}.` : ''; })(),
         (() => { const st = storyDigest(state); return st ? `СЮЖЕТ: ${st}` : ''; })(),
         `ПРОВЕРКИ ДВИЖКА (последние): ${state.recentRolls?.join(', ') || 'нет'}.`,
-        `ДЕЙСТВИЕ ИГРОКА: "${playerInput}"`
+        `ДЕЙСТВИЕ (${p.name}): "${playerInput}"`
       ].filter(Boolean).join('\n')
     }
   ];
 }
 
 /**
- * Стартовое вступление мира.
+ * Стартовое вступление мира (учитывает всю партию, не только хоста).
  */
 export function introMessages(state) {
-  const p = state.player;
+  const heroes = state.heroes?.length ? state.heroes : [state.player];
+  const partyLine = heroes.map(h => `${h.name} (${h.className}, ур.${h.level})`).join('; ');
+  const coop = heroes.length > 1;
+  const coopAsk = coop
+    ? ` В партии ${heroes.length} героя, за каждого играет ОТДЕЛЬНЫЙ человек: ${partyLine}. Во вступлении представь КАЖДОГО героя ПО ИМЕНИ, опиши, где и рядом с кем он очнулся, и дай каждому личный интерес в истории (зацепку, страх, долг — своё для каждого). Дальнейшая история должна держать всех героев в сюжете, а не только первого.`
+    : '';
   const storyAsk = state.mode === 'story'
-    ? ' Это СЮЖЕТНЫЙ режим: придумай злодея (villain) и его страшную цель (villainGoal), намекни на него во вступлении, добавь первичный квест (questAdd).'
+    ? ` Это СЮЖЕТНЫЙ режим: придумай злодея (villain) и его страшную цель (villainGoal), намекни на него во вступлении, добавь первичный квест (questAdd).`
     : '';
   return [
     { role: 'system', content: SYSTEM_PROMPT },
     {
       role: 'user',
-      content: `Сгенерируй вступление новой игры. МИР: ${state.worldDesc}. Режим: ${state.mode}.${storyAsk} ГЕРОЙ: ${p.name}, ${p.className}, ур.${p.level}. Опиши место, где он очнулся, и шутку в свой стиль. ${state.floorName}.`
+      content: `Сгенерируй вступление новой игры. МИР: ${state.worldDesc}. Режим: ${state.mode}.${storyAsk} ГЕРОИ: ${partyLine}.${coopAsk} Опиши место, где герои очнулись, и шутку в свой стиль. ${state.floorName}.`
     }
   ];
 }

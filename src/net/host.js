@@ -1,7 +1,7 @@
 // host.js — сессия хоста: лобби, очередь ходов, раздача снапшотов, таймер хода.
 // Хост — всегда игрок 0. Движок и API-ключ живут здесь.
 
-import { newGame, parseCommand, applyIntent, applyDmEffects, buildSnapshot } from '../engine/game.js';
+import { newGame, parseCommand, applyIntent, applyDmEffects, buildSnapshot, rememberEvents } from '../engine/game.js';
 import { stubDmTurn, resetStub } from '../ai/stub.js';
 import { PROTOCOL_VER, TURN_MS, FREE_COOLDOWN_MS, MAX_PLAYERS } from './protocol.js';
 
@@ -9,7 +9,7 @@ import { PROTOCOL_VER, TURN_MS, FREE_COOLDOWN_MS, MAX_PLAYERS } from './protocol
  * @param {object} opts
  * @param {object} opts.net  — { broadcast, sendTo, onClientMessage, onClientJoin, onClientLeave }
  * @param {string} opts.hostName
- * @param {object} [opts.dm] — { resolveFree(game, text, player) → Promise<effects>, intro(game) → Promise<effects> }
+ * @param {object} [opts.dm] — { resolveFree(game, text, heroIdx) → Promise<effects>, intro(game) → Promise<effects> }
  * @param {number} [opts.turnMs] — таймер хода, 0 = выключен
  */
 export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
@@ -92,6 +92,7 @@ export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }
     const speaker = heroIdx != null ? game.heroes[heroIdx] : null;
     if (speaker && command.trim()) {
       const echo = [{ kind: 'player', text: `${speaker.name}: ${command}` }];
+      rememberEvents(game, echo); // ДМ тоже должен знать, КТО что делал
       net.broadcast({ t: 'events', seq: nextSeq(), events: echo });
       emit('events', echo);
     }
@@ -127,7 +128,7 @@ export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }
           lastFree.set(cooldownKey, now);
         }
         const effects = (dm && dm.resolveFree)
-          ? await dm.resolveFree(game, text)
+          ? await dm.resolveFree(game, text, heroIdx)
           : stubDmTurn(game, text);
         events.push(...applyDmEffects(game, effects, heroIdx));
       }

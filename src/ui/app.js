@@ -152,10 +152,10 @@ function selectedClasses() {
 /** Асинхронный ДМ: ИИ хоста или заглушка. */
 function makeDmResolver() {
   return {
-    resolveFree: async (game, text) => {
+    resolveFree: async (game, text, heroIdx = null) => {
       if (client) {
         try {
-          const raw = await client.chat(buildContext(game, text), { maxTokens: 2000, jsonMode: true });
+          const raw = await client.chat(buildContext(game, text, heroIdx ?? game.activeIdx), { maxTokens: 2000, jsonMode: true });
           const eff = extractJson(raw);
           return eff || { narrative: raw.slice(0, 800) };
         } catch (e) {
@@ -316,7 +316,7 @@ function soloStatsLine() {
 async function resolveFreeSolo(text) {
   const resolver = makeDmResolver();
   try {
-    const eff = await resolver.resolveFree(state, text);
+    const eff = await resolver.resolveFree(state, text, state.activeIdx);
     handleEventsSolo(applyDmEffects(state, eff, state.activeIdx));
   } catch (e) {
     handleEventsSolo(applyDmEffects(state, { narrative: `ДМ замолк (${e.message}). Тьма вежливо молчит.` }, state.activeIdx));

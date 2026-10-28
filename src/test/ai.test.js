@@ -123,6 +123,54 @@ test('introMessages и classMessages: структура', () => {
   assert.match(classMessages('X')[1].content, /JSON/);
 });
 
+test('buildContext: помечает, КТО ходит в коопе', () => {
+  const s = newGame({
+    seed: 21, worldDesc: 'Подземелье', mode: 'story',
+    players: [
+      { name: 'Хост', className: 'Рыцарь', stats: { str: 12, dex: 10, int: 10, con: 12, cha: 10, luck: 10 } },
+      { name: 'Друг', className: 'Вор', stats: { str: 8, dex: 14, int: 12, con: 10, cha: 12, luck: 12 } }
+    ]
+  });
+  s.activeIdx = 1;
+  const msgs = buildContext(s, 'вскрываю замок', 1);
+  const text = msgs[1].content;
+  assert.match(text, /ТЕКУЩИЙ ХОД: Друг \(Вор\)/, 'маркер активного героя');
+  assert.match(text, /Друг \(Вор, HP \d+\/\d+ — ХОДИТ СЕЙЧАС\)/, 'в ПАРТИИ отмечен ходящий');
+  assert.match(text, /ДЕЙСТВИЕ \(Друг\): "вскрываю замок"/, 'действие подписано именем');
+  assert.match(text, /СТАТЫ Друг:/, 'статы именно ходящего');
+  assert.match(text, /ДРУГИЕ ГЕРОИ[^]*Хост/, 'остальные помечены как другие игроки');
+  assert.doesNotMatch(text, /СТАТЫ Хост:/, 'статы чужого героя не подмешаны');
+});
+
+test('buildContext: без heroIdx берёт активного героя (совместимость соло)', () => {
+  const s = newGame({ seed: 22, worldDesc: 'X', className: 'Y', name: 'Джек' });
+  const text = buildContext(s, 'смотрю')[1].content;
+  assert.match(text, /ТЕКУЩИЙ ХОД: Джек/);
+  assert.match(text, /ДЕЙСТВИЕ \(Джек\)/);
+});
+
+test('introMessages: вступление учитывает всю партию', () => {
+  const s = newGame({
+    seed: 23, worldDesc: 'Пираты', mode: 'story',
+    players: [
+      { name: 'Хост', className: 'Капитан', stats: { str: 12, dex: 10, int: 10, con: 12, cha: 10, luck: 10 } },
+      { name: 'Друг', className: 'Юнга', stats: { str: 8, dex: 14, int: 12, con: 10, cha: 12, luck: 12 } }
+    ]
+  });
+  const text = introMessages(s)[1].content;
+  assert.match(text, /Хост/, 'хост упомянут');
+  assert.match(text, /Друг/, 'второй герой упомянут');
+  assert.match(text, /ОТДЕЛЬНЫЙ человек/, 'указание давать каждому личную линию');
+  assert.match(text, /личный интерес/, 'задание на личные зацепки');
+});
+
+test('introMessages: соло — без кооп-инструкций', () => {
+  const s = newGame({ seed: 24, worldDesc: 'X', mode: 'story', className: 'Y', name: 'Один' });
+  const text = introMessages(s)[1].content;
+  assert.match(text, /Один/);
+  assert.doesNotMatch(text, /ОТДЕЛЬНЫЙ человек/);
+});
+
 // ---- офлайн-заглушка ----
 
 test('stubDmTurn: валидные эффекты и разнообразие', () => {
