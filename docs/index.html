@@ -293,6 +293,9 @@
     animation: blinkred 0.45s steps(2, end) 4;
   }
   @keyframes blinkred { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  .kind-victory {
+    color: var(--loot); font-weight: bold; text-shadow: 0 0 12px var(--loot);
+  }
   .kind-death { color: var(--red); font-weight: bold; text-shadow: 0 0 12px var(--red); }
 
   .input-row { display: flex; gap: 8px; flex-shrink: 0; }
@@ -417,6 +420,8 @@
     text-shadow: 0 0 22px var(--red);
     font-family: var(--font-pixel);
   }
+  .death-box.victory { border-color: var(--loot); box-shadow: 0 0 70px var(--glow); }
+  .death-box.victory h2 { color: var(--loot); text-shadow: 0 0 22px var(--loot); }
   .death-box .epi { margin: 18px 0; font-size: 21px; color: var(--main); }
   .death-box .dstats { font-size: 17px; color: var(--dim); margin-bottom: 20px; }
 
@@ -581,10 +586,10 @@
   </div>
 </div>
 
-<!-- ЭКРАН СМЕРТИ -->
+<!-- ЭКРАН СМЕРТИ / ПОБЕДЫ -->
 <div id="screen-death">
-  <div class="death-box">
-    <h2>☠ ТЫ МЁРТВ ☠</h2>
+  <div class="death-box" id="death-box">
+    <h2 id="death-title">☠ ТЫ МЁРТВ ☠</h2>
     <div class="epi" id="death-epitaph"></div>
     <div class="dstats" id="death-stats"></div>
     <div class="btn-row">
@@ -1027,6 +1032,23 @@ const DIRS = {
 
 const HERO_GLYPHS = ['@', '#', 'Ω', 'Φ'];
 
+// ---------- сюжетный режим ----------
+
+const STORY_FLOORS = 6;   // длина сюжетного забега
+const STORY_ACTS = 3;     // три акта: завязка, развитие, финал
+
+/** Номер акта по глубине: 1–2 → акт I, 3–4 → акт II, 5–6 → акт III. */
+function storyAct(depth) {
+  return Math.min(STORY_ACTS, Math.ceil(depth / (STORY_FLOORS / STORY_ACTS)));
+}
+
+const OFFLINE_VILLAINS = [
+  { villain: 'Костяной Король', goal: 'собрать армию мёртвых и выйти на поверхность' },
+  { villain: 'Тот-Кто-Считает Часы', goal: 'остановить время для всего живого' },
+  { villain: 'Мясник Пустых Залов', goal: 'накормить подземелье героями' },
+  { villain: 'Хозяин Финальной Двери', goal: 'впустить в мир то, что за дверью' }
+];
+
 let monSeq = 0;
 
 /** Офлайн-спавн: монстры и лут по этажу. */
@@ -1099,6 +1121,16 @@ function newGame(opts) {
     floorItems: [],
     memory: [] // кольцевой журнал последних событий — память ИИ-ДМа между ходами
   };
+  // сюжет: арка с злодеем, тремя актами и финальным боссом
+  if (state.mode === 'story') {
+    const v = OFFLINE_VILLAINS[Math.floor(state.rng() * OFFLINE_VILLAINS.length)];
+    state.story = {
+      act: 1, acts: STORY_ACTS, floors: STORY_FLOORS,
+      villain: null, villainGoal: null, // приходит от ИИ-интро (или заглушки)
+      fallbackVillain: v,
+      bossSpawned: false, won: false
+    };
+  }
   state.dice = makeDice(state.rng);
 
   // герои — createPlayer + позиция/FOV/жизнь
@@ -1322,6 +1354,19 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
       populateFloor(state);
       gainXp(hero, 30);
       push('system', `Партия спускается глубже. ${state.floorName}. Воздух гуще, тьма наглее.`);
+      // сюжет: смена акта и финальный босс
+      if (state.story) {
+        const act = storyAct(state.depth);
+        if (act !== state.story.act) {
+          state.story.act = act;
+          const beats = {
+            2: `АКТ II: следы ${storyVillain(state)} становятся яснее. ${storyGoal(state)} — время поджимает.`,
+            3: `АКТ III: ты у дна. Дальше — логово ${storyVillain(state)}.`
+          };
+          push('victory', `⚜ ${beats[act] || 'Сюжет движется.'}`);
+        }
+        if (state.depth >= state.story.floors) spawnStoryBoss(state, events);
+      }
       break;
     }
 
@@ -1356,8 +1401,8 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
   // мир живёт: монстры ходят и нападают после действия героя
   events.push(...monsterTurns(state));
 
-  // смерть героя?
-  if (hero.hp <= 0 && hero.alive) {
+  // смерть героя? (победа в сюжете важнее героической смерти)
+  if (hero.hp <= 0 && hero.alive && !state.story?.won) {
     hero.alive = false;
     hero.epitaph = state.deathCause || 'умер при невыясненных обстоятельствах';
     push('death', `☠ ${hero.name} мёртв. Эпитафия: ${hero.epitaph}`);
@@ -1415,6 +1460,7 @@ function resolveCombatRound(state, hero, monster, dice) {
         state.floorItems.push({ ...drop, x: monster.x, y: monster.y });
         push('loot', `${monster.name} роняет: ${drop.name}.`);
       }
+      if (monster.isBoss) grantVictory(state, hero, push);
     }
   };
 
@@ -1491,6 +1537,54 @@ function rememberEvents(state, events) {
 function memoryDigest(state, n = 12) {
   if (!state.memory?.length) return '';
   return state.memory.slice(-n).join(' | ');
+}
+
+// ---------- сюжет: злодей, босс, победа ----------
+
+/** Имя злодея (от ИИ или офлайн-шаблон). */
+function storyVillain(state) {
+  return state.story?.villain || state.story?.fallbackVillain?.villain || 'Владыка Бездны';
+}
+
+function storyGoal(state) {
+  return state.story?.villainGoal || state.story?.fallbackVillain?.goal || 'уничтожить всё живое';
+}
+
+/** Спавн финального босса на последнем этаже сюжетного забега. */
+function spawnStoryBoss(state, events) {
+  const s = state.story;
+  if (!s || s.bossSpawned) return;
+  s.bossSpawned = true;
+  const name = storyVillain(state);
+  const pos = randomFloor(state.rng, state.dungeon);
+  const hp = 25 + state.depth * 6;
+  state.monsters.push({
+    id: `m${++monSeq}`,
+    name,
+    isBoss: true,
+    x: pos.x, y: pos.y,
+    hp, maxHp: hp,
+    toHit: 5, dmg: 2 + Math.floor(state.depth / 2),
+    xp: 150 + state.depth * 20
+  });
+  addQuest(state, `Победить ${name}`);
+  events.push(ev('victory', `⚜ ФИНАЛ: ${name} ждёт на этом этаже. ${storyGoal(state)} — если ты провалишься, мир об этом пожалеет.`));
+}
+
+/** Победа: босс повержен. */
+function grantVictory(state, hero, push) {
+  if (state.over || !state.story || state.story.won) return;
+  state.story.won = true;
+  state.over = true;
+  state.epitaph = `${hero.name} победил ${storyVillain(state)} и спас мир. На глубине ${state.depth}.`;
+  push('victory', `⚜ ${storyVillain(state)} повержен! ${hero.name} — легенда. ПОБЕДА!`);
+}
+
+/** Сюжетная строка для контекста ИИ. */
+function storyDigest(state) {
+  const s = state.story;
+  if (!s) return '';
+  return `АКТ ${s.act}/${s.acts}, этаж ${state.depth} из ${s.floors}, злодей: ${storyVillain(state)} (${storyGoal(state)}), босс: ${s.bossSpawned ? 'УЖЕ ЖДЁТ' : 'впереди'}.`;
 }
 
 // ---------- жизнь монстров: преследование и атака ----------
@@ -1631,7 +1725,8 @@ function buildSnapshot(state, heroIdx = state.activeIdx) {
   return {
     t: 'snapshot',
     depth: state.depth, floorName: state.floorName, turnOf: state.activeIdx,
-    over: state.over, epitaph: state.epitaph, mode: state.mode, worldDesc: state.worldDesc, quests: [...state.quests],
+    over: state.over, won: !!state.story?.won, epitaph: state.epitaph, mode: state.mode, worldDesc: state.worldDesc, quests: [...state.quests],
+    story: state.story ? { act: state.story.act, acts: state.story.acts, floors: state.story.floors, villain: storyVillain(state), goal: storyGoal(state), bossSpawned: state.story.bossSpawned } : null,
     you: heroIdx,
     heroes: state.heroes.map((h, i) => ({
       idx: i, name: h.name, className: h.className, alive: h.alive,
@@ -1687,6 +1782,7 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       if (target.hp <= 0) {
         const levels = gainXp(hero, target.xp);
         push('loot', `${hero.name} получает ${target.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
+        if (target.isBoss) grantVictory(state, hero, push);
       }
     }
   }
@@ -1738,9 +1834,16 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
     if (q) state.quests = state.quests.filter(t => t !== q);
   }
 
+  // сюжет: ИИ задаёт злодея и его цель (обычно в интро)
+  if (state.story && !state.story.villain && effects.villain) {
+    state.story.villain = String(effects.villain).slice(0, 60);
+    state.story.villainGoal = String(effects.villainGoal || '').slice(0, 120);
+    push('victory', `⚜ ЛЕГЕНДА: ${state.story.villain} — ${state.story.villainGoal || 'твоя главная угроза'}.`);
+  }
+
   if (effects.narrative) push('dm', String(effects.narrative).slice(0, 1200));
 
-  if (hero.hp <= 0 && hero.alive) {
+  if (hero.hp <= 0 && hero.alive && !state.story?.won) {
     hero.alive = false;
     hero.epitaph = state.deathCause || 'кончилось плохо';
     push('death', `☠ ${hero.name} мёртв. Эпитафия: ${hero.epitaph}`);
@@ -1895,6 +1998,7 @@ const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-�
 ПРАВИЛА:
 - Пиши ТОЛЬКО по-русски. 2-4 предложения на событие (больше — только на ключевых моментах).
 - Учитывай блок «НЕДАВНИЕ СОБЫТИЯ» — это твоя память: помни, что уже произошло, продолжай начатое (квесты, раненые враги, обещания NPC), НИКОГДА не повторяй те же шутки и описания.
+- ЕСЛИ есть блок «СЮЖЕТ» — ты ведёшь историю с аркой: в акте I намекай на злодея и его планы, в акте II нагнетай и ставь выбор, в акте III веди к финальной схватке. Держи одну линию, эскалируй ставки.
 - Ты НЕ кидаешь кубики и НЕ решаешь исходы атак сам — это делает движок. Ты только описываешь и предлагаешь.
 - Ты можешь предлагать только эти эффекты, в пределах разумного: playerDamage (0-15), heal (0-20), xpGain (0-50), goldGain (1-200), enemyDamage (0-25), enemySpawn, itemGain (слабые предметы), questAdd.
 - Никогда не обещай игроку лут мощнее кинжала без причины.
@@ -1907,9 +2011,10 @@ const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-�
   "enemyName": "", "enemyDamage": 0,
   "enemySpawn": null,            // {"name","hp","toHit","dmg","xp"} если появляется монстр
   "itemGain": null,              // {"name","type":"weapon|armor|potion|misc","dmg","ac","heal","gold","qty"}
-  "questAdd": "", "questDone": ""
+  "questAdd": "", "questDone": "",
+  "villain": "", "villainGoal": ""
 }
-Все числовые поля по умолчанию 0/null — включай только то, что реально происходит.`;
+Все числовые поля по умолчанию 0/null — включай только то, что реально происходит. Поля villain/villainGoal — только в интро сюжетного режима.`;
 
 /**
  * Компактный контекст текущего состояния для модели.
@@ -1934,6 +2039,7 @@ function buildContext(state, playerInput) {
         items.length ? `ВИДИТ ПРЕДМЕТЫ: ${items.join(', ')}.` : '',
         state.quests.length ? `КВЕСТЫ: ${state.quests.join('; ')}.` : '',
         (() => { const mem = memoryDigest(state); return mem ? `НЕДАВНИЕ СОБЫТИЯ: ${mem}.` : ''; })(),
+        (() => { const st = storyDigest(state); return st ? `СЮЖЕТ: ${st}` : ''; })(),
         `ПРОВЕРКИ ДВИЖКА (последние): ${state.recentRolls?.join(', ') || 'нет'}.`,
         `ДЕЙСТВИЕ ИГРОКА: "${playerInput}"`
       ].filter(Boolean).join('\n')
@@ -1946,11 +2052,14 @@ function buildContext(state, playerInput) {
  */
 function introMessages(state) {
   const p = state.player;
+  const storyAsk = state.mode === 'story'
+    ? ' Это СЮЖЕТНЫЙ режим: придумай злодея (villain) и его страшную цель (villainGoal), намекни на него во вступлении, добавь первичный квест (questAdd).'
+    : '';
   return [
     { role: 'system', content: SYSTEM_PROMPT },
     {
       role: 'user',
-      content: `Сгенерируй вступление новой игры. МИР: ${state.worldDesc}. Режим: ${state.mode}. ГЕРОЙ: ${p.name}, ${p.className}, ур.${p.level}. Опиши место, где он очнулся, добавь первичный квест (questAdd) и шутку в свой стиль. ${state.floorName}.`
+      content: `Сгенерируй вступление новой игры. МИР: ${state.worldDesc}. Режим: ${state.mode}.${storyAsk} ГЕРОЙ: ${p.name}, ${p.className}, ур.${p.level}. Опиши место, где он очнулся, и шутку в свой стиль. ${state.floorName}.`
     }
   ];
 }
@@ -2000,10 +2109,12 @@ const QUESTS = [
 
 let snarkIdx = 0;
 let questGiven = false;
+let villainGiven = false;
 
 function resetStub() {
   snarkIdx = 0;
   questGiven = false;
+  villainGiven = false;
 }
 
 /**
@@ -2013,6 +2124,21 @@ function resetStub() {
 function stubDmTurn(state, input) {
   const rng = state.rng;
   const roll = rng();
+
+  // сюжет: интро задаёт злодея (движок подставит офлайн-шаблон, если поле пустое)
+  if (state.story && !villainGiven) {
+    villainGiven = true;
+    return {
+      narrative: 'Ты очнулся в тёмном углу чужого мира. Где-то глубоко внизу что-то дышит и загибает пальцы планы на твою жизнь. Спойлер: в конце коридора — оно.',
+      questAdd: 'Дойти до дна подземелья'
+    };
+  }
+  // сюжет: в финальном акте нагнетаем
+  if (state.story && state.story.act >= state.story.acts) {
+    return {
+      narrative: 'Стены дрожат от чужой воли. Дно уже близко, и оно знает, что ты идёшь. Оно радуется. Плохой знак.'
+    };
+  }
 
   // редкая встреча
   if (roll < 0.15 && !state.over) {
@@ -3257,7 +3383,8 @@ function refreshPanelsSolo() {
   renderMap($('map'), state, vis.glyphs);
   renderStats($('stats'), state);
   renderQuests($('quest-list'), state);
-  $('floor-label').textContent = state.floorName;
+  $('floor-label').textContent = state.floorName
+    + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
   fitMap();
 }
 
@@ -3480,7 +3607,8 @@ function applySnapshot(snap) {
   renderSnapshotMap($('map'), snap, vis.glyphs);
   renderStatsSnap($('stats'), snap);
   renderQuests($('quest-list'), snap);
-  $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`;
+  $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
+    + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
   fitMap();
   const hero = snap.heroes[snap.you];
   const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
@@ -3488,7 +3616,7 @@ function applySnapshot(snap) {
   if (myTurn && !wasMyTurn) turnSound();
   wasMyTurn = myTurn;
   if (snap.over) {
-    $('turn-banner').textContent = '☠ ПАРТИЯ УНИЧТОЖЕНА';
+    $('turn-banner').textContent = snap.won ? '⚜ ПОБЕДА — злодей повержен' : '☠ ПАРТИЯ УНИЧТОЖЕНА';
     typer.onFinish(() => showDeathSnap(snap));
   } else if (!hero.alive) {
     $('turn-banner').textContent = '☠ ТЫ МЁРТВ — наблюдаешь за партией';
@@ -3509,36 +3637,49 @@ function applySnapshot(snap) {
 // ---------- смерть ----------
 
 function showDeathSolo() {
+  const won = !!state.story?.won;
   saveHofEntry({
     name: state.player.name,
     className: state.player.className,
     world: state.worldDesc,
     depth: state.depth,
-    epitaph: state.epitaph || 'умер от жизни',
+    epitaph: won
+      ? `⚜ победил ${state.story.villain} — и вышел живым. Почти.`
+      : (state.epitaph || 'умер от жизни'),
     date: new Date().toLocaleDateString('ru-RU')
   });
-  showDeathCommon(state.epitaph || '', `${state.player.name}, ${state.player.className}, ур.${state.player.level}. Дошёл до этажа ${state.depth}. Ходов: ${state.turn}.`);
+  showDeathCommon(
+    state.epitaph || '',
+    `${state.player.name}, ${state.player.className}, ур.${state.player.level}. Дошёл до этажа ${state.depth}. Ходов: ${state.turn}.`,
+    won
+  );
 }
 
 function showDeathSnap(snap) {
   const me = snap.heroes[snap.you];
+  const won = !!snap.won;
   saveHofEntry({
     name: me.name,
     className: me.className,
     world: snap.worldDesc,
     depth: snap.depth,
-    epitaph: snap.epitaph || (me.alive ? 'пережил всех, но не подземелье' : 'погиб в подземелье'),
+    epitaph: won
+      ? `⚜ партия победила ${snap.story?.villain || 'злодея'}`
+      : (snap.epitaph || (me.alive ? 'пережил всех, но не подземелье' : 'погиб в подземелье')),
     date: new Date().toLocaleDateString('ru-RU')
   });
   showDeathCommon(
     snap.epitaph || '',
-    `${me.name}, ${me.className}, ур.${me.level}. Дошёл до этажа ${snap.depth}.`
+    `${me.name}, ${me.className}, ур.${me.level}. Дошёл до этажа ${snap.depth}.`,
+    won
   );
 }
 
-async function showDeathCommon(epitaph, stats) {
+async function showDeathCommon(epitaph, stats, won = false) {
   await deathGlitch();
-  $('death-epitaph').textContent = epitaph;
+  $('death-title').textContent = won ? '⚜ ПОБЕДА ⚜' : '☠ ТЫ МЁРТВ ☠';
+  $('death-box').classList.toggle('victory', !!won);
+  $('death-epitaph').textContent = won && !epitaph ? 'Злодей повержен, мир спасён. Подземелье подаёт апелляцию.' : epitaph;
   $('death-stats').textContent = stats;
   $('screen-death').classList.add('active');
 }

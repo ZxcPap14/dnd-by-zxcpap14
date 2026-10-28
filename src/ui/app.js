@@ -210,7 +210,8 @@ function refreshPanelsSolo() {
   renderMap($('map'), state, vis.glyphs);
   renderStats($('stats'), state);
   renderQuests($('quest-list'), state);
-  $('floor-label').textContent = state.floorName;
+  $('floor-label').textContent = state.floorName
+    + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
   fitMap();
 }
 
@@ -433,7 +434,8 @@ function applySnapshot(snap) {
   renderSnapshotMap($('map'), snap, vis.glyphs);
   renderStatsSnap($('stats'), snap);
   renderQuests($('quest-list'), snap);
-  $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`;
+  $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
+    + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
   fitMap();
   const hero = snap.heroes[snap.you];
   const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
@@ -441,7 +443,7 @@ function applySnapshot(snap) {
   if (myTurn && !wasMyTurn) turnSound();
   wasMyTurn = myTurn;
   if (snap.over) {
-    $('turn-banner').textContent = '☠ ПАРТИЯ УНИЧТОЖЕНА';
+    $('turn-banner').textContent = snap.won ? '⚜ ПОБЕДА — злодей повержен' : '☠ ПАРТИЯ УНИЧТОЖЕНА';
     typer.onFinish(() => showDeathSnap(snap));
   } else if (!hero.alive) {
     $('turn-banner').textContent = '☠ ТЫ МЁРТВ — наблюдаешь за партией';
@@ -462,36 +464,49 @@ function applySnapshot(snap) {
 // ---------- смерть ----------
 
 function showDeathSolo() {
+  const won = !!state.story?.won;
   saveHofEntry({
     name: state.player.name,
     className: state.player.className,
     world: state.worldDesc,
     depth: state.depth,
-    epitaph: state.epitaph || 'умер от жизни',
+    epitaph: won
+      ? `⚜ победил ${state.story.villain} — и вышел живым. Почти.`
+      : (state.epitaph || 'умер от жизни'),
     date: new Date().toLocaleDateString('ru-RU')
   });
-  showDeathCommon(state.epitaph || '', `${state.player.name}, ${state.player.className}, ур.${state.player.level}. Дошёл до этажа ${state.depth}. Ходов: ${state.turn}.`);
+  showDeathCommon(
+    state.epitaph || '',
+    `${state.player.name}, ${state.player.className}, ур.${state.player.level}. Дошёл до этажа ${state.depth}. Ходов: ${state.turn}.`,
+    won
+  );
 }
 
 function showDeathSnap(snap) {
   const me = snap.heroes[snap.you];
+  const won = !!snap.won;
   saveHofEntry({
     name: me.name,
     className: me.className,
     world: snap.worldDesc,
     depth: snap.depth,
-    epitaph: snap.epitaph || (me.alive ? 'пережил всех, но не подземелье' : 'погиб в подземелье'),
+    epitaph: won
+      ? `⚜ партия победила ${snap.story?.villain || 'злодея'}`
+      : (snap.epitaph || (me.alive ? 'пережил всех, но не подземелье' : 'погиб в подземелье')),
     date: new Date().toLocaleDateString('ru-RU')
   });
   showDeathCommon(
     snap.epitaph || '',
-    `${me.name}, ${me.className}, ур.${me.level}. Дошёл до этажа ${snap.depth}.`
+    `${me.name}, ${me.className}, ур.${me.level}. Дошёл до этажа ${snap.depth}.`,
+    won
   );
 }
 
-async function showDeathCommon(epitaph, stats) {
+async function showDeathCommon(epitaph, stats, won = false) {
   await deathGlitch();
-  $('death-epitaph').textContent = epitaph;
+  $('death-title').textContent = won ? '⚜ ПОБЕДА ⚜' : '☠ ТЫ МЁРТВ ☠';
+  $('death-box').classList.toggle('victory', !!won);
+  $('death-epitaph').textContent = won && !epitaph ? 'Злодей повержен, мир спасён. Подземелье подаёт апелляцию.' : epitaph;
   $('death-stats').textContent = stats;
   $('screen-death').classList.add('active');
 }

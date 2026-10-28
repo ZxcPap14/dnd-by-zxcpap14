@@ -29,10 +29,12 @@ const QUESTS = [
 
 let snarkIdx = 0;
 let questGiven = false;
+let villainGiven = false;
 
 export function resetStub() {
   snarkIdx = 0;
   questGiven = false;
+  villainGiven = false;
 }
 
 /**
@@ -42,6 +44,21 @@ export function resetStub() {
 export function stubDmTurn(state, input) {
   const rng = state.rng;
   const roll = rng();
+
+  // сюжет: интро задаёт злодея (движок подставит офлайн-шаблон, если поле пустое)
+  if (state.story && !villainGiven) {
+    villainGiven = true;
+    return {
+      narrative: 'Ты очнулся в тёмном углу чужого мира. Где-то глубоко внизу что-то дышит и загибает пальцы планы на твою жизнь. Спойлер: в конце коридора — оно.',
+      questAdd: 'Дойти до дна подземелья'
+    };
+  }
+  // сюжет: в финальном акте нагнетаем
+  if (state.story && state.story.act >= state.story.acts) {
+    return {
+      narrative: 'Стены дрожат от чужой воли. Дно уже близко, и оно знает, что ты идёшь. Оно радуется. Плохой знак.'
+    };
+  }
 
   // редкая встреча
   if (roll < 0.15 && !state.over) {

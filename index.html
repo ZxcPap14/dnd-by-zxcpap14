@@ -293,6 +293,9 @@
     animation: blinkred 0.45s steps(2, end) 4;
   }
   @keyframes blinkred { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  .kind-victory {
+    color: var(--loot); font-weight: bold; text-shadow: 0 0 12px var(--loot);
+  }
   .kind-death { color: var(--red); font-weight: bold; text-shadow: 0 0 12px var(--red); }
 
   .input-row { display: flex; gap: 8px; flex-shrink: 0; }
@@ -417,6 +420,8 @@
     text-shadow: 0 0 22px var(--red);
     font-family: var(--font-pixel);
   }
+  .death-box.victory { border-color: var(--loot); box-shadow: 0 0 70px var(--glow); }
+  .death-box.victory h2 { color: var(--loot); text-shadow: 0 0 22px var(--loot); }
   .death-box .epi { margin: 18px 0; font-size: 21px; color: var(--main); }
   .death-box .dstats { font-size: 17px; color: var(--dim); margin-bottom: 20px; }
 
@@ -581,10 +586,10 @@
   </div>
 </div>
 
-<!-- ЭКРАН СМЕРТИ -->
+<!-- ЭКРАН СМЕРТИ / ПОБЕДЫ -->
 <div id="screen-death">
-  <div class="death-box">
-    <h2>☠ ТЫ МЁРТВ ☠</h2>
+  <div class="death-box" id="death-box">
+    <h2 id="death-title">☠ ТЫ МЁРТВ ☠</h2>
     <div class="epi" id="death-epitaph"></div>
     <div class="dstats" id="death-stats"></div>
     <div class="btn-row">

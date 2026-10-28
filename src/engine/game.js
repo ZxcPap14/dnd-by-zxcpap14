@@ -21,6 +21,23 @@ export const DIRS = {
 
 export const HERO_GLYPHS = ['@', '#', 'Ω', 'Φ'];
 
+// ---------- сюжетный режим ----------
+
+export const STORY_FLOORS = 6;   // длина сюжетного забега
+export const STORY_ACTS = 3;     // три акта: завязка, развитие, финал
+
+/** Номер акта по глубине: 1–2 → акт I, 3–4 → акт II, 5–6 → акт III. */
+export function storyAct(depth) {
+  return Math.min(STORY_ACTS, Math.ceil(depth / (STORY_FLOORS / STORY_ACTS)));
+}
+
+const OFFLINE_VILLAINS = [
+  { villain: 'Костяной Король', goal: 'собрать армию мёртвых и выйти на поверхность' },
+  { villain: 'Тот-Кто-Считает Часы', goal: 'остановить время для всего живого' },
+  { villain: 'Мясник Пустых Залов', goal: 'накормить подземелье героями' },
+  { villain: 'Хозяин Финальной Двери', goal: 'впустить в мир то, что за дверью' }
+];
+
 let monSeq = 0;
 
 /** Офлайн-спавн: монстры и лут по этажу. */
@@ -93,6 +110,16 @@ export function newGame(opts) {
     floorItems: [],
     memory: [] // кольцевой журнал последних событий — память ИИ-ДМа между ходами
   };
+  // сюжет: арка с злодеем, тремя актами и финальным боссом
+  if (state.mode === 'story') {
+    const v = OFFLINE_VILLAINS[Math.floor(state.rng() * OFFLINE_VILLAINS.length)];
+    state.story = {
+      act: 1, acts: STORY_ACTS, floors: STORY_FLOORS,
+      villain: null, villainGoal: null, // приходит от ИИ-интро (или заглушки)
+      fallbackVillain: v,
+      bossSpawned: false, won: false
+    };
+  }
   state.dice = makeDice(state.rng);
 
   // герои — createPlayer + позиция/FOV/жизнь
@@ -316,6 +343,19 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       populateFloor(state);
       gainXp(hero, 30);
       push('system', `Партия спускается глубже. ${state.floorName}. Воздух гуще, тьма наглее.`);
+      // сюжет: смена акта и финальный босс
+      if (state.story) {
+        const act = storyAct(state.depth);
+        if (act !== state.story.act) {
+          state.story.act = act;
+          const beats = {
+            2: `АКТ II: следы ${storyVillain(state)} становятся яснее. ${storyGoal(state)} — время поджимает.`,
+            3: `АКТ III: ты у дна. Дальше — логово ${storyVillain(state)}.`
+          };
+          push('victory', `⚜ ${beats[act] || 'Сюжет движется.'}`);
+        }
+        if (state.depth >= state.story.floors) spawnStoryBoss(state, events);
+      }
       break;
     }
 
@@ -350,8 +390,8 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
   // мир живёт: монстры ходят и нападают после действия героя
   events.push(...monsterTurns(state));
 
-  // смерть героя?
-  if (hero.hp <= 0 && hero.alive) {
+  // смерть героя? (победа в сюжете важнее героической смерти)
+  if (hero.hp <= 0 && hero.alive && !state.story?.won) {
     hero.alive = false;
     hero.epitaph = state.deathCause || 'умер при невыясненных обстоятельствах';
     push('death', `☠ ${hero.name} мёртв. Эпитафия: ${hero.epitaph}`);
@@ -409,6 +449,7 @@ export function resolveCombatRound(state, hero, monster, dice) {
         state.floorItems.push({ ...drop, x: monster.x, y: monster.y });
         push('loot', `${monster.name} роняет: ${drop.name}.`);
       }
+      if (monster.isBoss) grantVictory(state, hero, push);
     }
   };
 
@@ -485,6 +526,54 @@ export function rememberEvents(state, events) {
 export function memoryDigest(state, n = 12) {
   if (!state.memory?.length) return '';
   return state.memory.slice(-n).join(' | ');
+}
+
+// ---------- сюжет: злодей, босс, победа ----------
+
+/** Имя злодея (от ИИ или офлайн-шаблон). */
+export function storyVillain(state) {
+  return state.story?.villain || state.story?.fallbackVillain?.villain || 'Владыка Бездны';
+}
+
+export function storyGoal(state) {
+  return state.story?.villainGoal || state.story?.fallbackVillain?.goal || 'уничтожить всё живое';
+}
+
+/** Спавн финального босса на последнем этаже сюжетного забега. */
+function spawnStoryBoss(state, events) {
+  const s = state.story;
+  if (!s || s.bossSpawned) return;
+  s.bossSpawned = true;
+  const name = storyVillain(state);
+  const pos = randomFloor(state.rng, state.dungeon);
+  const hp = 25 + state.depth * 6;
+  state.monsters.push({
+    id: `m${++monSeq}`,
+    name,
+    isBoss: true,
+    x: pos.x, y: pos.y,
+    hp, maxHp: hp,
+    toHit: 5, dmg: 2 + Math.floor(state.depth / 2),
+    xp: 150 + state.depth * 20
+  });
+  addQuest(state, `Победить ${name}`);
+  events.push(ev('victory', `⚜ ФИНАЛ: ${name} ждёт на этом этаже. ${storyGoal(state)} — если ты провалишься, мир об этом пожалеет.`));
+}
+
+/** Победа: босс повержен. */
+function grantVictory(state, hero, push) {
+  if (state.over || !state.story || state.story.won) return;
+  state.story.won = true;
+  state.over = true;
+  state.epitaph = `${hero.name} победил ${storyVillain(state)} и спас мир. На глубине ${state.depth}.`;
+  push('victory', `⚜ ${storyVillain(state)} повержен! ${hero.name} — легенда. ПОБЕДА!`);
+}
+
+/** Сюжетная строка для контекста ИИ. */
+export function storyDigest(state) {
+  const s = state.story;
+  if (!s) return '';
+  return `АКТ ${s.act}/${s.acts}, этаж ${state.depth} из ${s.floors}, злодей: ${storyVillain(state)} (${storyGoal(state)}), босс: ${s.bossSpawned ? 'УЖЕ ЖДЁТ' : 'впереди'}.`;
 }
 
 // ---------- жизнь монстров: преследование и атака ----------
@@ -625,7 +714,8 @@ export function buildSnapshot(state, heroIdx = state.activeIdx) {
   return {
     t: 'snapshot',
     depth: state.depth, floorName: state.floorName, turnOf: state.activeIdx,
-    over: state.over, epitaph: state.epitaph, mode: state.mode, worldDesc: state.worldDesc, quests: [...state.quests],
+    over: state.over, won: !!state.story?.won, epitaph: state.epitaph, mode: state.mode, worldDesc: state.worldDesc, quests: [...state.quests],
+    story: state.story ? { act: state.story.act, acts: state.story.acts, floors: state.story.floors, villain: storyVillain(state), goal: storyGoal(state), bossSpawned: state.story.bossSpawned } : null,
     you: heroIdx,
     heroes: state.heroes.map((h, i) => ({
       idx: i, name: h.name, className: h.className, alive: h.alive,
@@ -681,6 +771,7 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       if (target.hp <= 0) {
         const levels = gainXp(hero, target.xp);
         push('loot', `${hero.name} получает ${target.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
+        if (target.isBoss) grantVictory(state, hero, push);
       }
     }
   }
@@ -732,9 +823,16 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
     if (q) state.quests = state.quests.filter(t => t !== q);
   }
 
+  // сюжет: ИИ задаёт злодея и его цель (обычно в интро)
+  if (state.story && !state.story.villain && effects.villain) {
+    state.story.villain = String(effects.villain).slice(0, 60);
+    state.story.villainGoal = String(effects.villainGoal || '').slice(0, 120);
+    push('victory', `⚜ ЛЕГЕНДА: ${state.story.villain} — ${state.story.villainGoal || 'твоя главная угроза'}.`);
+  }
+
   if (effects.narrative) push('dm', String(effects.narrative).slice(0, 1200));
 
-  if (hero.hp <= 0 && hero.alive) {
+  if (hero.hp <= 0 && hero.alive && !state.story?.won) {
     hero.alive = false;
     hero.epitaph = state.deathCause || 'кончилось плохо';
     push('death', `☠ ${hero.name} мёртв. Эпитафия: ${hero.epitaph}`);

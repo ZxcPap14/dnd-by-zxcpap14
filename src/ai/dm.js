@@ -2,7 +2,7 @@
 // Характер по спецификации: юмор и троллинг + беспощадность. Русский язык.
 
 import { playerAc } from '../engine/player.js';
-import { memoryDigest } from '../engine/game.js';
+import { memoryDigest, storyDigest } from '../engine/game.js';
 
 export const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-игры «dnd by ZxcPap14». 
 
@@ -11,6 +11,7 @@ export const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой 
 ПРАВИЛА:
 - Пиши ТОЛЬКО по-русски. 2-4 предложения на событие (больше — только на ключевых моментах).
 - Учитывай блок «НЕДАВНИЕ СОБЫТИЯ» — это твоя память: помни, что уже произошло, продолжай начатое (квесты, раненые враги, обещания NPC), НИКОГДА не повторяй те же шутки и описания.
+- ЕСЛИ есть блок «СЮЖЕТ» — ты ведёшь историю с аркой: в акте I намекай на злодея и его планы, в акте II нагнетай и ставь выбор, в акте III веди к финальной схватке. Держи одну линию, эскалируй ставки.
 - Ты НЕ кидаешь кубики и НЕ решаешь исходы атак сам — это делает движок. Ты только описываешь и предлагаешь.
 - Ты можешь предлагать только эти эффекты, в пределах разумного: playerDamage (0-15), heal (0-20), xpGain (0-50), goldGain (1-200), enemyDamage (0-25), enemySpawn, itemGain (слабые предметы), questAdd.
 - Никогда не обещай игроку лут мощнее кинжала без причины.
@@ -23,9 +24,10 @@ export const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой 
   "enemyName": "", "enemyDamage": 0,
   "enemySpawn": null,            // {"name","hp","toHit","dmg","xp"} если появляется монстр
   "itemGain": null,              // {"name","type":"weapon|armor|potion|misc","dmg","ac","heal","gold","qty"}
-  "questAdd": "", "questDone": ""
+  "questAdd": "", "questDone": "",
+  "villain": "", "villainGoal": ""
 }
-Все числовые поля по умолчанию 0/null — включай только то, что реально происходит.`;
+Все числовые поля по умолчанию 0/null — включай только то, что реально происходит. Поля villain/villainGoal — только в интро сюжетного режима.`;
 
 /**
  * Компактный контекст текущего состояния для модели.
@@ -50,6 +52,7 @@ export function buildContext(state, playerInput) {
         items.length ? `ВИДИТ ПРЕДМЕТЫ: ${items.join(', ')}.` : '',
         state.quests.length ? `КВЕСТЫ: ${state.quests.join('; ')}.` : '',
         (() => { const mem = memoryDigest(state); return mem ? `НЕДАВНИЕ СОБЫТИЯ: ${mem}.` : ''; })(),
+        (() => { const st = storyDigest(state); return st ? `СЮЖЕТ: ${st}` : ''; })(),
         `ПРОВЕРКИ ДВИЖКА (последние): ${state.recentRolls?.join(', ') || 'нет'}.`,
         `ДЕЙСТВИЕ ИГРОКА: "${playerInput}"`
       ].filter(Boolean).join('\n')
@@ -62,11 +65,14 @@ export function buildContext(state, playerInput) {
  */
 export function introMessages(state) {
   const p = state.player;
+  const storyAsk = state.mode === 'story'
+    ? ' Это СЮЖЕТНЫЙ режим: придумай злодея (villain) и его страшную цель (villainGoal), намекни на него во вступлении, добавь первичный квест (questAdd).'
+    : '';
   return [
     { role: 'system', content: SYSTEM_PROMPT },
     {
       role: 'user',
-      content: `Сгенерируй вступление новой игры. МИР: ${state.worldDesc}. Режим: ${state.mode}. ГЕРОЙ: ${p.name}, ${p.className}, ур.${p.level}. Опиши место, где он очнулся, добавь первичный квест (questAdd) и шутку в свой стиль. ${state.floorName}.`
+      content: `Сгенерируй вступление новой игры. МИР: ${state.worldDesc}. Режим: ${state.mode}.${storyAsk} ГЕРОЙ: ${p.name}, ${p.className}, ур.${p.level}. Опиши место, где он очнулся, и шутку в свой стиль. ${state.floorName}.`
     }
   ];
 }
