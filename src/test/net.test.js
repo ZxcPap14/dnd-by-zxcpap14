@@ -4,6 +4,7 @@ import { createLoopbackNet, makeRoomCode } from '../net/loopback.js';
 import { createHostSession } from '../net/host.js';
 import { createClientSession } from '../net/client.js';
 import { PROTOCOL_VER } from '../net/protocol.js';
+import { describePeerError } from '../net/peer.js';
 
 const CLASSES = [
   { name: 'Воин', className: 'Воин', stats: { str: 16, dex: 12, int: 8, con: 14, cha: 10, luck: 12 } },
@@ -31,6 +32,17 @@ function spawnClient(net, host, name) {
   client.hello();
   return { link, client, got };
 }
+
+test('describePeerError: сырые типы PeerJS превращаются в понятные тексты', () => {
+  assert.match(describePeerError('network'), /Сигнальный сервер недоступен/);
+  assert.match(describePeerError('server-error'), /временно сбоит/);
+  assert.match(describePeerError('unavailable-id'), /уже занят/);
+  assert.match(describePeerError('peer-unavailable'), /не найдена/);
+  assert.match(describePeerError('timeout', 'нет пинга'), /не отвечает: нет пинга/);
+  assert.match(describePeerError('что-то новое'), /что-то новое/);
+  // без точки в конце сообщений-инструкций
+  assert.ok(describePeerError('network').endsWith('ещё раз.'));
+});
 
 test('makeRoomCode: 4 символа из безопасного алфавита', () => {
   const code = makeRoomCode();
