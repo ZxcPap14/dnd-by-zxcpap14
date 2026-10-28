@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dnd by ZxcPap14</title>
+<style>
+  :root {
+    --amber: #ffb000;
+    --amber-dim: #b87d00;
+    --amber-bright: #ffd166;
+    --red: #ff5555;
+    --bg: #0a0603;
+    --panel-bg: #120c05;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--amber);
+    font-family: 'Consolas', 'Courier New', monospace;
+    overflow: hidden;
+    text-shadow: 0 0 6px rgba(255, 176, 0, 0.45);
+  }
+
+  /* CRT: скан-линии + виньетка */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0 1px, transparent 1px 3px),
+      radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+    z-index: 99;
+  }
+
+  .screen { display: none; height: 100vh; padding: 18px; }
+  .screen.active { display: flex; flex-direction: column; }
+
+  /* ---------- шапка ---------- */
+  header { text-align: center; padding: 8px 0 12px; flex-shrink: 0; }
+  header h1 {
+    font-size: 18px; font-weight: normal; letter-spacing: 2px;
+    color: var(--amber-bright);
+  }
+  header .tagline { font-size: 11px; color: var(--amber-dim); margin-top: 4px; }
+
+  /* ---------- setup ---------- */
+  #screen-setup { align-items: center; justify-content: center; }
+  .setup-box {
+    width: min(640px, 94vw);
+    max-height: 92vh;
+    overflow-y: auto;
+    border: 1px solid var(--amber-dim);
+    padding: 24px;
+    background: var(--panel-bg);
+    box-shadow: 0 0 30px rgba(255, 176, 0, 0.12);
+  }
+  .setup-box h2 { font-size: 14px; font-weight: normal; color: var(--amber-bright); margin: 14px 0 8px; letter-spacing: 1px; }
+  .setup-box h2:first-child { margin-top: 0; }
+  .field { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .field label { width: 110px; flex-shrink: 0; font-size: 12px; color: var(--amber-dim); }
+  .field input, .field select {
+    flex: 1;
+    background: #000;
+    border: 1px solid var(--amber-dim);
+    color: var(--amber);
+    font-family: inherit;
+    font-size: 13px;
+    padding: 6px 8px;
+    outline: none;
+  }
+  .field input:focus { border-color: var(--amber-bright); }
+  .field input[type="password"] { letter-spacing: 2px; }
+  .hint { font-size: 11px; color: var(--amber-dim); margin: 2px 0 0 120px; }
+  #class-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  .class-card {
+    border: 1px solid var(--amber-dim);
+    padding: 10px;
+    cursor: pointer;
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 12px;
+  }
+  .class-card:hover { border-color: var(--amber); }
+  .class-card input { display: none; }
+  .class-card:has(input:checked) { border-color: var(--amber-bright); background: rgba(255, 176, 0, 0.08); }
+  .class-name { color: var(--amber-bright); }
+  .class-desc { color: var(--amber-dim); }
+  .class-loading { font-size: 12px; color: var(--amber-dim); padding: 10px; }
+  button {
+    background: transparent;
+    border: 1px solid var(--amber);
+    color: var(--amber);
+    font-family: inherit;
+    font-size: 13px;
+    padding: 8px 18px;
+    cursor: pointer;
+    letter-spacing: 1px;
+  }
+  button:hover { background: rgba(255, 176, 0, 0.12); border-color: var(--amber-bright); }
+  .btn-row { display: flex; gap: 10px; margin-top: 16px; justify-content: center; }
+  .btn-primary { border-width: 2px; padding: 10px 32px; color: var(--amber-bright); }
+  #setup-note { display: none; margin-top: 10px; font-size: 11px; color: var(--red); text-align: center; }
+  #hof-list { font-size: 11px; margin-top: 6px; }
+  .hof-row { padding: 4px 0; border-bottom: 1px dashed rgba(184, 125, 0, 0.35); display: flex; gap: 8px; flex-wrap: wrap; }
+  .hof-name { color: var(--amber-bright); }
+  .hof-meta { color: var(--amber-dim); }
+  .hof-epitaph { color: var(--red); opacity: 0.85; }
+  .hof-empty, .quest-empty { color: var(--amber-dim); font-style: italic; }
+
+  /* ---------- игра ---------- */
+  #screen-game { gap: 12px; }
+  #game-title { text-align: center; flex-shrink: 0; font-size: 14px; letter-spacing: 2px; color: var(--amber-bright); }
+  #floor-label { color: var(--amber-dim); font-size: 11px; }
+
+  .game-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(340px, 42%) 1fr;
+    gap: 12px;
+    min-height: 0;
+  }
+  .col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+
+  .panel {
+    border: 1px solid var(--amber-dim);
+    background: var(--panel-bg);
+    padding: 10px;
+    overflow: auto;
+  }
+  .panel-title { font-size: 11px; color: var(--amber-dim); letter-spacing: 2px; margin-bottom: 6px; }
+
+  #map {
+    font-size: 12.5px;
+    line-height: 1.12;
+    white-space: pre;
+    text-align: center;
+  }
+  .m-wall { color: #7a5200; }
+  .m-floor { color: #4d3600; }
+  .m-pl { color: #fff; background: rgba(255,176,0,0.35); text-shadow: 0 0 10px #fff; font-weight: bold; }
+  .m-mon { color: var(--red); text-shadow: 0 0 8px var(--red); font-weight: bold; }
+  .m-item { color: var(--amber-bright); text-shadow: 0 0 8px var(--amber-bright); }
+  .m-stair { color: #9fd8ff; text-shadow: 0 0 8px #9fd8ff; font-weight: bold; }
+
+  #stats { font-size: 12px; flex-shrink: 0; }
+  .stat-row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .stat-label { color: var(--amber-dim); }
+  .hp { color: var(--amber-bright); }
+  .stats-line { justify-content: center; color: var(--amber-dim); font-size: 11px; margin-top: 4px; }
+
+  #quests { flex-shrink: 0; max-height: 110px; font-size: 11.5px; }
+  .quest { padding: 2px 0; }
+
+  #log {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 0;
+    cursor: pointer;
+  }
+  .line { white-space: pre-wrap; word-break: break-word; margin-bottom: 6px; }
+  .kind-player { color: var(--amber-bright); }
+  .kind-dm { color: var(--amber); }
+  .kind-system { color: var(--amber-dim); }
+  .kind-roll { color: #9fd8ff; text-shadow: 0 0 6px rgba(159,216,255,0.4); }
+  .kind-combat { color: var(--red); }
+  .kind-loot { color: #7dff8a; text-shadow: 0 0 6px rgba(125,255,138,0.4); }
+  .kind-death { color: var(--red); font-weight: bold; text-shadow: 0 0 12px var(--red); }
+
+  .input-row { display: flex; gap: 8px; flex-shrink: 0; }
+  .prompt-ch { color: var(--amber-bright); align-self: center; }
+  #input {
+    flex: 1;
+    background: #000;
+    border: 1px solid var(--amber-dim);
+    color: var(--amber);
+    font-family: inherit;
+    font-size: 14px;
+    padding: 9px 10px;
+    outline: none;
+  }
+  #input:focus { border-color: var(--amber-bright); box-shadow: 0 0 12px rgba(255,176,0,0.2); }
+
+  /* ---------- смерть ---------- */
+  #screen-death {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(5, 2, 0, 0.94);
+    display: none; align-items: center; justify-content: center;
+  }
+  #screen-death.active { display: flex; }
+  .death-box { text-align: center; border: 1px solid var(--red); padding: 40px 48px; background: var(--panel-bg); box-shadow: 0 0 60px rgba(255,85,85,0.25); }
+  .death-box h2 { color: var(--red); font-size: 28px; font-weight: normal; letter-spacing: 6px; text-shadow: 0 0 20px var(--red); }
+  .death-box .epi { margin: 18px 0; font-size: 15px; color: var(--amber); }
+  .death-box .dstats { font-size: 12px; color: var(--amber-dim); margin-bottom: 20px; }
+
+  @media (max-width: 800px) {
+    .game-grid { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    #map-panel { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ЭКРАН НАСТРОЕК -->
+<div class="screen active" id="screen-setup">
+  <div class="setup-box">
+    <h2>◆ dnd by ZxcPap14</h2>
+    <div class="hint" style="margin-left:0">ASCII-рогалик с ИИ-данж-мастером. Троллем. Беспощадным.</div>
+
+    <h2>МИР</h2>
+    <div class="field">
+      <label for="set-world">Описание мира</label>
+      <input id="set-world" type="text" placeholder="Киберпанк-Токио 2099, ты — курьер-неудачник">
+    </div>
+    <div class="field">
+      <label for="set-mode">Режим</label>
+      <select id="set-mode">
+        <option value="story">Сюжет (история с концовкой)</option>
+        <option value="sandbox">Песочница (живой хаос)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="set-name">Имя героя</label>
+      <input id="set-name" type="text" placeholder="Безымянный" maxlength="20">
+    </div>
+
+    <h2>КЛАСС <button id="btn-classes" style="font-size:11px; padding:3px 10px; margin-left:8px">перегенерировать под мир</button></h2>
+    <div id="class-list"></div>
+
+    <h2>ИИ-ДМАСТЕР (необязательно — без ключа играет заглушка)</h2>
+    <div class="field">
+      <label for="set-base">Base URL</label>
+      <input id="set-base" type="text" placeholder="https://api.openai.com/v1">
+    </div>
+    <div class="field">
+      <label for="set-key">API-ключ</label>
+      <input id="set-key" type="password" placeholder="sk-...">
+    </div>
+    <div class="field">
+      <label for="set-model">Модель</label>
+      <input id="set-model" type="text" placeholder="gpt-4o-mini / deepseek-chat / llama3">
+    </div>
+    <div class="hint" style="margin-left:120px">Любой OpenAI-совместимый: OpenAI, DeepSeek, OpenRouter, локальная Ollama. Ключ хранится только в твоём браузере.</div>
+    <div id="setup-note"></div>
+
+    <div class="btn-row">
+      <button class="btn-primary" id="btn-start">▶ НАЧАТЬ ЗАБЕГ</button>
+    </div>
+
+    <h2>☠ ЗАЛ СЛАВЫ ПОГИБШИХ</h2>
+    <div id="hof-list"></div>
+  </div>
+</div>
+
+<!-- ЭКРАН ИГРЫ -->
+<div class="screen" id="screen-game">
+  <header style="padding:0 0 4px">
+    <div id="game-title">dnd by ZxcPap14 <span id="floor-label"></span></div>
+  </header>
+  <div class="game-grid">
+    <div class="col">
+      <div class="panel" id="map-panel" style="flex:1">
+        <div class="panel-title">КАРТА · туман войны</div>
+        <pre id="map"></pre>
+      </div>
+      <div class="panel" id="stats"></div>
+      <div class="panel" id="quests">
+        <div class="panel-title">ЖУРНАЛ ЗАДАЧ</div>
+        <div id="quest-list"></div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="panel" id="log-panel" style="flex:1; display:flex; flex-direction:column; min-height:0">
+        <div class="panel-title">ХРОНИКА · клик — промотать</div>
+        <div id="log" style="flex:1; overflow-y:auto; min-height:0"></div>
+      </div>
+      <div class="input-row">
+        <span class="prompt-ch">&gt;</span>
+        <input id="input" type="text" autocomplete="off" placeholder="что ты делаешь? (пиши свободно) · ↑ история">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ЭКРАН СМЕРТИ -->
+<div id="screen-death">
+  <div class="death-box">
+    <h2>☠ ТЫ МЁРТВ ☠</h2>
+    <div class="epi" id="death-epitaph"></div>
+    <div class="dstats" id="death-stats"></div>
+    <div class="btn-row">
+      <button id="btn-export">СКАЧАТЬ ХРОНИКУ</button>
+      <button class="btn-primary" id="btn-restart">НОВЫЙ ЗАБЕГ</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/*__BUNDLE__*/
+</script>
+</body>
+</html>
