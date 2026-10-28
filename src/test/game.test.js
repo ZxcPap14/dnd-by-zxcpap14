@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame, parseCommand, applyIntent, visibleMonsters, DIRS } from '../engine/game.js';
+import { newGame, parseCommand, applyIntent, applyDmEffects, visibleMonsters, DIRS } from '../engine/game.js';
 import { TILE } from '../engine/map.js';
 
 function freshGame(seed = 42) {
@@ -207,4 +207,33 @@ test('атака при отсутствии видимых монстров у�
   const free = events.find(e => e.kind === 'dm' && String(e.text).startsWith('__FREE__'));
   assert.ok(free, 'пустая атака → __FREE__');
   assert.ok(free.text.includes('дрона за углом'));
+});
+
+// ---------- подсказки ДМа (кликабельные варианты действий) ----------
+
+test('applyDmEffects: suggestions превращаются в suggest-событие (JSON, максимум 3)', () => {
+  const s = freshGame();
+  const events = applyDmEffects(s, {
+    narrative: 'Дым рассеивается.',
+    suggestions: ['Вскрыть порт ключом', 'Спрятаться в вентиляции', 'Пошуметь', 'Четвёртое лишнее']
+  });
+  const sug = events.find(e => e.kind === 'suggest');
+  assert.ok(sug, 'должно быть suggest-событие');
+  const list = JSON.parse(sug.text);
+  assert.equal(list.length, 3, 'обрезается до трёх');
+  assert.equal(list[0], 'Вскрыть порт ключом');
+});
+
+test('applyDmEffects: без подсказок — нет suggest-события; мусор отфильтрован', () => {
+  const s = freshGame();
+  const events = applyDmEffects(s, { narrative: 'Тишина.', suggestions: ['  ', '', 42] });
+  assert.ok(!events.some(e => e.kind === 'suggest'));
+});
+
+test('память ДМа не засоряется suggest-событиями', () => {
+  const s = freshGame();
+  const memBefore = s.memory.length;
+  applyDmEffects(s, { narrative: 'Сцена.', suggestions: ['Сделать шаг'] });
+  assert.equal(s.memory.length, memBefore + 1, 'в памяти только narrative, без подсказки');
+  assert.ok(!s.memory.some(l => l.includes('suggest')));
 });

@@ -10,8 +10,8 @@ import { makeRoomCode } from '../net/loopback.js';
 import { createPeerHostNet, createPeerClientLink } from '../net/peer.js';
 import { PROTOCOL_VER } from '../net/protocol.js';
 import {
-  createTyper, renderMap, renderStats, renderQuests,
-  renderSnapshotMap, renderStatsSnap, GLYPH_SETS
+  createTyper, renderStats, renderQuests,
+  renderStatsSnap, GLYPH_SETS
 } from './terminal.js';
 import {
   initAudio, rollSound, hitSound, lootSound, levelUpSound,
@@ -207,12 +207,10 @@ function startSolo() {
 }
 
 function refreshPanelsSolo() {
-  renderMap($('map'), state, vis.glyphs);
   renderStats($('stats'), state);
   renderQuests($('quest-list'), state);
   $('floor-label').textContent = state.floorName
     + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
-  fitMap();
 }
 
 /**
@@ -237,15 +235,6 @@ function fitArt() {
   fitPre($('logo-sub'), avail, 3, 8);
 }
 
-/** Карта растягивается на всю панель (или сжимается, чтобы влезть). */
-function fitMap() {
-  const panel = $('map-panel');
-  const el = $('map');
-  if (!panel || !el || panel.offsetParent === null) return; // на мобиле карта скрыта
-  const avail = panel.clientWidth - 24;
-  fitPre(el, avail, 5, 12);
-}
-
 /** Классификация события для расширенной палитры хроники. */
 function classify(kind, text) {
   if (kind === 'death') return 'danger';
@@ -257,9 +246,9 @@ function classify(kind, text) {
 }
 
 function logEvent(kind, text) {
+  if (kind === 'suggest') return; // подсказки рендерятся чипами, не в хронике
   chronicle.push(`[${kind}] ${text}`);
-  typer.add(classify(kind, text), text);
-  switch (kind) {
+  typer.add(classify(kind, text), text);  switch (kind) {
     case 'roll': {
       rollSound(text.includes('КРИТ'));
       const m = text.match(/d20\D*(\d+)/) || text.match(/(\d+)\s*$/);
@@ -277,6 +266,34 @@ function logEvent(kind, text) {
   }
 }
 
+// подсказки ДМа: событие kind 'suggest' (JSON-массив) → кликабельные чипы над вводом.
+// Клик = сразу отправить действие. Новая пачка событий без подсказок их стирает.
+function showSuggestions(events) {
+  const row = $('suggest-row');
+  if (!row) return;
+  row.innerHTML = '';
+  row.style.display = 'none';
+  if (!typer || (state && state.over)) return;
+  const ev = (events || []).find(e => e.kind === 'suggest');
+  if (!ev) return;
+  let list = [];
+  try { list = JSON.parse(ev.text); } catch { return; }
+  if (!Array.isArray(list)) return;
+  list.map(s => String(s).trim()).filter(Boolean).slice(0, 3).forEach(text => {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.textContent = text.slice(0, 48);
+    b.addEventListener('click', () => {
+      row.innerHTML = '';
+      row.style.display = 'none';
+      $('input').value = text;
+      submitInput();
+    });
+    row.appendChild(b);
+  });
+  if (row.children.length) row.style.display = 'flex';
+}
+
 function handleEventsSolo(events) {
   for (const e of events) {
     if (e.kind === 'dm' && String(e.text).startsWith('__FREE__')) continue; // служебный маркер — не для игрока
@@ -284,6 +301,7 @@ function handleEventsSolo(events) {
     if (e.kind === 'victory') levelUpSound();
     logEvent(e.kind, e.text);
   }
+  showSuggestions(events);
   refreshPanelsSolo();
   if (state.over) typer.onFinish(state.story?.won ? () => showDeathCommon(state.epitaph || '', soloStatsLine(), true) : showDeathSolo);
 }
@@ -336,7 +354,7 @@ async function startHostRoom() {
     turnMs: 60000
   });
   hostSession.onLobby(renderLobby);
-  hostSession.onEvents(evs => { if (typer) evs.forEach(e => logEvent(e.kind, e.text)); });
+  hostSession.onEvents(evs => { if (typer) { evs.forEach(e => logEvent(e.kind, e.text)); showSuggestions(evs); } });
   hostSession.onSnapshot(snap => applySnapshot(snap));
 
   $('room-code').textContent = roomCode;
@@ -414,7 +432,7 @@ async function joinRoom() {
   sessionMode = 'client';
   clientSession = createClientSession({ link, name });
   clientSession.onLobby(renderLobby);
-  clientSession.onEvents(evs => { if (typer) evs.forEach(e => logEvent(e.kind, e.text)); });
+  clientSession.onEvents(evs => { if (typer) { evs.forEach(e => logEvent(e.kind, e.text)); showSuggestions(evs); } });
   clientSession.onSnapshot(snap => applySnapshot(snap));
   clientSession.onStart(() => {
     chronicle = [`КО-ОП · комната ${code}`];
@@ -450,12 +468,10 @@ function backToSetup(note) {
 
 function applySnapshot(snap) {
   mySnapshot = snap;
-  renderSnapshotMap($('map'), snap, vis.glyphs);
   renderStatsSnap($('stats'), snap);
   renderQuests($('quest-list'), snap);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
     + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
-  fitMap();
   const hero = snap.heroes[snap.you];
   const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
   // сигнал «твой ход»
@@ -668,8 +684,8 @@ function wire() {
 
   // автоподгонка арта: при загрузке, ресайзе и после загрузки пиксельного шрифта
   fitArt();
-  window.addEventListener('resize', () => { fitArt(); fitMap(); });
-  if (document.fonts?.ready) document.fonts.ready.then(() => { fitArt(); fitMap(); });
+  window.addEventListener('resize', () => { fitArt(); });
+  if (document.fonts?.ready) document.fonts.ready.then(() => { fitArt(); });
 
   $('set-mp').addEventListener('change', () => {
     const mp = $('set-mp').value;

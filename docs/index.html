@@ -249,17 +249,26 @@
     font-size: 8px; color: var(--dim); letter-spacing: 2px; margin-bottom: 8px;
   }
 
-  #map {
-    font-family: var(--font-pixel);
-    font-size: 9.5px;
-    line-height: 1.35;
-    white-space: pre;
-    text-align: center;
-  }
   .m-wall { color: var(--wall); text-shadow: none; }
   .m-floor { color: var(--floor); text-shadow: none; }
   .m-pl { color: #fff; background: var(--tint); text-shadow: 0 0 10px #fff; font-weight: bold; }
   .m-mon { color: var(--red); text-shadow: 0 0 8px var(--red); font-weight: bold; }
+
+  /* подсказки ДМа — кликабельные варианты действий */
+  #suggest-row {
+    display: none; flex-wrap: wrap; gap: 6px; padding: 6px 2px 0;
+  }
+  #suggest-row .chip {
+    font-family: var(--font-pixel); font-size: 8px; letter-spacing: 1px;
+    padding: 6px 10px; cursor: pointer; user-select: none;
+    color: var(--bright); background: transparent;
+    border: 1px solid var(--dim); border-radius: 2px;
+    transition: border-color .15s, color .15s, box-shadow .15s;
+  }
+  #suggest-row .chip:hover {
+    border-color: var(--bright); box-shadow: 0 0 8px var(--tint);
+  }
+  #suggest-row .chip::before { content: '▸ '; color: var(--dim); }
   .m-item { color: var(--bright); text-shadow: 0 0 8px var(--glow2); }
   .m-stair { color: var(--stair); text-shadow: 0 0 8px var(--stair); font-weight: bold; }
 
@@ -427,7 +436,6 @@
 
   @media (max-width: 800px) {
     .game-grid { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-    #map-panel { display: none; }
   }
 </style>
 </head>
@@ -563,10 +571,6 @@
   </header>
   <div class="game-grid">
     <div class="col">
-      <div class="panel" id="map-panel" style="flex:1">
-        <div class="panel-title">КАРТА · туман войны</div>
-        <pre id="map"></pre>
-      </div>
       <div class="panel" id="stats"></div>
       <div class="panel" id="quests">
         <div class="panel-title">ЖУРНАЛ ЗАДАЧ</div>
@@ -578,6 +582,7 @@
         <div class="panel-title">ХРОНИКА · клик — промотать</div>
         <div id="log" style="flex:1; overflow-y:auto; min-height:0"></div>
       </div>
+      <div id="suggest-row"></div>
       <div class="input-row">
         <span class="prompt-ch">&gt;</span>
         <input id="input" type="text" autocomplete="off" placeholder="что ты делаешь? (пиши свободно) · ↑ история · попробуй «кофе»">
@@ -1552,6 +1557,7 @@ function rememberEvents(state, events) {
   for (const e of events) {
     if (!e || typeof e.text !== 'string') continue;
     if (e.text.startsWith('__FREE__')) continue;
+    if (e.kind === 'suggest') continue; // UI-подсказки — не память ДМа
     const line = `${e.kind}: ${e.text}`.slice(0, MEMORY_LINE_MAX);
     state.memory.push(line);
   }
@@ -1868,6 +1874,15 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
 
   if (effects.narrative) push('dm', String(effects.narrative).slice(0, 1200));
 
+  // подсказки ДМа: 2-3 кликабельных варианта действий (UI рендерит чипами)
+  if (Array.isArray(effects.suggestions) && effects.suggestions.length) {
+    const clean = effects.suggestions
+      .filter(s => typeof s === 'string' && s.trim())
+      .map(s => s.trim())
+      .slice(0, 3);
+    if (clean.length) push('suggest', JSON.stringify(clean));
+  }
+
   if (hero.hp <= 0 && hero.alive && !state.story?.won) {
     hero.alive = false;
     hero.epitaph = state.deathCause || 'кончилось плохо';
@@ -2029,6 +2044,7 @@ const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-�
 - Ты НЕ кидаешь кубики и НЕ решаешь исходы атак сам — это делает движок. Ты только описываешь и предлагаешь.
 - Ты можешь предлагать только эти эффекты, в пределах разумного: playerDamage (0-15), heal (0-20), xpGain (0-50), goldGain (1-200), enemyDamage (0-25), enemySpawn, itemGain (слабые предметы), questAdd.
 - Никогда не обещай игроку лут мощнее кинжала без причины.
+- ПОДСКАЗКИ: почти всегда добавляй suggestions — 2-3 КОРОТКИХ конкретных варианта действия (2-5 слов, глагол first: «Вскрыть порт ключом»), исходя из текущей сцены, инвентаря и сюжета. Это кнопки для игрока — они должны быть реально выполнимы здесь и сейчас, и вести в разные стороны (действие / риск / хитрость). Не повторяй одну и ту же подсказку дважды подряд.
 
 ОТВЕТ: ТОЛЬКО валидный JSON без markdown:
 {
@@ -2038,6 +2054,7 @@ const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-�
   "enemyName": "", "enemyDamage": 0,
   "enemySpawn": null,            // {"name","hp","toHit","dmg","xp"} если появляется монстр
   "itemGain": null,              // {"name","type":"weapon|armor|potion|misc","dmg","ac","heal","gold","qty"}
+  "suggestions": [],             // 2-3 коротких варианта действия для кнопок игрока
   "questAdd": "", "questDone": "",
   "villain": "", "villainGoal": ""
 }
@@ -2157,13 +2174,15 @@ function stubDmTurn(state, input) {
     villainGiven = true;
     return {
       narrative: 'Ты очнулся в тёмном углу чужого мира. Где-то глубоко внизу что-то дышит и загибает пальцы планы на твою жизнь. Спойлер: в конце коридора — оно.',
-      questAdd: 'Дойти до дна подземелья'
+      questAdd: 'Дойти до дна подземелья',
+      suggestions: ['Осмотреться', 'Идти вглубь', 'Проверить инвентарь']
     };
   }
   // сюжет: в финальном акте нагнетаем
   if (state.story && state.story.act >= state.story.acts) {
     return {
-      narrative: 'Стены дрожат от чужой воли. Дно уже близко, и оно знает, что ты идёшь. Оно радуется. Плохой знак.'
+      narrative: 'Стены дрожат от чужой воли. Дно уже близко, и оно знает, что ты идёшь. Оно радуется. Плохой знак.',
+      suggestions: ['Идти навстречу судьбе', 'Потянуть время', 'Дрожать']
     };
   }
 
@@ -2172,14 +2191,16 @@ function stubDmTurn(state, input) {
     const pos = randomFloor(rng, state.dungeon);
     return {
       narrative: `От тьмы отделяется ${'нечто недоброе'}. Похоже, тишина тебе не понравилась.`,
-      enemySpawn: { name: 'неудобный знакомый', hp: 4 + state.depth, toHit: 2, dmg: 1, xp: 25 + state.depth * 5 }
+      enemySpawn: { name: 'неудобный знакомый', hp: 4 + state.depth, toHit: 2, dmg: 1, xp: 25 + state.depth * 5 },
+      suggestions: ['Атаковать первым', 'Отступить в тень', 'Попробовать договориться']
     };
   }
   // редкий лут
   if (roll < 0.25 && !state.over) {
     return {
       narrative: 'Ты нащупываешь в темноте что-то полезное. Подземелье сегодня щедрое. Подозрительно.',
-      itemGain: makeItem({ name: 'Зелье лечения', type: 'potion', heal: 8 })
+      itemGain: makeItem({ name: 'Зелье лечения', type: 'potion', heal: 8 }),
+      suggestions: ['Подобрать и выпить', 'Понюхать зелье', 'Идти дальше']
     };
   }
   // первый раз — даём квест
@@ -2188,14 +2209,15 @@ function stubDmTurn(state, input) {
     const q = QUESTS[Math.floor(rng() * QUESTS.length)];
     return {
       narrative: `Твоя интуиция (а может, голод) подсказывает главное занятие: ${q}. Остальное — в твоих руках. Спойлер: руки у тебя кривые.`,
-      questAdd: q
+      questAdd: q,
+      suggestions: ['Приступать немедля', 'Сначала осмотреться', 'Сделать вид, что не слышал']
     };
   }
   // ирония над сомнительной идеей
   if (/(украсть|обман|подкуп|взорвать|прыг|крич|сплюнуть|потрогать всё)/.test(input.toLowerCase())) {
-    return { narrative: BAD_IDEA[Math.floor(rng() * BAD_IDEA.length)] };
+    return { narrative: BAD_IDEA[Math.floor(rng() * BAD_IDEA.length)], suggestions: ['Осмотреться получше', 'Отступить в тень', 'Всё-таки сделать это'] };
   }
-  return { narrative: SNARK[snarkIdx++ % SNARK.length] };
+  return { narrative: SNARK[snarkIdx++ % SNARK.length], suggestions: ['Осмотреться', 'Идти дальше', 'Проверить инвентарь'] };
 }
 
 
@@ -3499,12 +3521,10 @@ function startSolo() {
 }
 
 function refreshPanelsSolo() {
-  renderMap($('map'), state, vis.glyphs);
   renderStats($('stats'), state);
   renderQuests($('quest-list'), state);
   $('floor-label').textContent = state.floorName
     + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
-  fitMap();
 }
 
 /**
@@ -3529,15 +3549,6 @@ function fitArt() {
   fitPre($('logo-sub'), avail, 3, 8);
 }
 
-/** Карта растягивается на всю панель (или сжимается, чтобы влезть). */
-function fitMap() {
-  const panel = $('map-panel');
-  const el = $('map');
-  if (!panel || !el || panel.offsetParent === null) return; // на мобиле карта скрыта
-  const avail = panel.clientWidth - 24;
-  fitPre(el, avail, 5, 12);
-}
-
 /** Классификация события для расширенной палитры хроники. */
 function classify(kind, text) {
   if (kind === 'death') return 'danger';
@@ -3549,9 +3560,9 @@ function classify(kind, text) {
 }
 
 function logEvent(kind, text) {
+  if (kind === 'suggest') return; // подсказки рендерятся чипами, не в хронике
   chronicle.push(`[${kind}] ${text}`);
-  typer.add(classify(kind, text), text);
-  switch (kind) {
+  typer.add(classify(kind, text), text);  switch (kind) {
     case 'roll': {
       rollSound(text.includes('КРИТ'));
       const m = text.match(/d20\D*(\d+)/) || text.match(/(\d+)\s*$/);
@@ -3569,6 +3580,34 @@ function logEvent(kind, text) {
   }
 }
 
+// подсказки ДМа: событие kind 'suggest' (JSON-массив) → кликабельные чипы над вводом.
+// Клик = сразу отправить действие. Новая пачка событий без подсказок их стирает.
+function showSuggestions(events) {
+  const row = $('suggest-row');
+  if (!row) return;
+  row.innerHTML = '';
+  row.style.display = 'none';
+  if (!typer || (state && state.over)) return;
+  const ev = (events || []).find(e => e.kind === 'suggest');
+  if (!ev) return;
+  let list = [];
+  try { list = JSON.parse(ev.text); } catch { return; }
+  if (!Array.isArray(list)) return;
+  list.map(s => String(s).trim()).filter(Boolean).slice(0, 3).forEach(text => {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.textContent = text.slice(0, 48);
+    b.addEventListener('click', () => {
+      row.innerHTML = '';
+      row.style.display = 'none';
+      $('input').value = text;
+      submitInput();
+    });
+    row.appendChild(b);
+  });
+  if (row.children.length) row.style.display = 'flex';
+}
+
 function handleEventsSolo(events) {
   for (const e of events) {
     if (e.kind === 'dm' && String(e.text).startsWith('__FREE__')) continue; // служебный маркер — не для игрока
@@ -3576,6 +3615,7 @@ function handleEventsSolo(events) {
     if (e.kind === 'victory') levelUpSound();
     logEvent(e.kind, e.text);
   }
+  showSuggestions(events);
   refreshPanelsSolo();
   if (state.over) typer.onFinish(state.story?.won ? () => showDeathCommon(state.epitaph || '', soloStatsLine(), true) : showDeathSolo);
 }
@@ -3628,7 +3668,7 @@ async function startHostRoom() {
     turnMs: 60000
   });
   hostSession.onLobby(renderLobby);
-  hostSession.onEvents(evs => { if (typer) evs.forEach(e => logEvent(e.kind, e.text)); });
+  hostSession.onEvents(evs => { if (typer) { evs.forEach(e => logEvent(e.kind, e.text)); showSuggestions(evs); } });
   hostSession.onSnapshot(snap => applySnapshot(snap));
 
   $('room-code').textContent = roomCode;
@@ -3706,7 +3746,7 @@ async function joinRoom() {
   sessionMode = 'client';
   clientSession = createClientSession({ link, name });
   clientSession.onLobby(renderLobby);
-  clientSession.onEvents(evs => { if (typer) evs.forEach(e => logEvent(e.kind, e.text)); });
+  clientSession.onEvents(evs => { if (typer) { evs.forEach(e => logEvent(e.kind, e.text)); showSuggestions(evs); } });
   clientSession.onSnapshot(snap => applySnapshot(snap));
   clientSession.onStart(() => {
     chronicle = [`КО-ОП · комната ${code}`];
@@ -3742,12 +3782,10 @@ function backToSetup(note) {
 
 function applySnapshot(snap) {
   mySnapshot = snap;
-  renderSnapshotMap($('map'), snap, vis.glyphs);
   renderStatsSnap($('stats'), snap);
   renderQuests($('quest-list'), snap);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
     + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
-  fitMap();
   const hero = snap.heroes[snap.you];
   const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
   // сигнал «твой ход»
@@ -3960,8 +3998,8 @@ function wire() {
 
   // автоподгонка арта: при загрузке, ресайзе и после загрузки пиксельного шрифта
   fitArt();
-  window.addEventListener('resize', () => { fitArt(); fitMap(); });
-  if (document.fonts?.ready) document.fonts.ready.then(() => { fitArt(); fitMap(); });
+  window.addEventListener('resize', () => { fitArt(); });
+  if (document.fonts?.ready) document.fonts.ready.then(() => { fitArt(); });
 
   $('set-mp').addEventListener('change', () => {
     const mp = $('set-mp').value;

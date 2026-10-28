@@ -541,6 +541,7 @@ export function rememberEvents(state, events) {
   for (const e of events) {
     if (!e || typeof e.text !== 'string') continue;
     if (e.text.startsWith('__FREE__')) continue;
+    if (e.kind === 'suggest') continue; // UI-подсказки — не память ДМа
     const line = `${e.kind}: ${e.text}`.slice(0, MEMORY_LINE_MAX);
     state.memory.push(line);
   }
@@ -856,6 +857,15 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
   }
 
   if (effects.narrative) push('dm', String(effects.narrative).slice(0, 1200));
+
+  // подсказки ДМа: 2-3 кликабельных варианта действий (UI рендерит чипами)
+  if (Array.isArray(effects.suggestions) && effects.suggestions.length) {
+    const clean = effects.suggestions
+      .filter(s => typeof s === 'string' && s.trim())
+      .map(s => s.trim())
+      .slice(0, 3);
+    if (clean.length) push('suggest', JSON.stringify(clean));
+  }
 
   if (hero.hp <= 0 && hero.alive && !state.story?.won) {
     hero.alive = false;

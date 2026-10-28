@@ -249,17 +249,26 @@
     font-size: 8px; color: var(--dim); letter-spacing: 2px; margin-bottom: 8px;
   }
 
-  #map {
-    font-family: var(--font-pixel);
-    font-size: 9.5px;
-    line-height: 1.35;
-    white-space: pre;
-    text-align: center;
-  }
   .m-wall { color: var(--wall); text-shadow: none; }
   .m-floor { color: var(--floor); text-shadow: none; }
   .m-pl { color: #fff; background: var(--tint); text-shadow: 0 0 10px #fff; font-weight: bold; }
   .m-mon { color: var(--red); text-shadow: 0 0 8px var(--red); font-weight: bold; }
+
+  /* подсказки ДМа — кликабельные варианты действий */
+  #suggest-row {
+    display: none; flex-wrap: wrap; gap: 6px; padding: 6px 2px 0;
+  }
+  #suggest-row .chip {
+    font-family: var(--font-pixel); font-size: 8px; letter-spacing: 1px;
+    padding: 6px 10px; cursor: pointer; user-select: none;
+    color: var(--bright); background: transparent;
+    border: 1px solid var(--dim); border-radius: 2px;
+    transition: border-color .15s, color .15s, box-shadow .15s;
+  }
+  #suggest-row .chip:hover {
+    border-color: var(--bright); box-shadow: 0 0 8px var(--tint);
+  }
+  #suggest-row .chip::before { content: '▸ '; color: var(--dim); }
   .m-item { color: var(--bright); text-shadow: 0 0 8px var(--glow2); }
   .m-stair { color: var(--stair); text-shadow: 0 0 8px var(--stair); font-weight: bold; }
 
@@ -427,7 +436,6 @@
 
   @media (max-width: 800px) {
     .game-grid { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-    #map-panel { display: none; }
   }
 </style>
 </head>
@@ -563,10 +571,6 @@
   </header>
   <div class="game-grid">
     <div class="col">
-      <div class="panel" id="map-panel" style="flex:1">
-        <div class="panel-title">КАРТА · туман войны</div>
-        <pre id="map"></pre>
-      </div>
       <div class="panel" id="stats"></div>
       <div class="panel" id="quests">
         <div class="panel-title">ЖУРНАЛ ЗАДАЧ</div>
@@ -578,6 +582,7 @@
         <div class="panel-title">ХРОНИКА · клик — промотать</div>
         <div id="log" style="flex:1; overflow-y:auto; min-height:0"></div>
       </div>
+      <div id="suggest-row"></div>
       <div class="input-row">
         <span class="prompt-ch">&gt;</span>
         <input id="input" type="text" autocomplete="off" placeholder="что ты делаешь? (пиши свободно) · ↑ история · попробуй «кофе»">

@@ -50,13 +50,15 @@ export function stubDmTurn(state, input) {
     villainGiven = true;
     return {
       narrative: 'Ты очнулся в тёмном углу чужого мира. Где-то глубоко внизу что-то дышит и загибает пальцы планы на твою жизнь. Спойлер: в конце коридора — оно.',
-      questAdd: 'Дойти до дна подземелья'
+      questAdd: 'Дойти до дна подземелья',
+      suggestions: ['Осмотреться', 'Идти вглубь', 'Проверить инвентарь']
     };
   }
   // сюжет: в финальном акте нагнетаем
   if (state.story && state.story.act >= state.story.acts) {
     return {
-      narrative: 'Стены дрожат от чужой воли. Дно уже близко, и оно знает, что ты идёшь. Оно радуется. Плохой знак.'
+      narrative: 'Стены дрожат от чужой воли. Дно уже близко, и оно знает, что ты идёшь. Оно радуется. Плохой знак.',
+      suggestions: ['Идти навстречу судьбе', 'Потянуть время', 'Дрожать']
     };
   }
 
@@ -65,14 +67,16 @@ export function stubDmTurn(state, input) {
     const pos = randomFloor(rng, state.dungeon);
     return {
       narrative: `От тьмы отделяется ${'нечто недоброе'}. Похоже, тишина тебе не понравилась.`,
-      enemySpawn: { name: 'неудобный знакомый', hp: 4 + state.depth, toHit: 2, dmg: 1, xp: 25 + state.depth * 5 }
+      enemySpawn: { name: 'неудобный знакомый', hp: 4 + state.depth, toHit: 2, dmg: 1, xp: 25 + state.depth * 5 },
+      suggestions: ['Атаковать первым', 'Отступить в тень', 'Попробовать договориться']
     };
   }
   // редкий лут
   if (roll < 0.25 && !state.over) {
     return {
       narrative: 'Ты нащупываешь в темноте что-то полезное. Подземелье сегодня щедрое. Подозрительно.',
-      itemGain: makeItem({ name: 'Зелье лечения', type: 'potion', heal: 8 })
+      itemGain: makeItem({ name: 'Зелье лечения', type: 'potion', heal: 8 }),
+      suggestions: ['Подобрать и выпить', 'Понюхать зелье', 'Идти дальше']
     };
   }
   // первый раз — даём квест
@@ -81,12 +85,13 @@ export function stubDmTurn(state, input) {
     const q = QUESTS[Math.floor(rng() * QUESTS.length)];
     return {
       narrative: `Твоя интуиция (а может, голод) подсказывает главное занятие: ${q}. Остальное — в твоих руках. Спойлер: руки у тебя кривые.`,
-      questAdd: q
+      questAdd: q,
+      suggestions: ['Приступать немедля', 'Сначала осмотреться', 'Сделать вид, что не слышал']
     };
   }
   // ирония над сомнительной идеей
   if (/(украсть|обман|подкуп|взорвать|прыг|крич|сплюнуть|потрогать всё)/.test(input.toLowerCase())) {
-    return { narrative: BAD_IDEA[Math.floor(rng() * BAD_IDEA.length)] };
+    return { narrative: BAD_IDEA[Math.floor(rng() * BAD_IDEA.length)], suggestions: ['Осмотреться получше', 'Отступить в тень', 'Всё-таки сделать это'] };
   }
-  return { narrative: SNARK[snarkIdx++ % SNARK.length] };
+  return { narrative: SNARK[snarkIdx++ % SNARK.length], suggestions: ['Осмотреться', 'Идти дальше', 'Проверить инвентарь'] };
 }
