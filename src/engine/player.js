@@ -1,6 +1,7 @@
 // player.js — персонаж: 6 статов D&D, XP/уровни, инвентарь, экипировка.
 
 import { mod } from './rng.js';
+import { curseMods } from './curses.js';
 
 // ре-экспорт для удобства потребителей
 export { mod };
@@ -127,12 +128,13 @@ export function gainXp(player, amount, rng = null) {
   return levels;
 }
 
-/** Защита: 10 + ловкость + броня (+ пассивка класса). */
+/** Защита: 10 + ловкость + броня (+ пассивка класса, − проклятие). */
 export function playerAc(player) {
   let ac = 10 + mod(player.stats.dex);
   if (player.equipment.armor) ac += player.equipment.armor.ac;
   const a = player.ability;
   if (a?.passive === 'ac') ac += Math.max(1, Math.min(3, a.passivePower | 0));
+  ac += curseMods(player).ac;
   return ac;
 }
 

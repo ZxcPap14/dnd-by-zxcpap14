@@ -3,6 +3,7 @@
 // Торговля НЕ тратит ход: это разговор, а не бросок кубика.
 
 import { makeItem } from './player.js';
+import { isCursed, maybeCurse, cursePrice, uncurseItem, itemNameWithCurse } from './curses.js';
 
 /** Событие в формате движка (свой, чтобы не тянуть game.js — там уже есть ev). */
 function mev(kind, text) {
@@ -59,10 +60,13 @@ export function openMerchant(state) {
     const g = pool[Math.floor(rng() * pool.length)];
     if (!g || used.has(g.name)) continue;
     used.add(g.name);
-    const item = makeItem({
+    const base = makeItem({
       name: g.name, type: g.type,
       dmg: g.dmg || 0, ac: g.ac || 0, heal: g.heal || 0
     });
+    // изредка торговец подсовывает проклятую вещь: он-то знает, что продаёт
+    const item = maybeCurse(base, rng, depth, 0.1);
+    if (isCursed(item)) item.identified = true; // и не скрывает — «честный» бизнес
     // наценка гуляет ±20% — торг начинается с несправедливой цены
     const price = Math.max(5, Math.round(g.price * (0.9 + rng() * 0.4)));
     stock.push({ ...item, price });
@@ -75,7 +79,7 @@ export function openMerchant(state) {
 }
 
 /** Текстовая витрина — для команды «торговец» и для лога. */
-export function shopText(state) {
+export function shopText(state, hero = null) {
   const m = state.merchant;
   if (!m) return 'Торговца рядом нет.';
   const lines = [`${m.name}: «${m.greeting}»`];
@@ -84,9 +88,13 @@ export function shopText(state) {
     const meta = it.type === 'potion' ? `+${it.heal} HP`
       : it.type === 'weapon' ? `урон ${it.dmg}`
         : it.type === 'armor' ? `AC +${it.ac}` : '';
-    lines.push(`  ${it.name}${meta ? ` (${meta})` : ''} — ${it.price} золота`);
+    lines.push(`  ${itemNameWithCurse(it)}${meta ? ` (${meta})` : ''} — ${it.price} золота`);
   }
   lines.push('Скажи «купить <название>» или «продать <название>».');
+  const cursed = hero && ['weapon', 'armor'].filter(s => isCursed(hero.equipment?.[s]));
+  if (cursed && cursed.length) {
+    lines.push(`  ⚠ Снять проклятие — ${cursePrice(state, hero)} золота. Скажи «снять проклятие».`);
+  }
   return lines.join('\n');
 }
 
@@ -116,6 +124,8 @@ export function buyFromMerchant(state, hero, namePart) {
   hero.gold -= item.price;
   m.stock = m.stock.filter(it => it.id !== item.id);
   const bought = makeItem({ name: item.name, type: item.type, dmg: item.dmg, ac: item.ac, heal: item.heal, qty: item.qty });
+  // проклятие переезжает вместе с вещью, иначе покупка «лечила» бы её
+  if (isCursed(item)) Object.assign(bought, { cursed: true, curse: item.curse, curseName: item.curseName, identified: true });
   hero.inventory.push(bought);
   return {
     ok: true,
@@ -148,4 +158,36 @@ export function closeMerchant(state) {
   const name = state.merchant?.name || 'Торговец';
   state.merchant = null;
   return [mev('system', `${name} складывает товар в мешок и растворяется между камнями. Больше здесь не торгуют.`)];
+}
+
+/**
+ * Снять проклятие с надетых вещей за золото. Единственный способ расстаться
+ * с проклятой вещью: сам герой её не снимет, а торговец снимет — за деньги.
+ * ok=false → движок не тратит ход и отдаёт попытку ДМу.
+ */
+export function removeCurse(state, hero) {
+  const m = state.merchant;
+  if (!m) return { ok: false, events: [mev('unhandled', 'Снять проклятие может только торговец — а его здесь нет.')] };
+  const slots = ['weapon', 'armor'].filter(s => isCursed(hero?.equipment?.[s]));
+  if (!slots.length) {
+    return { ok: false, events: [mev('system', 'На тебе нет проклятых вещей. Торговец разочарован: он уже считал прибыль.')] };
+  }
+  const price = cursePrice(state, hero);
+  if (hero.gold < price) {
+    return {
+      ok: false,
+      events: [mev('system', `Снять проклятие стоит ${price} золота, а у ${hero.name} только ${hero.gold}. Торговец сочувствует, но платно.`)]
+    };
+  }
+  hero.gold -= price;
+  const names = slots.map(s => {
+    const it = hero.equipment[s];
+    const name = it.name;
+    uncurseItem(it);
+    return name;
+  });
+  return {
+    ok: true,
+    events: [mev('loot', `${m.name} бормочет что-то дорогое и снимает проклятие с ${names.join(', ')}. −${price} золота (осталось ${hero.gold}). Вещь больше не держит.`)]
+  };
 }

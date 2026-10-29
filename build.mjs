@@ -8,6 +8,7 @@ import { join } from 'node:path';
 const ORDER = [
   'src/engine/rng.js',
   'src/engine/map.js',
+  'src/engine/curses.js',
   'src/engine/player.js',
   'src/engine/merchant.js',
   'src/engine/combat.js',

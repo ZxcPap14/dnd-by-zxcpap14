@@ -13,7 +13,10 @@ import {
   rollInitiative, attackRoll, damageRoll, monsterAttack, rollDrop, BASIC_DROP_TABLE
 } from './combat.js';
 import { DIRS, W, parseCommand } from './parser.js';
-import { openMerchant, buyFromMerchant, sellToMerchant, closeMerchant, shopText } from './merchant.js';
+import { openMerchant, buyFromMerchant, sellToMerchant, closeMerchant, shopText, removeCurse } from './merchant.js';
+import {
+  maybeCurse, isCursed, isUnknown, revealCurse, curseMods, curseById, stuckItem, itemNameWithCurse
+} from './curses.js';
 
 // ре-экспорт: снаружи (host.js, тесты) парсер по-прежнему берут из game.js
 export { DIRS, parseCommand };
@@ -76,7 +79,8 @@ export function populateFloor(state) {
   for (let i = 0; i < 2 + Math.floor(rng() * 2); i++) {
     const pos = randomFloor(rng, state.dungeon);
     const drop = rollDrop(state.dice, BASIC_DROP_TABLE, state.depth);
-    if (drop) state.floorItems.push({ ...drop, x: pos.x, y: pos.y });
+    // часть лута проклята: находка «слишком хороша» — повод для паранойи, а не радости
+    if (drop) state.floorItems.push({ ...maybeCurse(drop, rng, state.depth), x: pos.x, y: pos.y });
   }
 }
 
@@ -123,7 +127,10 @@ export function newGame(opts) {
     floorItems: [],
     merchant: null, // торговец текущего этажа (см. merchant.js)
     recentRolls: [], // последние броски — их видит ИИ-ДМ
-    memory: [] // кольцевой журнал последних событий — память ИИ-ДМа между ходами
+    memory: [], // кольцевой журнал последних событий — память ИИ-ДМа между ходами
+    // общая карта партии: союз виден всем, туман рассеивается один раз на всех.
+    // Мини-карта у всех игроков поэтому одинаковая — это не личный FOV героя.
+    explored: new Set()
   };
   // сюжет: арка с злодеем, тремя актами и финальным боссом
   if (state.mode === 'story') {
@@ -147,7 +154,7 @@ export function newGame(opts) {
     while (taken.has(`${spot.x},${spot.y}`) && tries++ < 50) spot = randomFloor(state.rng, state.dungeon);
     taken.add(`${spot.x},${spot.y}`);
     hero.pos = spot;
-    hero.fov = computeFov(state.dungeon, spot.x, spot.y);
+    revealFov(state, hero);
     return hero;
   });
 
@@ -177,6 +184,19 @@ export function attachAccessors(state) {
     }
   });
   return state;
+}
+
+/**
+ * Пересчитать личный обзор героя И записать увиденное в общую карту партии.
+ * Личный fov — для «кто кого видит» и тумана в бою; explored — для мини-карты,
+ * которая у всех игроков одинаковая (союзник подсвечивает клетки всем).
+ */
+export function revealFov(state, hero) {
+  const fov = computeFov(state.dungeon, hero.pos.x, hero.pos.y);
+  hero.fov = fov;
+  if (!state.explored) state.explored = new Set();
+  for (const key of fov) state.explored.add(key);
+  return fov;
 }
 
 /** Передать ход следующему живому герою. */
@@ -247,6 +267,11 @@ export function abilityCooldownLeft(state, hero) {
   return Math.max(0, (hero.abilityReady || 0) - state.turn);
 }
 
+/** Множитель золота: пассивка класса × жадность проклятой вещи. */
+export function heroGoldMult(hero) {
+  return abilityGoldMult(hero) * curseMods(hero).goldMult;
+}
+
 /** Направление из текста игрока (для рывка «рвусь на север»). */
 function dirFromText(text) {
   const t = (text || '').toLowerCase();
@@ -303,7 +328,7 @@ function useActiveAbility(state, hero, intent, heroIdx) {
       return { events, ok: false };
     }
     hero.combat = {}; // рывок разрывает бой — боевое окно гаснет
-    hero.fov = computeFov(state.dungeon, hero.pos.x, hero.pos.y);
+    revealFov(state, hero);
     gainXp(hero, 2, state.rng);
     push('system', `${hero.name} использует «${a.name}» и перемахивает ${moved === 1 ? 'клетку' : 'клетки'} — только пыль осталась.`);
     return { events, ok: true };
@@ -334,8 +359,9 @@ function useActiveAbility(state, hero, intent, heroIdx) {
     push('loot', `${hero.name} получает ${target.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
     const drop = rollDrop(dice, BASIC_DROP_TABLE, state.depth);
     if (drop) {
-      state.floorItems.push({ ...drop, x: target.x, y: target.y });
-      push('loot', `${target.name} роняет: ${drop.name}.`);
+      const loot = maybeCurse(drop, state.rng, state.depth);
+      state.floorItems.push({ ...loot, x: target.x, y: target.y });
+      push('loot', `${target.name} роняет: ${loot.name}.`);
     }
     if (target.isBoss) grantVictory(state, hero, push);
   } else {
@@ -394,7 +420,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       const tile = state.dungeon.grid[ny][nx];
       if (tile === TILE.STAIRS) push('system', 'Ты стоишь на лестнице вниз. (Скажи «спускаюсь» — когда вся партия будет готова)');
       gainXp(hero, 2, state.rng); // опыт за исследование
-      hero.fov = computeFov(state.dungeon, nx, ny);
+      revealFov(state, hero);
       const here = state.floorItems.find(it => it.x === nx && it.y === ny);
       if (here) events.push(...pickupItem(state, hero, here));
       break;
@@ -426,7 +452,8 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
         hero.hp = Math.min(hero.maxHp, hero.hp + heal);
         push('loot', `${hero.name} вливает в себя ${item.name} (+${heal} HP). Жизнь налаживается.`);
       } else if (item.type === 'weapon' || item.type === 'armor') {
-        events.push(...applyIntent(state, { intent: 'equip', target: item.name }, heroIdx));
+        // без рекурсии: иначе «надеть меч» через «использую» тратит два хода
+        if (!equipInto(hero, item, push)) { state.turn--; rememberEvents(state, events); return events; }
       } else {
         push('system', `${item.name}: на вкус как побитая жизнь. Больше не будем.`);
       }
@@ -436,11 +463,11 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
     case 'equip': {
       const item = findItem(hero, intent.target);
       if (!item) { push('unhandled', `${hero.name} не нашёл «${intent.target}» в инвентаре.`); break; }
-      const { equipped, unequipped } = equipItem(hero, item);
-      if (equipped) {
-        push('loot', `Экипировано: ${equipped.name}` + (unequipped ? ` (в рюкзак уходит ${unequipped.name})` : ''));
-      } else {
-        push('system', `${item.name} нельзя надеть. Разве что как украшение.`);
+      if (!equipInto(hero, item, push)) {
+        // проклятая вещь не отпускает: это не действие, ход не сгорает
+        state.turn--;
+        rememberEvents(state, events);
+        return events;
       }
       break;
     }
@@ -464,6 +491,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       }
       state.depth++;
       state.dungeon = generateDungeon(state.rng);
+      state.explored = new Set(); // новый этаж — карта снова в тумане (у всех сразу)
       const taken = new Set();
       state.heroes.forEach(h => {
         h.combat = {}; // новый этаж — старые драки остались наверху
@@ -472,7 +500,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
         while (taken.has(`${spot.x},${spot.y}`) && tries++ < 50) spot = randomFloor(state.rng, state.dungeon);
         taken.add(`${spot.x},${spot.y}`);
         h.pos = spot;
-        h.fov = computeFov(state.dungeon, spot.x, spot.y);
+        revealFov(state, h);
       });
       state.floorName = `Этаж ${state.depth}`;
       populateFloor(state);
@@ -507,9 +535,12 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
         : 'Журнал пуст. Судьба пока не оставила тебе поручений.');
       break;
 
-    case 'map':
-      push('system', 'Карта уже перед глазами слева. Туман войны скрывает неисследованное.');
+    case 'map': {
+      const total = state.dungeon.w * state.dungeon.h;
+      const seen = state.explored?.size || 0;
+      push('system', `Карта слева — общая на всю партию: что увидел один, видят все. Исследовано ${Math.min(100, Math.round(seen / total * 100))}%.`);
       break;
+    }
 
     case 'look':
       push('system', describeSurroundings(state, heroIdx));
@@ -541,7 +572,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
         break;
       }
       hero.pos = { x: best.x, y: best.y };
-      hero.fov = computeFov(state.dungeon, best.x, best.y);
+      revealFov(state, hero);
       gainXp(hero, 1, state.rng);
       const foeName = foes.length ? foes[0].name : null;
       push('system', `${hero.name} ретируется${foeName ? ` от ${foeName}` : ''} со скоростью, достойной легенды. Дерзость — тоже тактика.`);
@@ -551,7 +582,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
     // ---- торговец ----
     case 'trade': {
       if (!state.merchant) { push('unhandled', 'Торговца поблизости нет — только эхо и сырость.'); break; }
-      push('system', shopText(state));
+      push('system', shopText(state, hero));
       break;
     }
 
@@ -578,6 +609,16 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
     case 'leave': {
       if (!state.merchant) { push('unhandled', intent.raw || 'Ты уходишь в темноту.'); break; }
       events.push(...closeMerchant(state));
+      state.turn--;
+      rememberEvents(state, events);
+      return events;
+    }
+
+    case 'uncurse': {
+      if (!state.merchant) { push('unhandled', 'Снять проклятие может только торговец — а его здесь нет. Ищи прилавок ниже.'); break; }
+      const res = removeCurse(state, hero);
+      events.push(...res.events);
+      if (!res.ok) { state.turn--; rememberEvents(state, events); return events; } // нечего снимать — ход не сгорает
       state.turn--;
       rememberEvents(state, events);
       return events;
@@ -632,6 +673,13 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
   // мир живёт: монстры ходят и нападают после действия героя
   events.push(...monsterTurns(state));
 
+  // проклятая вещь тянет силы владельца каждый ход — цена за её «щедрость»
+  const curses = curseMods(hero);
+  if (curses.drain > 0 && hero.alive && hero.hp > 0) {
+    hero.hp -= curses.drain;
+    push('combat', `Проклятие пьёт силы ${hero.name}: -${curses.drain} HP (осталось ${Math.max(0, hero.hp)}/${hero.maxHp}).`);
+  }
+
   // смерть героя? (победа в сюжете важнее героической смерти)
   if (hero.hp <= 0 && hero.alive && !state.story?.won) {
     hero.alive = false;
@@ -649,16 +697,42 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
   return events;
 }
 
+/**
+ * Надеть предмет. Возвращает false, если проклятая вещь в слоте не отпускает
+ * (тогда вызывающий откатывает ход: попытка не состоялась).
+ * Общая точка для «надеть» и «использую» — иначе второе тратило два хода.
+ */
+function equipInto(hero, item, push) {
+  const slot = item.type === 'weapon' ? 'weapon' : item.type === 'armor' ? 'armor' : null;
+  if (!slot) { push('system', `${item.name} нельзя надеть. Разве что как украшение.`); return true; }
+  const stuck = stuckItem(hero, slot);
+  if (stuck) {
+    push('system', `${stuck.name} не отпускает: пальцы сами сжимаются обратно. Проклятие «${stuck.curseName || '?'}» крепче стали. Снять — только у торговца.`);
+    return false;
+  }
+  const wasUnknown = isUnknown(item);
+  const { equipped, unequipped } = equipItem(hero, item);
+  if (!equipped) { push('system', `${item.name} нельзя надеть. Разве что как украшение.`); return true; }
+  push('loot', `Экипировано: ${equipped.name}` + (unequipped ? ` (в рюкзак уходит ${unequipped.name})` : ''));
+  if (wasUnknown) {
+    // первое касание раскрывает проклятие: до этого игрок видел только «?»
+    revealCurse(equipped);
+    const c = curseById(equipped.curse);
+    push('combat', `⚠ Проклятие «${c?.name || '?'}»: ${c?.hint || 'вещь не та, чем кажется'}. Теперь оно твоё — снять можно только у торговца.`);
+  }
+  return true;
+}
+
 function pickupItem(state, hero, item) {
   const events = [];
   state.floorItems = state.floorItems.filter(it => it !== item);
   if (item.type === 'gold') {
-    const amount = Math.max(1, Math.round(item.qty * abilityGoldMult(hero)));
+    const amount = Math.max(1, Math.round(item.qty * heroGoldMult(hero)));
     hero.gold += amount;
     events.push(ev('loot', `${hero.name} подбирает ${amount} золота. Капиталист внутри доволен.`));
   } else {
     addItem(hero, item);
-    events.push(ev('loot', `${hero.name} подбирает: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`));
+    events.push(ev('loot', `${hero.name} подбирает: ${itemNameWithCurse(item)}${item.qty > 1 ? ` x${item.qty}` : ''}.`));
   }
   gainXp(hero, 5, state.rng);
   return events;
@@ -675,6 +749,8 @@ export function resolveCombatRound(state, hero, monster, dice, opts = {}) {
   const critRange = abilityCritRange(hero);        // пассивка «крит»
   const lifesteal = abilityLifesteal(hero);        // пассивка «вампиризм»
   const bonusDmg = Math.max(0, opts.bonusDmg | 0);
+  const curse = curseMods(hero);                   // проклятая вещь меняет и удар, и урон
+  const effWeapon = curse.hit ? { ...weapon, bonus: (weapon.bonus || 0) + curse.hit } : weapon;
   markCombat(state, hero, monster); // бой начался — враг появляется в боевом окне
 
   const pInit = rollInitiative(dice, hero.stats.dex).total;
@@ -683,17 +759,17 @@ export function resolveCombatRound(state, hero, monster, dice, opts = {}) {
   const playerFirst = pInit >= mInit;
 
   const playerStrike = () => {
-    const atk = attackRoll(dice, hero.stats, weapon, 10 + (monster.toHit || 0), critRange);
+    const atk = attackRoll(dice, hero.stats, effWeapon, 10 + (monster.toHit || 0), critRange);
     recordRoll(state, `${hero.name} d20[${atk.raw}]→${atk.total}${atk.crit ? ' КРИТ' : atk.fumble ? ' провал' : ''}`);
     events.push(ev('roll', `${hero.name}: d20 [${atk.raw}]${atk.crit ? ' КРИТ!' : atk.fumble ? ' провал...' : ''} → атака ${atk.total}`));
     if (!atk.hit) {
       push('combat', `${hero.name} промахивается по ${monster.name}. ${atk.fumble ? 'Очень зрелищно промахивается.' : ''}`);
       return;
     }
-    const dmg = damageRoll(dice, weapon, hero.stats.str, atk.crit);
-    const total = dmg.total + bonusDmg;
+    const dmg = damageRoll(dice, effWeapon, hero.stats.str, atk.crit);
+    const total = dmg.total + bonusDmg + curse.dmg;
     monster.hp -= total;
-    push('combat', `${atk.crit ? 'КРИТИЧЕСКИЙ УДАР! ' : ''}${hero.name} наносит ${total} урона ${monster.name} ${dmg.rolls.map(r => `[${r}]`).join('')}${bonusDmg ? ` (+${bonusDmg} от способности)` : ''}. ${monster.hp <= 0 ? `${monster.name} повержен!` : `У него осталось ${monster.hp} HP.`}`);
+    push('combat', `${atk.crit ? 'КРИТИЧЕСКИЙ УДАР! ' : ''}${hero.name} наносит ${total} урона ${monster.name} ${dmg.rolls.map(r => `[${r}]`).join('')}${bonusDmg ? ` (+${bonusDmg} от способности)` : ''}${curse.dmg ? ` (+${curse.dmg} от проклятия)` : ''}. ${monster.hp <= 0 ? `${monster.name} повержен!` : `У него осталось ${monster.hp} HP.`}`);
     // пассивка «вампиризм»: часть нанесённого урона возвращается здоровьем
     if (lifesteal > 0 && hero.hp > 0) {
       const sip = Math.max(1, Math.round(total * lifesteal / 100));
@@ -706,8 +782,9 @@ export function resolveCombatRound(state, hero, monster, dice, opts = {}) {
       push('loot', `${hero.name} получает ${monster.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
       const drop = rollDrop(dice, BASIC_DROP_TABLE, state.depth);
       if (drop) {
-        state.floorItems.push({ ...drop, x: monster.x, y: monster.y });
-        push('loot', `${monster.name} роняет: ${drop.name}.`);
+        const loot = maybeCurse(drop, state.rng, state.depth);
+        state.floorItems.push({ ...loot, x: monster.x, y: monster.y });
+        push('loot', `${monster.name} роняет: ${loot.name}.`);
       }
       if (monster.isBoss) grantVictory(state, hero, push);
     }
@@ -952,6 +1029,26 @@ export function monsterTurns(state) {
 }
 
 /**
+ * Общая карта партии в компактном виде: по строке на ряд.
+ * '#' стена, '.' пол, '>' лестница, ' ' — ещё не видели.
+ * Одинакова для всех героев, поэтому мини-карта у всех игроков совпадает.
+ */
+export function exploredRows(state) {
+  const rows = [];
+  const seen = state.explored || new Set();
+  for (let y = 0; y < state.dungeon.h; y++) {
+    let row = '';
+    for (let x = 0; x < state.dungeon.w; x++) {
+      if (!seen.has(`${x},${y}`)) { row += ' '; continue; }
+      const t = state.dungeon.grid[y][x];
+      row += t === TILE.WALL ? '#' : t === TILE.STAIRS ? '>' : '.';
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+/**
  * Персональный снапшот для сетевой игры: только то, что видит герой.
  */
 export function buildSnapshot(state, heroIdx = state.activeIdx) {
@@ -1005,6 +1102,7 @@ export function buildSnapshot(state, heroIdx = state.activeIdx) {
       abilityCd: abilityCooldownLeft(state, hero)
     },
     map: { w: state.dungeon.w, h: state.dungeon.h, cells, monsters, items },
+    explored: exploredRows(state), // общая карта: у всех игроков одна и та же
     combat: engagedEnemies(state, heroIdx),
     merchant: state.merchant
       ? { name: state.merchant.name, greeting: state.merchant.greeting, stock: state.merchant.stock.map(it => ({ ...it })) }
@@ -1074,7 +1172,7 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
   }
 
   if (effects.goldGain) {
-    const amount = Math.max(1, Math.round(clamp(effects.goldGain, 1, 500) * abilityGoldMult(hero)));
+    const amount = Math.max(1, Math.round(clamp(effects.goldGain, 1, 500) * heroGoldMult(hero)));
     hero.gold += amount;
     push('loot', `${hero.name} получает ${amount} золота.`);
   }

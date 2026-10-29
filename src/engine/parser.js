@@ -87,6 +87,10 @@ export function parseCommand(text, abilityName = null) {
   if (W('ждать|жду|подожду|дождусь|постоять|wait|отдохну', true).test(t)) return { intent: 'wait', raw };
   if (W('спус|лестниц|descend', true).test(t)) return { intent: 'descend', raw };
 
+  // проклятие снимает только торговец (и только за золото)
+  if (W('снять проклят|сними проклят|снять порчу|сними порчу|uncurse|remove curse', true).test(t))
+    return { intent: 'uncurse', raw };
+
   // торговец: витрина, покупка, продажа, уйти от него
   let mTrade;
   if ((mTrade = t.match(W('куп|покуп|buy|покупа', true))))

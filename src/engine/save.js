@@ -46,6 +46,7 @@ export function serializeRun(state, meta = {}) {
       activeIdx: state.activeIdx | 0,
       memory: arr(state.memory).slice(),
       recentRolls: arr(state.recentRolls).slice(),
+      explored: [...(state.explored || [])], // общая карта партии (Set → массив)
       story: state.story ? { ...state.story } : null,
       merchant: state.merchant
         ? { ...state.merchant, stock: arr(state.merchant.stock).map(it => ({ ...it })) }
@@ -99,6 +100,11 @@ export function deserializeRun(data) {
     stairs: { ...obj(b.dungeon.stairs) }
   };
   if (state.activeIdx >= state.heroes.length) state.activeIdx = 0;
+  // общая карта: в старых сейвах её нет — собираем из личных fov героев
+  state.explored = new Set(arr(b.explored));
+  if (!state.explored.size) {
+    for (const h of state.heroes) for (const key of h.fov) state.explored.add(key);
+  }
   // счётчики id модулей живут в памяти процесса: после перезагрузки страницы
   // они начинаются с нуля и выдают id, которые уже заняты в сейве
   const itemIds = [];

@@ -13,7 +13,7 @@ import { PROTOCOL_VER } from '../net/protocol.js';
 import { saveRun, loadRun, loadRunRaw, clearRun, runSummary } from '../engine/save.js';
 import {
   createTyper, renderStats, renderQuests, renderInventoryPanel, renderShop,
-  renderStatsSnap, renderCombat, GLYPH_SETS
+  renderStatsSnap, renderCombat, renderMiniMap, renderMiniMapSnap, GLYPH_SETS, MAX_LOG_LINES
 } from './terminal.js';
 import {
   initAudio, rollSound, hitSound, lootSound, levelUpSound,
@@ -491,6 +491,7 @@ function startSolo() {
 
 function refreshPanelsSolo() {
   renderStats($('stats'), state);
+  renderMiniMap($('map-mini'), state, vis.glyphs);
   renderQuests($('quest-list'), state);
   renderCombat($('combat-panel'), engagedEnemies(state, state.activeIdx));
   refreshAbilityBtn();
@@ -535,7 +536,10 @@ function classify(kind, text) {
 function logEvent(kind, text) {
   if (kind === 'suggest') return; // подсказки рендерятся чипами, не в хронике
   chronicle.push(`[${kind}] ${text}`);
-  typer.add(classify(kind, text), text);  switch (kind) {
+  // лимит хроники: длинный забег не должен превращаться в тысячу узлов и мегабайт строк
+  if (chronicle.length > MAX_LOG_LINES) chronicle.splice(0, chronicle.length - MAX_LOG_LINES);
+  typer.add(classify(kind, text), text);
+  switch (kind) {
     case 'roll': {
       rollSound(text.includes('КРИТ'));
       const m = text.match(/d20\D*(\d+)/) || text.match(/(\d+)\s*$/);
@@ -949,6 +953,7 @@ function backToSetup(note) {
 function applySnapshot(snap) {
   mySnapshot = snap;
   renderStatsSnap($('stats'), snap);
+  renderMiniMapSnap($('map-mini'), snap, vis.glyphs);
   renderQuests($('quest-list'), snap);
   refreshAbilityBtn();
   refreshInventory();
@@ -1056,11 +1061,11 @@ function exportChronicle() {
     '═'.repeat(60),
     '  dnd by ZxcPap14 — хроника забега',
     `  ${new Date().toLocaleString('ru-RU')}`,
-    ...chronicle.slice(0, 3),
+    `  последние ${chronicle.length} событий`,
     '═'.repeat(60),
     ''
   ].join('\n');
-  const body = chronicle.slice(3).join('\n');
+  const body = chronicle.join('\n');
   const tail = `\n\n${'═'.repeat(60)}\n${mySnapshot?.epitaph || state?.epitaph ? 'ЭПИТАФИЯ: ' + (mySnapshot?.epitaph || state?.epitaph) : ''}\n`;
   const blob = new Blob([header + body + tail], { type: 'text/plain;charset=utf-8' });
   const a = document.createElement('a');
@@ -1131,6 +1136,9 @@ function wireVis() {
     };
     saveVis(vis);
     applyVis(vis);
+    // глифы карты меняются на месте: перерисовываем мини-карту, не дожидаясь хода
+    if (sessionMode === 'solo' && state) renderMiniMap($('map-mini'), state, vis.glyphs);
+    else if (mySnapshot) renderMiniMapSnap($('map-mini'), mySnapshot, vis.glyphs);
   };
   ['vis-theme', 'vis-glyphs', 'vis-flicker', 'vis-vol', 'vis-mute'].forEach(id =>
     $(id).addEventListener('change', update)

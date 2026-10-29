@@ -3,7 +3,12 @@
 import { blip } from './sound.js';
 import { TILE } from '../engine/map.js';
 import { playerAc } from '../engine/player.js';
+import { itemNameWithCurse, isCursed } from '../engine/curses.js';
+import { HERO_GLYPHS, exploredRows } from '../engine/game.js';
 import { asciiAvatar } from './avatar.js';
+
+/** Сколько строк хроники держим в DOM: дальше старые уходят, чтобы сессия не пухла. */
+export const MAX_LOG_LINES = 500;
 
 /** Наборы символов карты (переключаются в настройках). */
 export const GLYPH_SETS = {
@@ -33,6 +38,8 @@ export function createTyper(el) {
     const line = document.createElement('div');
     line.className = 'line kind-' + cur.kind;
     el.appendChild(line);
+    // лимит хроники: старые строки уходят из DOM (в памяти журнал тоже обрезан)
+    while (el.children.length > MAX_LOG_LINES) el.removeChild(el.firstChild);
     let i = 0;
 
     const finish = () => {
@@ -144,8 +151,8 @@ export function renderStats(el, state) {
     </div>
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${hpBar(p)} ${p.hp}/${p.maxHp}</span></div>
     <div class="stat-row"><span class="stat-label">AC / XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
-    <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(p.equipment.weapon ? p.equipment.weapon.name : 'кулаки')}</span></div>
-    <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(p.equipment.armor ? p.equipment.armor.name : 'нет')}</span></div>
+    <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(itemNameWithCurse(p.equipment.weapon) || 'кулаки')}</span></div>
+    <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(itemNameWithCurse(p.equipment.armor) || 'нет')}</span></div>
     ${abilityRow}
     <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
   `;
@@ -164,16 +171,22 @@ export function renderInventoryPanel(el, items, opts = {}) {
     return;
   }
   el.innerHTML = list.map((it, i) => {
+    // проклятая вещь до первого касания выглядит как обычная: «?» вместо свойств
+    const unknown = isCursed(it) && it.identified !== true;
     const act = it.type === 'potion' ? 'выпить'
       : (it.type === 'weapon' || it.type === 'armor') ? 'надеть' : null;
-    const meta = it.type === 'potion' ? `+${it.heal || 8} HP`
-      : it.type === 'weapon' ? `урон ${it.dmg || 1}${it.bonus ? ` +${it.bonus}` : ''}`
-        : it.type === 'armor' ? `AC +${it.ac || 1}` : '';
+    const meta = unknown ? 'свойства неизвестны'
+      : it.type === 'potion' ? `+${it.heal || 8} HP`
+        : it.type === 'weapon' ? `урон ${it.dmg || 1}${it.bonus ? ` +${it.bonus}` : ''}`
+          : it.type === 'armor' ? `AC +${it.ac || 1}` : '';
     const sell = opts.sell
       ? `<button class="inv-btn inv-sell" data-i="${i}" data-act="продать">ПРОДАТЬ</button>`
       : '';
-    return `<div class="inv-row">
-      <span class="inv-name" title="${escHtml(it.name)}">${escHtml(it.name)}${it.qty > 1 ? ` ×${it.qty}` : ''}</span>
+    const label = (unknown ? '? ' : '') + it.name;
+    const mark = isCursed(it) ? ' <span class="inv-curse" title="проклятая вещь">⚠</span>' : '';
+    const title = isCursed(it) && it.curseName ? `${it.name} — проклятие «${it.curseName}»` : it.name;
+    return `<div class="inv-row${isCursed(it) ? ' inv-row-cursed' : ''}">
+      <span class="inv-name" title="${escHtml(title)}">${escHtml(label)}${it.qty > 1 ? ` ×${it.qty}` : ''}${mark}</span>
       <span class="inv-meta">${meta}</span>
       ${sell}
       ${act ? `<button class="inv-btn" data-i="${i}" data-act="${act}">${act === 'выпить' ? 'ВЫПИТЬ' : 'НАДЕТЬ'}</button>` : ''}
@@ -252,12 +265,81 @@ export function renderStatsSnap(el, snap) {
       <span class="stat-label">Уровень ${s.level}</span><span>XP ${s.xp}/${s.xpNext} · золото ${s.gold}</span>
     </div>
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${bar} ${s.hp}/${s.maxHp}</span></div>
-    <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(s.equipment.weapon ? s.equipment.weapon.name : 'кулаки')}</span></div>
-    <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(s.equipment.armor ? s.equipment.armor.name : 'нет')} (AC ${s.ac})</span></div>
+    <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(itemNameWithCurse(s.equipment.weapon) || 'кулаки')}</span></div>
+    <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(itemNameWithCurse(s.equipment.armor) || 'нет')} (AC ${s.ac})</span></div>
     ${s.ability ? `<div class="stat-row"><span class="stat-label">Способность</span><span>${escHtml(s.ability.name)}${s.ability.active ? (s.abilityCd > 0 ? ` · КД ${s.abilityCd}` : ' · <span style="color:var(--loot)">ГОТОВО</span>') : ''}</span></div>` : ''}
     <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
     ${party}
   `;
+}
+
+/**
+ * Мини-карта в углу: общая для всей партии.
+ * Источник — explored (что видел ХОТЬ КТО-ТО), а не личный fov героя,
+ * поэтому у всех игроков картинка совпадает.
+ */
+export function renderMiniMap(pre, state, glyphSetName = 'classic') {
+  if (!pre || !state?.dungeon) return;
+  paintMini(pre, exploredRows(state), state.heroes.map((h, i) => ({
+    pos: h.pos, glyph: HERO_GLYPHS[i] || '?', alive: h.alive, self: i === state.activeIdx
+  })), glyphSetName);
+}
+
+/** То же из сетевого снапшота: explored приходит с хоста, одинаковый для всех. */
+export function renderMiniMapSnap(pre, snap, glyphSetName = 'classic') {
+  if (!pre || !snap?.map) return;
+  const rows = Array.isArray(snap.explored) && snap.explored.length
+    ? snap.explored
+    : (snap.map.cells || []);
+  paintMini(pre, rows, (snap.heroes || []).map(h => ({
+    pos: h.pos, glyph: h.glyph || '?', alive: h.alive, self: h.idx === snap.you
+  })), glyphSetName);
+}
+
+/** Сколько клеток карты схлопывается в один символ мини-карты. */
+const MINI_SCALE = 2;
+
+/**
+ * Сжать карту 2×2 → 1 символ и раскрасить. Приоритет клетки:
+ * лестница > герой > пол > стена > туман.
+ */
+function paintMini(pre, rows, heroes, glyphSetName) {
+  const g = glyphOf(glyphSetName);
+  const h = rows.length;
+  const w = rows[0]?.length || 0;
+  if (!w) { pre.innerHTML = ''; return; }
+  const MW = Math.ceil(w / MINI_SCALE), MH = Math.ceil(h / MINI_SCALE);
+  const marks = new Map();
+  for (const hh of heroes) {
+    if (!hh.alive || !hh.pos) continue;
+    const key = `${Math.floor(hh.pos.x / MINI_SCALE)},${Math.floor(hh.pos.y / MINI_SCALE)}`;
+    marks.set(key, hh.self ? '@' : (hh.glyph || '#'));
+  }
+  const parts = [];
+  for (let my = 0; my < MH; my++) {
+    for (let mx = 0; mx < MW; mx++) {
+      const mark = marks.get(`${mx},${my}`);
+      if (mark) {
+        parts.push(`<span class="${mark === '@' ? 'm-pl' : 'm-ally'}">${escGlyph(mark)}</span>`);
+        continue;
+      }
+      let ch = ' ';
+      for (let y = my * MINI_SCALE; y < Math.min(h, my * MINI_SCALE + MINI_SCALE); y++) {
+        for (let x = mx * MINI_SCALE; x < Math.min(w, mx * MINI_SCALE + MINI_SCALE); x++) {
+          const c = rows[y][x];
+          if (c === '>') ch = '>';
+          else if (ch !== '>' && c === '.') ch = '.';
+          else if (ch === ' ' && c === '#') ch = '#';
+        }
+      }
+      if (ch === '#') parts.push(`<span class="m-wall">${g.wall}</span>`);
+      else if (ch === '.') parts.push(`<span class="m-floor">${g.floor}</span>`);
+      else if (ch === '>') parts.push(`<span class="m-stair">${escGlyph(g.stair)}</span>`);
+      else parts.push(' ');
+    }
+    parts.push('\n');
+  }
+  pre.innerHTML = parts.join('');
 }
 
 /**

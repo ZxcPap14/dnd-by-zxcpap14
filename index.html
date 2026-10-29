@@ -388,6 +388,19 @@
 
   .m-item { color: var(--bright); text-shadow: 0 0 8px var(--glow2); }
   .m-stair { color: var(--stair); text-shadow: 0 0 8px var(--stair); font-weight: bold; }
+  .m-ally { color: var(--loot); text-shadow: 0 0 6px var(--loot); font-weight: bold; }
+
+  /* ---------- мини-карта: одна на всю партию ---------- */
+  #map-panel { flex: 0 0 auto; padding: 8px 10px; }
+  #map-mini {
+    margin: 0; font-family: var(--font-mono); font-size: 11px; line-height: 1.02;
+    letter-spacing: 0; white-space: pre; overflow: hidden;
+  }
+  #map-legend { color: var(--dim); font-size: 13px; margin-top: 5px; letter-spacing: 1px; }
+
+  /* проклятые вещи: красный ярлык и «?» вместо свойств */
+  .inv-row-cursed .inv-name { color: var(--red); }
+  .inv-curse { color: var(--red); text-shadow: 0 0 6px var(--red); }
 
   #stats { font-size: 18px; flex-shrink: 0; }
   .stat-row { display: flex; justify-content: space-between; padding: 2px 0; gap: 8px; }
@@ -412,6 +425,11 @@
   .kind-roll { color: var(--stair); text-shadow: 0 0 6px var(--stair); }
   .kind-combat { color: var(--red); }
   .kind-loot { color: var(--loot); text-shadow: 0 0 6px var(--loot); }
+  .kind-combat::before { content: '⚔ '; }
+  .kind-death::before { content: '☠ '; }
+  .kind-loot::before { content: '◈ '; }
+  .kind-victory::before { content: '⚜ '; }
+  .kind-say::before { content: '« '; color: var(--dim); }
   .kind-magic { color: var(--magic); text-shadow: 0 0 6px var(--magic); }
   .kind-npc { color: #ffffff; text-shadow: 0 0 6px rgba(255,255,255,0.5); }
   .kind-danger {
@@ -776,6 +794,11 @@
   <div class="game-grid">
     <div class="col">
       <div class="panel" id="stats"></div>
+      <div class="panel" id="map-panel">
+        <div class="panel-title">КАРТА · ОБЩАЯ</div>
+        <pre id="map-mini"></pre>
+        <div id="map-legend">@ ты · # союзник · &gt; вниз</div>
+      </div>
       <div class="panel" id="inv-panel">
         <div class="panel-title">РЮКЗАК</div>
         <div id="inv-list"></div>
