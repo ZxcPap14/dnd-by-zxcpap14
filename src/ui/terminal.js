@@ -154,8 +154,9 @@ export function renderStats(el, state) {
 /**
  * Рюкзак: список предметов с кнопками действий.
  * Кнопка — это просто подсказка движку: клик отправляет «выпить …» / «надеть …».
+ * opts.sell — рядом с предметом появляется кнопка «продать» (когда есть торговец).
  */
-export function renderInventoryPanel(el, items) {
+export function renderInventoryPanel(el, items, opts = {}) {
   if (!el) return;
   const list = Array.isArray(items) ? items : [];
   if (!list.length) {
@@ -168,10 +169,39 @@ export function renderInventoryPanel(el, items) {
     const meta = it.type === 'potion' ? `+${it.heal || 8} HP`
       : it.type === 'weapon' ? `урон ${it.dmg || 1}${it.bonus ? ` +${it.bonus}` : ''}`
         : it.type === 'armor' ? `AC +${it.ac || 1}` : '';
+    const sell = opts.sell
+      ? `<button class="inv-btn inv-sell" data-i="${i}" data-act="продать">ПРОДАТЬ</button>`
+      : '';
     return `<div class="inv-row">
       <span class="inv-name" title="${escHtml(it.name)}">${escHtml(it.name)}${it.qty > 1 ? ` ×${it.qty}` : ''}</span>
       <span class="inv-meta">${meta}</span>
+      ${sell}
       ${act ? `<button class="inv-btn" data-i="${i}" data-act="${act}">${act === 'выпить' ? 'ВЫПИТЬ' : 'НАТЬ'}</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/**
+ * Прилавок торговца: товары с ценами и кнопкой «купить».
+ * Кнопка снова лишь подсказка движку — «купить <название>».
+ */
+export function renderShop(panelEl, listEl, merchant) {
+  if (!panelEl || !listEl) return;
+  if (!merchant || !Array.isArray(merchant.stock) || !merchant.stock.length) {
+    panelEl.style.display = 'none';
+    listEl.innerHTML = '';
+    return;
+  }
+  panelEl.style.display = 'block';
+  listEl.innerHTML = merchant.stock.map((it, i) => {
+    const meta = it.type === 'potion' ? `+${it.heal || 8} HP`
+      : it.type === 'weapon' ? `урон ${it.dmg || 1}`
+        : it.type === 'armor' ? `AC +${it.ac || 1}` : '';
+    return `<div class="inv-row">
+      <span class="inv-name" title="${escHtml(it.name)}">${escHtml(it.name)}</span>
+      <span class="inv-meta">${meta}</span>
+      <span class="shop-price">${it.price} зм</span>
+      <button class="inv-btn shop-btn" data-i="${i}" data-act="купить">КУПИТЬ</button>
     </div>`;
   }).join('');
 }

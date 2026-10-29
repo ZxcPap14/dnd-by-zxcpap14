@@ -9,6 +9,7 @@ import { PROTOCOL_VER } from './protocol.js';
  */
 export function createClientSession({ link, name }) {
   let myId = null;
+  let myName = name;   // хост может выдать другое имя (тёзка) — возвращаться надо под ним
   let lastSeq = 0;
   let closed = false;
   const cbs = {
@@ -23,7 +24,8 @@ export function createClientSession({ link, name }) {
     switch (msg.t) {
       case 'welcome':
         myId = msg.playerId;
-        emit('welcome', { playerId: msg.playerId });
+        if (msg.name) myName = msg.name;
+        emit('welcome', { playerId: msg.playerId, resumed: !!msg.resumed, heroIdx: msg.heroIdx, name: myName });
         break;
       case 'reject':
         emit('reject', { reason: msg.reason });
@@ -53,16 +55,22 @@ export function createClientSession({ link, name }) {
     }
   });
 
-  link.onClose(() => {
+  /** Транспорт умер: сообщаем наверх ровно один раз. */
+  function markClosed() {
     if (!closed) { closed = true; emit('close', {}); }
-  });
+  }
+
+  link.onClose(markClosed);
 
   return {
-    hello() { link.send({ t: 'hello', ver: PROTOCOL_VER, name }); },
+    /** hello с heroIdx — это заявка «я тот, кто потерял связь, вот мой герой». */
+    hello(heroIdx = null) { link.send({ t: 'hello', ver: PROTOCOL_VER, name: myName, heroIdx }); },
     sendCommand(text) { if (!closed) link.send({ t: 'intent', command: String(text).slice(0, 200) }); },
     ping() { link.send({ t: 'ping' }); },
     getId: () => myId,
     close() { closed = true; link.close(); },
+    /** Явно сказать сессии «связи больше нет» (транспорт не всегда успевает сам). */
+    notifyTransportLoss: markClosed,
     onWelcome(fn) { cbs.welcome.push(fn); },
     onLobby(fn) { cbs.lobby.push(fn); },
     onEvents(fn) { cbs.events.push(fn); },

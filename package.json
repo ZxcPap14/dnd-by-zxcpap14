@@ -1,6 +1,6 @@
 {
   "name": "dnd-by-zxcpap14",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ASCII-roguelike в стиле D&D с ИИ-данж-мастером. Янтарный терминал, permadeath, честные кубики.",
   "type": "module",
   "scripts": {

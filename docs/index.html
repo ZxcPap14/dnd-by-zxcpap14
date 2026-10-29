@@ -241,6 +241,7 @@
   .avatar-sm { font-size: 6px; margin-top: 3px; }
   .stat-hero { align-items: flex-start; }
   .lobby-card { display: flex; align-items: center; gap: 12px; padding: 4px 0; }
+  .lobby-card.offline { opacity: 0.5; }
   .lobby-name { font-size: 18px; }
 
   /* ---------- игра ---------- */
@@ -250,6 +251,13 @@
     font-family: var(--font-pixel); font-size: 11px; letter-spacing: 2px; color: var(--bright);
   }
   #floor-label { color: var(--dim); font-size: 9px; }
+  #btn-chronicle {
+    font-family: var(--font-pixel); font-size: 7px; letter-spacing: 1px;
+    padding: 4px 8px; margin-left: 8px; vertical-align: middle;
+    color: var(--dim); background: transparent; border: 1px solid var(--dim);
+    cursor: pointer;
+  }
+  #btn-chronicle:hover { color: var(--bright); border-color: var(--bright); }
   #turn-banner {
     font-family: var(--font-pixel);
     font-size: 9px; color: var(--bright); letter-spacing: 1px; margin-top: 4px;
@@ -314,6 +322,47 @@
     border-color: var(--bright); box-shadow: 0 0 8px var(--tint);
   }
   #suggest-row .chip::before { content: '▸ '; color: var(--dim); }
+
+  /* ---------- незаконченный забег ---------- */
+  #continue-panel {
+    border: 1px solid var(--loot);
+    background: rgba(0,0,0,0.25);
+    padding: 12px 14px;
+    margin: 14px 0 0;
+  }
+  #continue-panel .cont-title {
+    color: var(--loot); font-size: 17px; letter-spacing: 2px; margin-bottom: 6px;
+    text-shadow: 0 0 10px var(--loot);
+  }
+  #continue-info { color: var(--main); font-size: 16px; margin-left: 0; }
+
+  /* ---------- торговец ---------- */
+  #shop-panel { flex: 0 1 auto; max-height: 40%; display: none; }
+  #shop-panel .panel-title { color: var(--loot); }
+  #shop-name { color: var(--dim); font-size: 15px; margin-bottom: 6px; }
+  .shop-price { color: var(--loot); font-size: 15px; flex-shrink: 0; }
+  .inv-sell { border-color: var(--loot); color: var(--loot); }
+
+  /* ---------- переподключение ---------- */
+  #reconnect {
+    position: fixed; inset: 0; z-index: 180;
+    background: rgba(3, 1, 0, 0.94);
+    display: none; align-items: center; justify-content: center;
+  }
+  #reconnect.active { display: flex; }
+  .rec-box {
+    border: 1px solid var(--red); background: var(--panel);
+    padding: 28px 34px; text-align: center; max-width: min(520px, 90vw);
+    box-shadow: 0 0 60px rgba(255, 60, 60, 0.25);
+  }
+  .rec-title {
+    color: var(--red); font-size: 20px; letter-spacing: 3px;
+    font-family: var(--font-pixel); text-shadow: 0 0 18px var(--red);
+    margin-bottom: 12px;
+  }
+  #rec-text { color: var(--main); font-size: 17px; margin: 0 0 6px; }
+  #rec-attempt { color: var(--dim); font-size: 15px; min-height: 20px; }
+  .kind-say { color: var(--bright); font-style: italic; }
 
   /* боевое окно: кто тебя бьёт / кого бьёшь ты — HP-бары врагов */
   #combat-panel {
@@ -698,6 +747,15 @@
     <div class="hint" style="margin-left:140px">Любой OpenAI-совместимый: OpenAI, DeepSeek, OpenRouter, локальная Ollama. Ключ хранится только в твоём браузере.</div>
     <div id="setup-note"></div>
 
+    <div id="continue-panel" style="display:none">
+      <div class="cont-title">◆ НЕЗАКОНЧЕННЫЙ ЗАБЕГ</div>
+      <div id="continue-info" class="hint">…</div>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn-primary" id="btn-continue">▶ ПРОДОЛЖИТЬ</button>
+        <button id="btn-discard">УДАЛИТЬ</button>
+      </div>
+    </div>
+
     <div class="btn-row">
       <button class="btn-primary" id="btn-start">▶ НАЧАТЬ ЗАБЕГ</button>
     </div>
@@ -710,7 +768,9 @@
 <!-- ЭКРАН ИГРЫ -->
 <div class="screen" id="screen-game">
   <header style="padding:0 0 2px">
-    <div id="game-title">dnd by ZxcPap14 <span id="floor-label"></span></div>
+    <div id="game-title">dnd by ZxcPap14 <span id="floor-label"></span>
+      <button id="btn-chronicle" title="Скачать хронику забега в файл">⤓ ХРОНИКА</button>
+    </div>
     <div id="turn-banner"></div>
   </header>
   <div class="game-grid">
@@ -719,6 +779,11 @@
       <div class="panel" id="inv-panel">
         <div class="panel-title">РЮКЗАК</div>
         <div id="inv-list"></div>
+      </div>
+      <div class="panel" id="shop-panel">
+        <div class="panel-title">⚖ ТОРГОВЕЦ</div>
+        <div id="shop-name"></div>
+        <div id="shop-list"></div>
       </div>
       <div class="panel" id="quests">
         <div class="panel-title">ЖУРНАЛ ЗАДАЧ</div>
@@ -758,6 +823,17 @@
 <div id="crt-boot"></div>
 <div id="flash"></div>
 <div id="dice"><pre id="dice-art"></pre></div>
+<div id="reconnect">
+  <div class="rec-box">
+    <div class="rec-title">⚡ СВЯЗЬ ПОТЕРЯНА</div>
+    <div id="rec-text">Хост не отвечает. Твой герой ещё жив — он ждёт тебя в подземелье.</div>
+    <div id="rec-attempt"></div>
+    <div class="btn-row">
+      <button class="btn-primary" id="btn-reconnect">ПЕРЕПОДКЛЮЧИТЬСЯ</button>
+      <button id="btn-rec-leave">ВЫЙТИ</button>
+    </div>
+  </div>
+</div>
 <div id="intro">
   <div id="intro-scroll"><pre id="intro-text"></pre></div>
   <button id="btn-skip-intro">ПРОПУСТИТЬ ▶▶</button>
@@ -774,12 +850,17 @@
  */
 function createRng(seed) {
   let a = seed >>> 0;
-  return function rng() {
+  const rng = function () {
     a |= 0; a = (a + 0x6D2B79F5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+  // состояние генератора нужно сохранению забега: продолжить с той же точки,
+  // а не начинать последовательность заново (иначе «сейв-скам» ломает честность кубиков)
+  rng.getState = () => a >>> 0;
+  rng.setState = (v) => { a = (v | 0) >>> 0; };
+  return rng;
 }
 
 /**
@@ -1134,6 +1215,159 @@ function equipItem(player, item) {
 }
 
 
+// merchant.js — торговец между этажами: ассортимент, покупка, продажа.
+// Появляется после спуска на новый этаж и живёт там, пока партия не уйдёт глубже.
+// Торговля НЕ тратит ход: это разговор, а не бросок кубика.
+
+
+
+/** Событие в формате движка (свой, чтобы не тянуть game.js — там уже есть ev). */
+function mev(kind, text) {
+  return { kind, text, turn: 0 };
+}
+
+/**
+ * Товары. price — базовая цена, дальше её колышет rng и глубина.
+ * Дорогие вещи не появляются на первых этажах: нечего покупать за 3 золота.
+ */
+const MERCHANT_GOODS = [
+  { name: 'Зелье лечения', type: 'potion', heal: 8, price: 14 },
+  { name: 'Густое зелье', type: 'potion', heal: 14, price: 27 },
+  { name: 'Ржавый тесак', type: 'weapon', dmg: 3, price: 20 },
+  { name: 'Клинок наёмника', type: 'weapon', dmg: 5, price: 45 },
+  { name: 'Клык глубин', type: 'weapon', dmg: 7, price: 84 },
+  { name: 'Кожаный доспех', type: 'armor', ac: 1, price: 24 },
+  { name: 'Щит-крышка от котла', type: 'armor', ac: 1, price: 19 },
+  { name: 'Кольчуга', type: 'armor', ac: 2, price: 54 }
+];
+
+const MERCHANT_NAMES = [
+  'Торговец Тень', 'Лавочник Бурдюк', 'Мадам Сумрак', 'Скупщик Кость',
+  'Перекупщик Шёпот', 'Тётя Хрип'
+];
+
+const MERCHANT_GREETINGS = [
+  'Заходи, живой. Плачу мало, беру дорого — как все честные люди.',
+  'У меня есть то, что тебе нужно. И то, что тебе не нужно, но ты купишь.',
+  'Товар свежий. Предыдущий владелец уже не возражает.',
+  'Золото вперёд. Кровь потом — это уже не моя проблема.',
+  'Смотрю на тебя и вижу ходячий кошелёк. Приятно познакомиться.'
+];
+
+/** Сколько стоит предмет при продаже торговцу (он же не благотворитель). */
+function itemValue(it) {
+  return (it.dmg || 0) * 9 + (it.ac || 0) * 12 + (it.heal || 0) * 2 + 6;
+}
+
+/**
+ * Собрать ассортимент под текущий этаж. Детерминированно от rng партии —
+ * сохранение/продолжение даёт того же торговца с тем же товаром.
+ */
+function openMerchant(state) {
+  const rng = state.rng;
+  const depth = Math.max(1, state.depth | 0);
+  // на глубине 1 потолок цены ~60, на 6 — ~200: ассортимент растёт с этажами
+  const ceiling = 26 + depth * 34;
+  const pool = MERCHANT_GOODS.filter(g => g.price <= ceiling);
+  const stock = [];
+  const used = new Set();
+  const want = 3 + (rng() < 0.5 ? 1 : 0);
+  for (let guard = 0; stock.length < want && guard < 40; guard++) {
+    const g = pool[Math.floor(rng() * pool.length)];
+    if (!g || used.has(g.name)) continue;
+    used.add(g.name);
+    const item = makeItem({
+      name: g.name, type: g.type,
+      dmg: g.dmg || 0, ac: g.ac || 0, heal: g.heal || 0
+    });
+    // наценка гуляет ±20% — торг начинается с несправедливой цены
+    const price = Math.max(5, Math.round(g.price * (0.9 + rng() * 0.4)));
+    stock.push({ ...item, price });
+  }
+  return {
+    name: MERCHANT_NAMES[Math.floor(rng() * MERCHANT_NAMES.length)],
+    greeting: MERCHANT_GREETINGS[Math.floor(rng() * MERCHANT_GREETINGS.length)],
+    stock
+  };
+}
+
+/** Текстовая витрина — для команды «торговец» и для лога. */
+function shopText(state) {
+  const m = state.merchant;
+  if (!m) return 'Торговца рядом нет.';
+  const lines = [`${m.name}: «${m.greeting}»`];
+  if (!m.stock.length) lines.push('  Прилавок пуст — всё скупили до тебя.');
+  for (const it of m.stock) {
+    const meta = it.type === 'potion' ? `+${it.heal} HP`
+      : it.type === 'weapon' ? `урон ${it.dmg}`
+        : it.type === 'armor' ? `AC +${it.ac}` : '';
+    lines.push(`  ${it.name}${meta ? ` (${meta})` : ''} — ${it.price} золота`);
+  }
+  lines.push('Скажи «купить <название>» или «продать <название>».');
+  return lines.join('\n');
+}
+
+function findStock(m, namePart) {
+  const q = String(namePart || '').toLowerCase().trim();
+  if (!q) return m.stock[0] || null;
+  return m.stock.find(it => it.name.toLowerCase().includes(q)) || null;
+}
+
+/**
+ * Купить предмет. Возвращает { ok, events }.
+ * ok=false → движок передаст попытку ДМу (он может обыграть торг), ход не сгорит.
+ */
+function buyFromMerchant(state, hero, namePart) {
+  const m = state.merchant;
+  if (!m) return { ok: false, events: [mev('unhandled', 'Покупать не у кого — торговец остался этажом выше.')] };
+  const item = findStock(m, namePart);
+  if (!item) {
+    return { ok: false, events: [mev('unhandled', `У торговца нет «${namePart || 'ничего'}». Он делает вид, что не слышал.`)] };
+  }
+  if (hero.gold < item.price) {
+    return {
+      ok: false,
+      events: [mev('system', `Не хватает ${item.price - hero.gold} золота. Торговец смотрит на ${hero.name} как на пустой кошелёк.`)]
+    };
+  }
+  hero.gold -= item.price;
+  m.stock = m.stock.filter(it => it.id !== item.id);
+  const bought = makeItem({ name: item.name, type: item.type, dmg: item.dmg, ac: item.ac, heal: item.heal, qty: item.qty });
+  hero.inventory.push(bought);
+  return {
+    ok: true,
+    events: [mev('loot', `${hero.name} покупает ${item.name} за ${item.price} золота (осталось ${hero.gold}). Торговец доволен чужим горем.`)]
+  };
+}
+
+/** Продать предмет из рюкзака: 40% от его ценности, не меньше 1 золота. */
+function sellToMerchant(state, hero, namePart) {
+  const m = state.merchant;
+  if (!m) return { ok: false, events: [mev('unhandled', 'Продавать некому — вокруг только тьма и сырость.')] };
+  const q = String(namePart || '').toLowerCase().trim();
+  const item = q
+    ? hero.inventory.find(it => it.name.toLowerCase().includes(q))
+    : hero.inventory[0];
+  if (!item) {
+    return { ok: false, events: [mev('unhandled', `Продавать нечего: «${namePart || 'рюкзак'}» — это пустота.`)] };
+  }
+  const price = Math.max(1, Math.round(itemValue(item) * 0.4));
+  hero.inventory = hero.inventory.filter(it => it.id !== item.id);
+  hero.gold += price;
+  return {
+    ok: true,
+    events: [mev('loot', `${hero.name} сбывает ${item.name} за ${price} золота (в кошельке ${hero.gold}). Торговец перепродаст вдвое дороже.`)]
+  };
+}
+
+/** Торговец сворачивается: дальше этаж пустой. */
+function closeMerchant(state) {
+  const name = state.merchant?.name || 'Торговец';
+  state.merchant = null;
+  return [mev('system', `${name} складывает товар в мешок и растворяется между камнями. Больше здесь не торгуют.`)];
+}
+
+
 // combat.js — бои в стиле D&D: инициатива, атаки d20, криты 20/1, таблица дропа.
 // Кубики только отсюда: «ИИ предлагает — код решает».
 
@@ -1251,7 +1485,7 @@ function escapeRe(s) {
 /** Слово(а) после глагола в исходной строке. */
 function afterVerb(t, m) {
   const idx = t.indexOf(m[0]) + m[0].length;
-  return t.slice(idx).replace(/^[,\s]+/, '').trim();
+  return t.slice(idx).replace(/^[,\s:;—–-]+/, '').trim();
 }
 
 /**
@@ -1276,6 +1510,17 @@ function parseCommand(text, abilityName = null) {
   // побег раньше движения: «убегаю на север» — это побег, а не прогулка
   if (W('убега|убеж|отступа|сбежа|уносим ноги|бегу от|бегу прочь|flee|retreat', true).test(t)) return { intent: 'flee', raw };
 
+  // реплика партии (крикнул/шепнул/бормотнул) — не действие, ход не тратит.
+  // «говорю с торговцем» сюда НЕ попадает: разговор с миром — работа ДМа.
+  let mSay;
+  if ((mSay = t.match(W('крич|шепч|бормоч|воплю|ору|say|shout|whisper|mutter', true)))) {
+    const said = afterVerb(t, mSay);
+    const verb = /шепч|whisper/.test(t) ? 'шепчет'
+      : /бормоч|mutter/.test(t) ? 'бормочет'
+        : /крич|воплю|ору|shout/.test(t) ? 'кричит' : 'говорит';
+    return { intent: 'say', text: said, verb, raw };
+  }
+
   // движение (только целые слова: «с» не должно матчиться внутри «стражу»)
   for (const [word, d] of Object.entries(DIRS)) {
     if (W(word).test(t)) {
@@ -1294,6 +1539,16 @@ function parseCommand(text, abilityName = null) {
   if (W('ждать|постоять|wait|отдохну', true).test(t)) return { intent: 'wait', raw };
   if (W('спус|лестниц|descend', true).test(t)) return { intent: 'descend', raw };
 
+  // торговец: витрина, покупка, продажа, уйти от него
+  let mTrade;
+  if ((mTrade = t.match(W('куп|покуп|buy|покупа', true))))
+    return { intent: 'buy', target: afterVerb(t, mTrade), raw };
+  if ((mTrade = t.match(W('прода|сбыва|sell', true))))
+    return { intent: 'sell', target: afterVerb(t, mTrade), raw };
+  if (W('торговец|торговца|торговцу|лавочник|купец|merchant|магазин|прилавок', true).test(t))
+    return { intent: 'trade', raw };
+  if (W('ухожу|уйти|отхожу от|leave', true).test(t)) return { intent: 'leave', raw };
+
   let m;
   if ((m = t.match(W('выпей|выпить|пью|использ|примен|use|drink', true))))
     return { intent: 'use', target: afterVerb(t, m), raw };
@@ -1311,6 +1566,7 @@ function parseCommand(text, abilityName = null) {
 // game.js — оркестратор: состояние партии, парсер русских команд, применение интентов.
 // v0.5: мультигеройность — heroes[], очерёдность ходов, смерть партии.
 // Принцип «ИИ предлагает — код решает»: любые изменения состояния проходят отсюда.
+
 
 
 
@@ -1411,6 +1667,7 @@ function newGame(opts) {
     activeIdx: 0,
     monsters: [],
     floorItems: [],
+    merchant: null, // торговец текущего этажа (см. merchant.js)
     memory: [] // кольцевой журнал последних событий — память ИИ-ДМа между ходами
   };
   // сюжет: арка с злодеем, тремя актами и финальным боссом
@@ -1440,6 +1697,17 @@ function newGame(opts) {
   });
 
   // совместимость: state.player / state.pos / state.fov → активный герой
+  attachAccessors(state);
+
+  populateFloor(state);
+  return state;
+}
+
+/**
+ * Геттеры «активный герой» навешиваются и при новой игре, и при загрузке сейва
+ * (после JSON-раундтрипа их нет — они не enumerable и в JSON не попадают).
+ */
+function attachAccessors(state) {
   Object.defineProperties(state, {
     player: { get() { return state.heroes[state.activeIdx]; }, configurable: true },
     pos: {
@@ -1453,8 +1721,6 @@ function newGame(opts) {
       configurable: true
     }
   });
-
-  populateFloor(state);
   return state;
 }
 
@@ -1618,6 +1884,20 @@ function useActiveAbility(state, hero, intent, heroIdx) {
  */
 function applyIntent(state, intent, heroIdx = state.activeIdx) {
   if (state.over || intent.intent === 'none') return [];
+  const speaker = state.heroes[heroIdx];
+  if (!speaker || !speaker.alive) return [];
+
+  // Реплика партии — не действие: ход не тратится, очередь не ждётся.
+  // Свобода общения важнее формальной очерёдности (в коопе это единственный
+  // способ договориться, не сжигая ход).
+  if (intent.intent === 'say') {
+    const said = String(intent.text ?? '').slice(0, 240).trim();
+    if (!said) return [];
+    const events = [ev('say', `${speaker.name} ${intent.verb || 'говорит'}: «${said}»`)];
+    rememberEvents(state, events);
+    return events;
+  }
+
   if (heroIdx !== state.activeIdx) return []; // не твой ход
   const hero = state.heroes[heroIdx];
   if (!hero || !hero.alive) return [];
@@ -1729,8 +2009,11 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
       });
       state.floorName = `Этаж ${state.depth}`;
       populateFloor(state);
+      // торговец ждёт на новом этаже: золото снова есть куда потратить
+      state.merchant = openMerchant(state);
       gainXp(hero, 30);
       push('system', `Партия спускается глубже. ${state.floorName}. Воздух гуще, тьма наглее.`);
+      push('system', `⚖ Здесь торгует ${state.merchant.name}. Скажи «торговец» — покажет прилавок.`);
       // сюжет: смена акта и финальный босс
       if (state.story) {
         const act = storyAct(state.depth);
@@ -1796,6 +2079,41 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
       const foeName = foes.length ? foes[0].name : null;
       push('system', `${hero.name} ретируется${foeName ? ` от ${foeName}` : ''} со скоростью, достойной легенды. Дерзость — тоже тактика.`);
       break;
+    }
+
+    // ---- торговец ----
+    case 'trade': {
+      if (!state.merchant) { push('unhandled', 'Торговца поблизости нет — только эхо и сырость.'); break; }
+      push('system', shopText(state));
+      break;
+    }
+
+    case 'buy': {
+      if (!state.merchant) { push('unhandled', 'Покупать не у кого: торговец остался на прошлом этаже.'); break; }
+      const res = buyFromMerchant(state, hero, intent.target);
+      events.push(...res.events);
+      if (!res.ok) break;          // тупик → ДМу, ход не сгорает
+      state.turn--;                // покупка — разговор, а не ход
+      rememberEvents(state, events);
+      return events;
+    }
+
+    case 'sell': {
+      if (!state.merchant) { push('unhandled', 'Продавать некому: вокруг только тьма.'); break; }
+      const res = sellToMerchant(state, hero, intent.target);
+      events.push(...res.events);
+      if (!res.ok) break;
+      state.turn--;
+      rememberEvents(state, events);
+      return events;
+    }
+
+    case 'leave': {
+      if (!state.merchant) { push('unhandled', intent.raw || 'Ты уходишь в темноту.'); break; }
+      events.push(...closeMerchant(state));
+      state.turn--;
+      rememberEvents(state, events);
+      return events;
     }
 
     case 'ability': {
@@ -1968,7 +2286,8 @@ function describeSurroundings(state, heroIdx = state.activeIdx) {
   if (party.length) parts.push(`Рядом товарищи: ${party.map(p => p.name).join(', ')}. `);
   if (mons.length) parts.push(`Рядом: ${mons.join(', ')}. `);
   if (items.length) parts.push(`На земле: ${items.map(i => i.name).join(', ')}. `);
-  if (!mons.length && !items.length && !party.length) parts.push('Пока ничего интересного.');
+  if (state.merchant) parts.push(`Неподалёку прилавок: ${state.merchant.name} торгует (скажи «торговец»). `);
+  if (!mons.length && !items.length && !party.length && !state.merchant) parts.push('Пока ничего интересного.');
   return parts.join('');
 }
 
@@ -2216,7 +2535,10 @@ function buildSnapshot(state, heroIdx = state.activeIdx) {
       abilityCd: abilityCooldownLeft(state, hero)
     },
     map: { w: state.dungeon.w, h: state.dungeon.h, cells, monsters, items },
-    combat: engagedEnemies(state, heroIdx)
+    combat: engagedEnemies(state, heroIdx),
+    merchant: state.merchant
+      ? { name: state.merchant.name, greeting: state.merchant.greeting, stock: state.merchant.stock.map(it => ({ ...it })) }
+      : null
   };
 }
 
@@ -2344,6 +2666,162 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
   }
   rememberEvents(state, events);
   return events;
+}
+
+
+// save.js — сохранение и продолжение забега.
+// Хранится в localStorage одним JSON: хост/соло может закрыть вкладку и вернуться.
+// Состояние движка почти целиком JSON-совместимо; отдельно приходится
+// разворачивать Set (туман войны), rng (замыкание) и геттеры state.player/pos/fov.
+
+
+
+
+const SAVE_KEY = 'dnd_run_v1';
+const SAVE_VER = 1;
+
+const arr = (v) => (Array.isArray(v) ? v : []);
+const obj = (v) => (v && typeof v === 'object' ? v : {});
+
+/** Явный «плоский» слепок состояния: функции, сеты и геттеры сюда не попадают. */
+function serializeRun(state, meta = {}) {
+  if (!state || !Array.isArray(state.heroes) || !state.dungeon) return null;
+  return {
+    v: SAVE_VER,
+    ts: Date.now(),
+    seed: state.seed,
+    rng: typeof state.rng?.getState === 'function' ? state.rng.getState() : null,
+    meta: {
+      mode: state.mode,
+      world: state.worldDesc,
+      floorName: state.floorName,
+      depth: state.depth,
+      turn: state.turn,
+      party: state.heroes.map(h => h.name),
+      alive: state.heroes.filter(h => h.alive).length,
+      hp: state.heroes.map(h => `${Math.max(0, h.hp)}/${h.maxHp}`),
+      ...meta
+    },
+    body: {
+      mode: state.mode,
+      worldDesc: state.worldDesc,
+      backstory: state.backstory || '',
+      depth: state.depth,
+      over: !!state.over,
+      epitaph: state.epitaph || null,
+      deathCause: state.deathCause || null,
+      turn: state.turn,
+      quests: arr(state.quests).slice(),
+      floorName: state.floorName,
+      activeIdx: state.activeIdx | 0,
+      memory: arr(state.memory).slice(),
+      story: state.story ? { ...state.story } : null,
+      merchant: state.merchant
+        ? { ...state.merchant, stock: arr(state.merchant.stock).map(it => ({ ...it })) }
+        : null,
+      dungeon: {
+        w: state.dungeon.w,
+        h: state.dungeon.h,
+        grid: arr(state.dungeon.grid).map(row => arr(row).slice()),
+        rooms: arr(state.dungeon.rooms).map(r => ({ ...r })),
+        stairs: { ...obj(state.dungeon.stairs) }
+      },
+      monsters: arr(state.monsters).map(m => ({ ...m })),
+      floorItems: arr(state.floorItems).map(i => ({ ...i })),
+      heroes: state.heroes.map(h => ({
+        ...h,
+        fov: [...(h.fov || [])],
+        combat: { ...obj(h.combat) }
+      }))
+    }
+  };
+}
+
+/** Обратная сборка. Возвращает живое состояние или null, если сейв битый. */
+function deserializeRun(data) {
+  if (!data || data.v !== SAVE_VER || !data.body) return null;
+  const b = data.body;
+  if (!Array.isArray(b.heroes) || !b.heroes.length) return null;
+  if (!b.dungeon || !Array.isArray(b.dungeon.grid) || !b.dungeon.grid.length) return null;
+
+  const state = {
+    ...b,
+    seed: data.seed,
+    rng: createRng(data.seed || 1),
+    dice: null,
+    quests: arr(b.quests).slice(),
+    memory: arr(b.memory).slice()
+  };
+  if (data.rng != null && typeof state.rng.setState === 'function') state.rng.setState(data.rng);
+  state.dice = makeDice(state.rng);
+  state.heroes = arr(b.heroes).map(h => ({
+    ...h,
+    fov: new Set(arr(h.fov)),
+    combat: { ...obj(h.combat) }
+  }));
+  state.monsters = arr(b.monsters).map(m => ({ ...m }));
+  state.floorItems = arr(b.floorItems).map(i => ({ ...i }));
+  state.dungeon = {
+    ...b.dungeon,
+    grid: arr(b.dungeon.grid).map(row => arr(row).slice()),
+    rooms: arr(b.dungeon.rooms).map(r => ({ ...r })),
+    stairs: { ...obj(b.dungeon.stairs) }
+  };
+  if (state.activeIdx >= state.heroes.length) state.activeIdx = 0;
+  attachAccessors(state);
+  return state;
+}
+
+function defaultStore() {
+  try { return globalThis.localStorage || null; } catch { return null; }
+}
+
+/** Сохранить забег. meta: {coop, room, hero}. */
+function saveRun(state, meta = {}, store = defaultStore()) {
+  if (!store) return false;
+  const data = serializeRun(state, meta);
+  if (!data) return false;
+  try {
+    store.setItem(SAVE_KEY, JSON.stringify(data));
+    return true;
+  } catch {
+    return false; // переполнение квоты — игра важнее сейва
+  }
+}
+
+/** Сырой сейв (для проверки наличия и сводки). */
+function loadRunRaw(store = defaultStore()) {
+  if (!store) return null;
+  try {
+    const raw = store.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return data && data.v === SAVE_VER ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Полный сейв: { state, meta, ts } или null. */
+function loadRun(store = defaultStore()) {
+  const data = loadRunRaw(store);
+  if (!data) return null;
+  const state = deserializeRun(data);
+  if (!state) return null;
+  return { state, meta: data.meta || {}, ts: data.ts || 0 };
+}
+
+function clearRun(store = defaultStore()) {
+  try { store.removeItem(SAVE_KEY); } catch { /* ignore */ }
+}
+
+/** Человеческая строка для кнопки «продолжить». */
+function runSummary(meta = {}) {
+  if (!meta || !meta.party) return '';
+  const party = arr(meta.party).join(' · ');
+  const mode = meta.mode === 'sandbox' ? 'песочница' : 'сюжет';
+  const coop = meta.coop ? ` · кооп ${meta.room ? `(${meta.room})` : ''}` : '';
+  return `${party} · ${meta.floorName || 'этаж ?'} · ход ${meta.turn ?? 0} · ${mode}${coop}`;
 }
 
 
@@ -2489,6 +2967,9 @@ const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-�
 - Учитывай блок «НЕДАВНИЕ СОБЫТИЯ» — это твоя память: помни, что уже произошло, продолжай начатое (квесты, раненые враги, обещания NPC), НИКОГДА не повторяй те же шутки и описания.
 - ЕСЛИ есть блок «СЮЖЕТ» — ты ведёшь историю с аркой: в акте I намекай на злодея и его планы, в акте II нагнетай и ставь выбор, в акте III веди к финальной схватке. Держи одну линию, эскалируй ставки.
 - Свободные действия игрока — твоя главная работа. Игрок может попытаться ЛЮБОЕ: залезть куда-то, притвориться кем-то, использовать предмет не по назначению, договориться, обмануть, сбежать. Обыгрывай попытку в контексте сцены: чаще давай ей шанс (особенно при подходящих статтах или инвентаре), а неудачу превращай в смешную и логичную развязку, а не в «не получилось». Если действие меняет сцену — опиши новое место так, чтобы игрок понимал, где он теперь и что видит вокруг.
+- СВОБОДА ВАЖНЕЕ БАЛАНСА. Никогда не отвечай «ты не можешь» — отвечай «ты можешь, и вот чем это кончится». Игрок вправе выдумывать детали мира (имена, обычаи, слухи, тайники) — принимай их как канон, если они не ломают уже сказанное и не отменяют предысторию. Игрок вправе драться с другим героем, красть у него, бросать его в беде: не запрещай и не морализируй — просто покажи последствия, включая обиду второго игрока.
+- Реплики героев в чате партии приходят как «say: Имя кричит: «…»». Это НЕ действие: не трать на них ход, но реагируй — NPC могут услышать крик, монстры прийти на шум.
+- Если рядом торговец (блок «ТОРГОВЕЦ»), цены и товар уже заданы движком: не выдумывай свои, обыгрывай торг вокруг существующих.
 - Если игрок спрашивает «что делать?» — не издевайся бесконечно, а дай 1-2 КОНКРЕТНЫХ варианта, исходя из текущей сцены и сюжета.
 - ПРЕДЫСТОРИЯ — КАНОН. Если в контексте есть блок «ПРЕДЫСТОРИЯ», это написанная игроком правда о герое(ях): имена, родня, долги, враги, шрамы, обещания. НЕ противоречь ей, НЕ переписывай её и НЕ «забывай»: подхватывай детали (упоминай их в описаниях, строй на них зацепки, приводи в действие упомянутых NPC). Если игрок сам противоречит своей предыстории — заметь это ехидно, но не отменяй канон.
 - СПОСОБНОСТИ: у героя может быть классовая способность (блок «СПОСОБНОСТЬ»). Она уже сработала в движке — просто опиши её эффект ярко и в стиле класса. Не выдумывай герою новых способностей и не отбирай имеющуюся.
@@ -2547,6 +3028,9 @@ function buildContext(state, playerInput, heroIdx = null) {
         others.length ? `ДРУГИЕ ГЕРОИ (за них играют другие люди, не действуй за них): ${others.join(', ')}.` : '',
         nearby.length ? `${p.name} ВИДИТ ВРАГОВ: ${nearby.join(', ')}.` : `${p.name} ВРАГОВ НЕ ВИДИТ.`,
         items.length ? `ВИДИТ ПРЕДМЕТЫ: ${items.join(', ')}.` : '',
+        state.merchant
+          ? `ТОРГОВЕЦ: ${state.merchant.name} — ${state.merchant.stock.map(i => `${i.name} (${i.price} зм)`).join(', ')}. Золото у ${p.name}: ${p.gold}.`
+          : '',
         state.quests.length ? `КВЕСТЫ: ${state.quests.join('; ')}.` : '',
         (() => { const mem = memoryDigest(state); return mem ? `НЕДАВНИЕ СОБЫТИЯ: ${mem}.` : ''; })(),
         (() => { const st = storyDigest(state); return st ? `СЮЖЕТ: ${st}` : ''; })(),
@@ -2730,10 +3214,12 @@ function stubDmTurn(state, input) {
 
 // protocol.js — версия протокола и константы мультиплеера.
 
-const PROTOCOL_VER = 'mp1';
+const PROTOCOL_VER = 'mp2';
 const TURN_MS = 60000;          // таймер хода (0 = выключен)
-const FREE_COOLDOWN_MS = 5000; // антиспам свободного текста (ключ хоста!) — 5с: свобода важнее паранойи
+const FREE_COOLDOWN_MS = 3000;  // антиспам свободного текста (ключ хоста!) — 3с: свобода важнее паранойи
+const SAY_COOLDOWN_MS = 1200;   // реплики в чат партии: не тратят ход, но и спамить не дают
 const MAX_PLAYERS = 4;
+const RECONNECT_GRACE_MS = 180000; // сколько герой ждёт потерявшего связь игрока
 
 
 // loopback.js — in-memory сеть для хот-сита, тестов и отладки.
@@ -2795,6 +3281,10 @@ function makeRoomCode(rng = Math.random) {
 
 // host.js — сессия хоста: лобби, очередь ходов, раздача снапшотов, таймер хода.
 // Хост — всегда игрок 0. Движок и API-ключ живут здесь.
+//
+// Переподключение: если клиент потерял связь, его герой НЕ умирает сразу —
+// он ждёт в «absent» (RECONNECT_GRACE_MS). Игрок возвращается по тому же коду
+// и имени, хост узнаёт его и отдаёт снапшот с тем же heroIdx.
 
 
 
@@ -2806,15 +3296,18 @@ function makeRoomCode(rng = Math.random) {
  * @param {string} opts.hostName
  * @param {object} [opts.dm] — { resolveFree(game, text, heroIdx) → Promise<effects>, intro(game) → Promise<effects> }
  * @param {number} [opts.turnMs] — таймер хода, 0 = выключен
+ * @param {number} [opts.graceMs] — сколько герой ждёт вернувшегося игрока
  */
-function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
-  const players = new Map(); // clientId → {id, name, heroIdx}
+function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs = RECONNECT_GRACE_MS }) {
+  const players = new Map();  // clientId → {id, name, heroIdx}
+  const absent = new Map();   // name → {name, heroIdx, timer, since}
   let game = null;
   let started = false;
   let seq = 0;
   let turnTimer = null;
   const lastFree = new Map();
-  const ui = { lobby: [], events: [], snapshot: [], over: [] };
+  const lastSay = new Map();
+  const ui = { lobby: [], events: [], snapshot: [], over: [], absent: [] };
 
   const nextSeq = () => ++seq;
 
@@ -2823,7 +3316,8 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
   function lobbyList() {
     return [
       { id: 0, name: hostName, host: true },
-      ...[...players.values()].map(p => ({ id: p.id, name: p.name, host: false }))
+      ...[...players.values()].map(p => ({ id: p.id, name: p.name, host: false })),
+      ...[...absent.values()].map(a => ({ id: 'absent:' + a.name, name: a.name, host: false, offline: true }))
     ];
   }
 
@@ -2831,6 +3325,7 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
     const msg = { t: 'lobby', ver: PROTOCOL_VER, players: lobbyList(), started };
     net.broadcast(msg);
     emit('lobby', msg.players);
+    emit('absent', [...absent.values()].map(a => ({ name: a.name, heroIdx: a.heroIdx })));
   }
 
   function idForHero(heroIdx) {
@@ -2876,6 +3371,42 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
     }, turnMs);
   }
 
+  /** Герой окончательно потерян: умер по-английски. */
+  function retireHero(heroIdx, name, reason) {
+    if (!game || heroIdx == null) return;
+    const hero = game.heroes[heroIdx];
+    if (!hero || !hero.alive) return;
+    hero.alive = false;
+    hero.epitaph = reason;
+    const events = [{ kind: 'death', text: `☠ ${hero.name} растворился в темноте (${name} так и не вернулся). Его снаряжение достаётся подземелью.` }];
+    if (game.heroes.every(h => !h.alive)) {
+      game.over = true;
+      game.epitaph = hero.epitaph;
+      events.push({ kind: 'death', text: '☠ Партия уничтожена.' });
+    }
+    broadcastEvents(events);
+  }
+
+  /** Поставить героя «на паузу» до возвращения игрока. */
+  function holdHero(p) {
+    if (!started || !game || p.heroIdx == null) return;
+    const hero = game.heroes[p.heroIdx];
+    if (!hero || !hero.alive) return;
+    const name = p.name;
+    const timer = setTimeout(() => {
+      if (!absent.has(name)) return;
+      absent.delete(name);
+      broadcastLobby();
+      retireHero(p.heroIdx, name, 'сбежал из подземелья по-английски');
+    }, graceMs);
+    if (typeof timer.unref === 'function') timer.unref(); // не держим процесс тестов живым
+    absent.set(name, { name, heroIdx: p.heroIdx, timer, since: Date.now() });
+    broadcastEvents([{
+      kind: 'system',
+      text: `⚡ ${name} потерял связь. Герой ждёт ${Math.round(graceMs / 1000)} сек — заходи по тому же коду, и он вернётся.`
+    }]);
+  }
+
   async function processIntent(heroIdx, command, cooldownKey, notifyId = null) {
     if (!game || !started || game.over) return;
     const notify = (events) => {
@@ -2883,8 +3414,21 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
       if (notifyId != null) net.sendTo(notifyId, msg);
       else emit('events', events);
     };
-    // эхо сообщения игрока — ВСЕМ: партия должна видеть, кто что написал
     const speaker = heroIdx != null ? game.heroes[heroIdx] : null;
+    const intent = parseCommand(command, speaker?.ability?.name || null);
+
+    // Реплика в чат партии: в любой момент, без очереди и без траты хода.
+    // Это то, ради чего в коопе вообще нужен чат: договориться, не сжигая ход.
+    if (intent.intent === 'say') {
+      if (!speaker || !speaker.alive) return;
+      const now = Date.now();
+      if (now - (lastSay.get(cooldownKey) || 0) < SAY_COOLDOWN_MS) return;
+      lastSay.set(cooldownKey, now);
+      broadcastEvents(applyIntent(game, intent, heroIdx));
+      return;
+    }
+
+    // эхо сообщения игрока — ВСЕМ: партия должна видеть, кто что написал
     if (speaker && command.trim()) {
       const echo = [{ kind: 'player', text: `${speaker.name}: ${command}` }];
       rememberEvents(game, echo); // ДМ тоже должен знать, КТО что делал
@@ -2892,7 +3436,6 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
       emit('events', echo);
     }
     // кулдаун на свободный текст — ДО проверки хода: он защищает ключ хоста
-    const intent = parseCommand(command, game?.heroes[heroIdx]?.ability?.name || null);
     if (intent.intent === 'free') {
       const now = Date.now();
       const last = lastFree.get(cooldownKey) || 0;
@@ -2904,7 +3447,7 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
       lastFree.set(cooldownKey, now);
     }
     if (heroIdx !== game.activeIdx) {
-      notify([{ kind: 'system', text: 'Сейчас не твой ход — дождись очереди.' }]);
+      notify([{ kind: 'system', text: 'Сейчас не твой ход — дождись очереди. (Но реплики в чат — «кричу …» — работают всегда.)' }]);
       return;
     }
     let events = applyIntent(game, intent, heroIdx);
@@ -2932,18 +3475,38 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
     armTurnTimer();
   }
 
+  /** Вернуть потерявшегося игрока на его место. */
+  function reattach(id, name) {
+    const back = absent.get(name);
+    if (!back) return false;
+    clearTimeout(back.timer);
+    absent.delete(name);
+    players.set(id, { id, name: back.name, heroIdx: back.heroIdx });
+    net.sendTo(id, { t: 'welcome', ver: PROTOCOL_VER, playerId: id, resumed: true, heroIdx: back.heroIdx, name: back.name });
+    net.sendTo(id, { t: 'start', ver: PROTOCOL_VER, worldDesc: game.worldDesc, mode: game.mode, resumed: true });
+    const snap = buildSnapshot(game, back.heroIdx);
+    snap.seq = nextSeq();
+    net.sendTo(id, snap);
+    broadcastLobby();
+    broadcastEvents([{ kind: 'system', text: `✦ ${back.name} вернулся в партию. Подземелье разочаровано.` }]);
+    return true;
+  }
+
   // ---- сетевые события ----
   net.onClientMessage(async (id, msg) => {
     try {
       if (msg.t === 'hello') {
-        if (started) { net.sendTo(id, { t: 'reject', reason: 'Игра уже началась.' }); return; }
+        const wantName = String(msg.name || 'Игрок').slice(0, 16).trim() || 'Игрок';
+        // 1) возвращение потерявшегося: имя совпало с тем, кто ждёт
+        if (started && absent.has(wantName)) { reattach(id, wantName); return; }
+        if (started) { net.sendTo(id, { t: 'reject', reason: 'Игра уже началась. Если ты был в партии — вернись по тому же коду и имени.' }); return; }
         if (msg.ver !== PROTOCOL_VER) { net.sendTo(id, { t: 'reject', reason: 'Разные версии игры — обнови страницу.' }); return; }
         if (players.size >= MAX_PLAYERS) { net.sendTo(id, { t: 'reject', reason: 'Комната полна (макс 4).' }); return; }
         const taken = new Set([hostName, ...[...players.values()].map(p => p.name)]);
-        let name = String(msg.name || 'Игрок').slice(0, 16).trim() || 'Игрок';
+        let name = wantName;
         if (taken.has(name)) name = name.slice(0, 13) + Math.floor(Math.random() * 90 + 10);
         players.set(id, { id, name, heroIdx: null });
-        net.sendTo(id, { t: 'welcome', ver: PROTOCOL_VER, playerId: id });
+        net.sendTo(id, { t: 'welcome', ver: PROTOCOL_VER, playerId: id, name });
         broadcastLobby();
       } else if (msg.t === 'intent') {
         const p = players.get(id);
@@ -2956,22 +3519,11 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
 
   net.onClientLeave(id => {
     const p = players.get(id);
+    if (!p) return;
     players.delete(id);
     broadcastLobby();
-    if (started && game && p && p.heroIdx != null && game.heroes[p.heroIdx]?.alive) {
-      const hero = game.heroes[p.heroIdx];
-      hero.alive = false;
-      hero.epitaph = 'сбежал из подземелья по-английски';
-      const events = [{
-        kind: 'death',
-        text: `☠ ${hero.name} растворился в темноте (вышел из игры). Его снаряжение достаётся подземелью.`
-      }];
-      if (game.heroes.every(h => !h.alive)) {
-        game.over = true;
-        game.epitaph = hero.epitaph;
-        events.push({ kind: 'death', text: '☠ Партия уничтожена.' });
-      }
-      broadcastEvents(events);
+    if (started && game && p.heroIdx != null && game.heroes[p.heroIdx]?.alive) {
+      holdHero(p); // не убиваем сразу: игрок может вернуться
     }
   });
 
@@ -2981,12 +3533,15 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
     getLobby: lobbyList,
     isStarted: () => started,
     getGame: () => game,
+    /** Кто сейчас ждёт переподключения. */
+    getAbsent: () => [...absent.values()].map(a => ({ name: a.name, heroIdx: a.heroIdx, since: a.since })),
 
     /** Подписки UI хоста */
     onLobby(fn) { ui.lobby.push(fn); },
     onEvents(fn) { ui.events.push(fn); },
     onSnapshot(fn) { ui.snapshot.push(fn); },
     onOver(fn) { ui.over.push(fn); },
+    onAbsent(fn) { ui.absent.push(fn); },
 
     /**
      * Старт игры. classAssignments: [{name, className, stats, ability}] для ВСЕЙ партии,
@@ -2996,6 +3551,8 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
     startGame({ worldDesc, mode, classAssignments, backstory = '', intro = null }) {
       if (started) return;
       resetStub();
+      for (const a of absent.values()) clearTimeout(a.timer);
+      absent.clear();
       const playersCfg = classAssignments.map((c, i) => ({ ...c, name: i === 0 ? hostName : (players.get([...players.keys()][i - 1])?.name || c.name) }));
       game = newGame({
         seed: (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
@@ -3013,6 +3570,36 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
           .catch(() => broadcastEvents(applyDmEffects(game, { narrative: 'ДМ не отвечает. Ты очнулся в темноте. Как обычно.' }, 0)));
       }
       armTurnTimer();
+    },
+
+    /**
+     * Продолжить сохранённый забег в коопе: состояние уже готово, комната — та же.
+     * Герои, кроме хоста, ждут переподключения по своим именам.
+     */
+    resumeGame(savedState) {
+      if (started || !savedState) return false;
+      resetStub();
+      for (const a of absent.values()) clearTimeout(a.timer);
+      absent.clear();
+      game = savedState;
+      started = true;
+      for (let idx = 1; idx < game.heroes.length; idx++) {
+        const hero = game.heroes[idx];
+        if (!hero.alive) continue;
+        const name = hero.name;
+        const timer = setTimeout(() => {
+          if (!absent.has(name)) return;
+          absent.delete(name);
+          broadcastLobby();
+          retireHero(idx, name, 'сбежал из подземелья по-английски');
+        }, graceMs);
+        if (typeof timer.unref === 'function') timer.unref();
+        absent.set(name, { name, heroIdx: idx, timer, since: Date.now() });
+      }
+      broadcastLobby();
+      broadcastSnapshots();
+      armTurnTimer();
+      return true;
     },
 
     /** Ход игрока-хоста (heroIdx 0). resolveFree подключается так же, как для клиентов. */
@@ -3038,15 +3625,14 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
       players.delete(id);
       broadcastLobby();
       if (started && game && p.heroIdx != null && game.heroes[p.heroIdx]?.alive) {
-        const hero = game.heroes[p.heroIdx];
-        hero.alive = false;
-        hero.epitaph = 'выгнан хостом';
-        broadcastEvents([{ kind: 'death', text: `☠ ${hero.name} изгнан. ${reason}` }]);
+        retireHero(p.heroIdx, p.name, 'выгнан хостом');
       }
     },
 
     stop() {
       if (turnTimer) clearTimeout(turnTimer);
+      for (const a of absent.values()) clearTimeout(a.timer);
+      absent.clear();
       started = false;
       game = null;
     }
@@ -3065,6 +3651,7 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS }) {
  */
 function createClientSession({ link, name }) {
   let myId = null;
+  let myName = name;   // хост может выдать другое имя (тёзка) — возвращаться надо под ним
   let lastSeq = 0;
   let closed = false;
   const cbs = {
@@ -3079,7 +3666,8 @@ function createClientSession({ link, name }) {
     switch (msg.t) {
       case 'welcome':
         myId = msg.playerId;
-        emit('welcome', { playerId: msg.playerId });
+        if (msg.name) myName = msg.name;
+        emit('welcome', { playerId: msg.playerId, resumed: !!msg.resumed, heroIdx: msg.heroIdx, name: myName });
         break;
       case 'reject':
         emit('reject', { reason: msg.reason });
@@ -3109,16 +3697,22 @@ function createClientSession({ link, name }) {
     }
   });
 
-  link.onClose(() => {
+  /** Транспорт умер: сообщаем наверх ровно один раз. */
+  function markClosed() {
     if (!closed) { closed = true; emit('close', {}); }
-  });
+  }
+
+  link.onClose(markClosed);
 
   return {
-    hello() { link.send({ t: 'hello', ver: PROTOCOL_VER, name }); },
+    /** hello с heroIdx — это заявка «я тот, кто потерял связь, вот мой герой». */
+    hello(heroIdx = null) { link.send({ t: 'hello', ver: PROTOCOL_VER, name: myName, heroIdx }); },
     sendCommand(text) { if (!closed) link.send({ t: 'intent', command: String(text).slice(0, 200) }); },
     ping() { link.send({ t: 'ping' }); },
     getId: () => myId,
     close() { closed = true; link.close(); },
+    /** Явно сказать сессии «связи больше нет» (транспорт не всегда успевает сам). */
+    notifyTransportLoss: markClosed,
     onWelcome(fn) { cbs.welcome.push(fn); },
     onLobby(fn) { cbs.lobby.push(fn); },
     onEvents(fn) { cbs.events.push(fn); },
@@ -4068,8 +4662,9 @@ function renderStats(el, state) {
 /**
  * Рюкзак: список предметов с кнопками действий.
  * Кнопка — это просто подсказка движку: клик отправляет «выпить …» / «надеть …».
+ * opts.sell — рядом с предметом появляется кнопка «продать» (когда есть торговец).
  */
-function renderInventoryPanel(el, items) {
+function renderInventoryPanel(el, items, opts = {}) {
   if (!el) return;
   const list = Array.isArray(items) ? items : [];
   if (!list.length) {
@@ -4082,10 +4677,39 @@ function renderInventoryPanel(el, items) {
     const meta = it.type === 'potion' ? `+${it.heal || 8} HP`
       : it.type === 'weapon' ? `урон ${it.dmg || 1}${it.bonus ? ` +${it.bonus}` : ''}`
         : it.type === 'armor' ? `AC +${it.ac || 1}` : '';
+    const sell = opts.sell
+      ? `<button class="inv-btn inv-sell" data-i="${i}" data-act="продать">ПРОДАТЬ</button>`
+      : '';
     return `<div class="inv-row">
       <span class="inv-name" title="${escHtml(it.name)}">${escHtml(it.name)}${it.qty > 1 ? ` ×${it.qty}` : ''}</span>
       <span class="inv-meta">${meta}</span>
+      ${sell}
       ${act ? `<button class="inv-btn" data-i="${i}" data-act="${act}">${act === 'выпить' ? 'ВЫПИТЬ' : 'НАТЬ'}</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/**
+ * Прилавок торговца: товары с ценами и кнопкой «купить».
+ * Кнопка снова лишь подсказка движку — «купить <название>».
+ */
+function renderShop(panelEl, listEl, merchant) {
+  if (!panelEl || !listEl) return;
+  if (!merchant || !Array.isArray(merchant.stock) || !merchant.stock.length) {
+    panelEl.style.display = 'none';
+    listEl.innerHTML = '';
+    return;
+  }
+  panelEl.style.display = 'block';
+  listEl.innerHTML = merchant.stock.map((it, i) => {
+    const meta = it.type === 'potion' ? `+${it.heal || 8} HP`
+      : it.type === 'weapon' ? `урон ${it.dmg || 1}`
+        : it.type === 'armor' ? `AC +${it.ac || 1}` : '';
+    return `<div class="inv-row">
+      <span class="inv-name" title="${escHtml(it.name)}">${escHtml(it.name)}</span>
+      <span class="inv-meta">${meta}</span>
+      <span class="shop-price">${it.price} зм</span>
+      <button class="inv-btn shop-btn" data-i="${i}" data-act="купить">КУПИТЬ</button>
     </div>`;
   }).join('');
 }
@@ -4185,6 +4809,7 @@ function renderCombat(el, list) {
 
 
 
+
 const $ = (id) => document.getElementById(id);
 
 const STUB_CLASSES = [
@@ -4233,6 +4858,15 @@ let clientSession = null;
 let mySnapshot = null;
 let roomCode = null;
 
+// переподключение клиента: последняя комната и попытки вернуться
+let lastJoin = null;        // { code, name, heroIdx }
+let clientLink = null;      // текущий транспорт клиента (для диагностики и __drop)
+let reconnecting = false;
+let reconnectTimer = null;
+let reconnectTries = 0;
+let reconnectGen = 0;       // поколение соединения: старые линки не должны мешать
+let attemptInFlight = false;
+
 // ---------- хранилище ----------
 
 function loadCfg() {
@@ -4273,6 +4907,114 @@ function renderHof() {
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// ---------- сохранение / продолжение забега ----------
+
+/** Показать на стартовом экране «незаконченный забег», если он есть. */
+function refreshContinue() {
+  const panel = $('continue-panel');
+  if (!panel) return;
+  const raw = loadRunRaw();
+  if (!raw || raw.body?.over) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  const when = raw.ts ? new Date(raw.ts).toLocaleString('ru-RU') : '';
+  $('continue-info').textContent = runSummary(raw.meta) + (when ? ` · сохранено ${when}` : '');
+}
+
+/** Автосейв после каждого хода: соло и хост коопа. */
+function maybeSave() {
+  if (sessionMode === 'solo' && state && !state.over) {
+    saveRun(state, { coop: false });
+  } else if (sessionMode === 'host' && hostSession?.getGame() && !hostSession.getGame().over) {
+    saveRun(hostSession.getGame(), { coop: true, room: roomCode });
+  }
+}
+
+function dropSave() {
+  clearRun();
+  refreshContinue();
+}
+
+/** Продолжить забег: соло — сразу, кооп — поднять комнату с тем же кодом. */
+async function continueRun() {
+  const saved = loadRun();
+  if (!saved) { addSetupNote('Сейв не читается — начинаем заново.'); refreshContinue(); return; }
+  if (saved.state.over) { addSetupNote('Тот забег закончен. Начни новый.'); dropSave(); return; }
+  if (saved.meta?.coop) await resumeHostRun(saved);
+  else resumeSolo(saved);
+}
+
+function resumeSolo(saved) {
+  saveCfg();
+  initAudio();
+  currentClient();
+  sessionMode = 'solo';
+  state = saved.state;
+  chronicle = [
+    `МИР: ${state.worldDesc}`,
+    `ПРОДОЛЖЕНО: ${state.floorName}, ход ${state.turn}`,
+    `ГЕРОЙ: ${state.player.name}, ${state.player.className}`
+  ];
+  typer = createTyper($('log'));
+  showScreen('screen-game');
+  refreshPanelsSolo();
+  $('turn-banner').textContent = 'СОЛО · твой ход всегда';
+  wasMyTurn = true;
+  logEvent('system', `Ты возвращаешься в темноту. ${state.floorName}, ход ${state.turn}. Подземелье ждало.`);
+  if (state.merchant) logEvent('system', `⚖ ${state.merchant.name} всё ещё здесь — «торговец» покажет товар.`);
+  $('input').disabled = false;
+  $('input').focus();
+}
+
+async function resumeHostRun(saved) {
+  saveCfg();
+  initAudio();
+  currentClient();
+  const meta = saved.meta || {};
+  roomCode = meta.room || makeRoomCode();
+  const hostName = meta.party?.[0] || $('set-name').value.trim() || 'Хост';
+
+  $('lobby-panel').style.display = 'block';
+  $('room-code').textContent = roomCode;
+  $('lobby-list').innerHTML = '<div class="class-loading">Возвращаемся в комнату…</div>';
+  addSetupNote(`Комната ${roomCode}: партия вернётся по тем же именам.`);
+
+  let net;
+  try {
+    net = await createHybridHostNet(roomCode);
+  } catch (e) {
+    $('lobby-panel').style.display = 'none';
+    addSetupNote(`Не удалось поднять комнату ${roomCode}: ${e.message}`);
+    return;
+  }
+  window.__transport = net.transport;
+  window.__channels = () => (net.channels ? net.channels() : [net.transport]);
+
+  sessionMode = 'host';
+  hostSession = createHostSession({ net, hostName, dm: makeDmResolver(), turnMs: 60000 });
+  wireHostSession();
+
+  if (!hostSession.resumeGame(saved.state)) {
+    addSetupNote('Забег не восстановился — начни новый.');
+    backToSetup('');
+    return;
+  }
+  $('lobby-panel').style.display = 'none';
+  typer = createTyper($('log'));
+  chronicle = [
+    `МИР: ${saved.state.worldDesc}`,
+    `ПРОДОЛЖЕНО: ${saved.state.floorName}, ход ${saved.state.turn} · комната ${roomCode}`,
+    `ПАРТИЯ: ${saved.state.heroes.map(h => h.name).join(', ')}`
+  ];
+  showScreen('screen-game');
+  $('turn-banner').textContent = 'ЖДЁМ ХОДА…';
+  wasMyTurn = false;
+  logEvent('system', `Комната ${roomCode} снова открыта. Герои возвращаются по именам: ${saved.state.heroes.slice(1).map(h => h.name).join(', ') || 'никого'}.`);
+  $('input').disabled = false;
 }
 
 // ---------- экраны ----------
@@ -4498,6 +5240,8 @@ function startSolo() {
   const classes = selectedClasses();
   const cls = classes[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
 
+  clearRun();                       // новый забег вытесняет старый сейв
+  refreshContinue();
   resetStub();
   sessionMode = 'solo';
   state = newGame({
@@ -4535,6 +5279,7 @@ function refreshPanelsSolo() {
   renderCombat($('combat-panel'), engagedEnemies(state, state.activeIdx));
   refreshAbilityBtn();
   refreshInventory();
+  refreshShop();
   $('floor-label').textContent = state.floorName
     + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
 }
@@ -4647,11 +5392,29 @@ function refreshInventory() {
   const el = $('inv-list');
   if (!el) return;
   const items = sessionMode === 'solo' ? state?.player?.inventory : mySnapshot?.self?.inventory;
-  renderInventoryPanel(el, items);
+  const merchant = sessionMode === 'solo' ? state?.merchant : mySnapshot?.merchant;
+  renderInventoryPanel(el, items, { sell: !!merchant });
   const myTurn = sessionMode === 'solo'
     ? !!state && !state.over
     : !!mySnapshot && mySnapshot.turnOf === mySnapshot.you;
   el.querySelectorAll('.inv-btn').forEach(b => { b.disabled = !myTurn; });
+}
+
+/**
+ * Прилавок торговца. Появляется только когда торговец есть на этаже,
+ * кнопки гаснут не в свой ход (движок всё равно отклонит чужую покупку).
+ */
+function refreshShop() {
+  const panel = $('shop-panel');
+  if (!panel) return;
+  const merchant = sessionMode === 'solo' ? state?.merchant : mySnapshot?.merchant;
+  renderShop(panel, $('shop-list'), merchant);
+  if (!merchant) return;
+  $('shop-name').textContent = `${merchant.name}: «${merchant.greeting}»`;
+  const myTurn = sessionMode === 'solo'
+    ? !!state && !state.over
+    : !!mySnapshot && mySnapshot.turnOf === mySnapshot.you;
+  panel.querySelectorAll('.shop-btn').forEach(b => { b.disabled = !myTurn; });
 }
 
 function handleEventsSolo(events) {
@@ -4663,7 +5426,11 @@ function handleEventsSolo(events) {
   }
   showSuggestions(events);
   refreshPanelsSolo();
-  if (state.over) typer.onFinish(state.story?.won ? () => showDeathCommon(state.epitaph || '', soloStatsLine(), true) : showDeathSolo);
+  maybeSave();
+  if (state.over) {
+    clearRun(); // забег закончен — «продолжить» больше нечего
+    typer.onFinish(state.story?.won ? () => showDeathCommon(state.epitaph || '', soloStatsLine(), true) : showDeathSolo);
+  }
 }
 
 function soloStatsLine() {
@@ -4715,9 +5482,7 @@ async function startHostRoom() {
     dm: makeDmResolver(),
     turnMs: 60000
   });
-  hostSession.onLobby(renderLobby);
-  hostSession.onEvents(evs => { if (typer) { evs.forEach(e => logEvent(e.kind, e.text)); showSuggestions(evs); } });
-  hostSession.onSnapshot(snap => applySnapshot(snap));
+  wireHostSession();
 
   $('room-code').textContent = roomCode;
   $('btn-start').disabled = false;
@@ -4727,9 +5492,21 @@ async function startHostRoom() {
   renderLobby(hostSession.getLobby());
 }
 
+/** Подписки хоста — общие для новой партии и для продолжения сохранённой. */
+function wireHostSession() {
+  hostSession.onLobby(renderLobby);
+  hostSession.onEvents(evs => {
+    if (typer) { evs.forEach(e => logEvent(e.kind, e.text)); showSuggestions(evs); }
+    maybeSave();
+    if (hostSession.getGame()?.over) clearRun();
+  });
+  hostSession.onSnapshot(snap => applySnapshot(snap));
+  hostSession.onOver(() => { clearRun(); refreshContinue(); });
+}
+
 function renderLobby(players) {
   $('lobby-list').innerHTML = players.map(p =>
-    `<div class="lobby-card"><pre class="avatar">${asciiAvatar(p.name)}</pre><div class="lobby-name">◆ ${esc(p.name)}${p.host ? ' <span class="hof-meta">(хост, оплачивает ИИ)</span>' : ''}</div></div>`
+    `<div class="lobby-card${p.offline ? ' offline' : ''}"><pre class="avatar">${asciiAvatar(p.name)}</pre><div class="lobby-name">◆ ${esc(p.name)}${p.host ? ' <span class="hof-meta">(хост, оплачивает ИИ)</span>' : ''}${p.offline ? ' <span class="hof-meta">(ждём возвращения…)</span>' : ''}</div></div>`
   ).join('');
   if (sessionMode === 'host') {
     $('btn-launch').disabled = players.length < 1;
@@ -4742,6 +5519,8 @@ function renderLobby(players) {
 async function hostLaunch() {
   const { world, mode, name, backstory } = readCommonConfig();
   const classes = selectedClasses();
+  clearRun();
+  refreshContinue();
   const lobby = hostSession.getLobby();
   const classAssignments = lobby.map((p, i) => ({
     name: p.name,
@@ -4796,11 +5575,33 @@ async function joinRoom() {
   window.__transport = link.transport;
 
   sessionMode = 'client';
+  lastJoin = { code, name, heroIdx: null };
+  clientLink = link;
   clientSession = createClientSession({ link, name });
-  clientSession.onLobby(renderLobby);
-  clientSession.onEvents(evs => { if (typer) { evs.forEach(e => logEvent(e.kind, e.text)); showSuggestions(evs); } });
-  clientSession.onSnapshot(snap => applySnapshot(snap));
-  clientSession.onStart(() => {
+  wireClientSession(clientSession, code, name);
+  clientSession.hello();
+}
+
+/**
+ * Подписки клиента — общие для первого входа и для переподключения.
+ * gen — поколение соединения: обработчики старого линка молчат, иначе «мёртвый»
+ * сокет через минуту снова выкинет игрока на экран «связь потеряна».
+ */
+function wireClientSession(sess, code, name, gen = reconnectGen) {
+  const fresh = () => gen === reconnectGen;
+  sess.onLobby(players => { if (fresh()) renderLobby(players); });
+  sess.onEvents(evs => {
+    if (!fresh() || !typer) return;
+    evs.forEach(e => logEvent(e.kind, e.text));
+    showSuggestions(evs);
+  });
+  sess.onSnapshot(snap => {
+    if (!fresh()) return;
+    applySnapshot(snap);
+    if (lastJoin) lastJoin.heroIdx = snap.you; // запомнить слот для возврата
+  });
+  sess.onStart(() => {
+    if (!fresh() || typer) return; // после переподключения экран уже на месте
     chronicle = [`КО-ОП · комната ${code}`];
     typer = createTyper($('log'));
     showScreen('screen-game');
@@ -4808,12 +5609,102 @@ async function joinRoom() {
     wasMyTurn = false;
     showIntro([`КО-ОП · КОМНАТА ${code}`, 'ДАЛЕЕ: ТЬМА, ТРОЛЛИНГ И ПЕРМАСМЕРТЬ']);
   });
-  clientSession.onReject(r => backToSetup(`Отказ: ${r.reason}`));
-  clientSession.onKicked(r => backToSetup(`Тебя выгнали: ${r.reason}`));
-  clientSession.onClose(() => {
-    if (sessionMode === 'client') backToSetup('Соединение с хостом потеряно. Забег погиб вместе с ним.');
+  sess.onWelcome(w => {
+    if (w.name && lastJoin) lastJoin.name = w.name; // тёзку хост переименовал — возвращаемся под новым ником
+    if (fresh() && reconnecting) finishReconnect();
   });
-  clientSession.hello();
+  sess.onReject(r => {
+    if (!fresh()) return;
+    if (reconnecting) { reconnectNote(`хост отказал: ${r.reason}`); scheduleReconnect(4000); }
+    else backToSetup(`Отказ: ${r.reason}`);
+  });
+  sess.onKicked(r => {
+    if (!fresh()) return;
+    reconnecting = false;
+    stopReconnectTimer();
+    $('reconnect').classList.remove('active');
+    backToSetup(`Тебя выгнали: ${r.reason}`);
+  });
+  sess.onClose(() => { if (fresh() && sessionMode === 'client') beginReconnect(); });
+}
+
+// ---------- переподключение клиента ----------
+
+function beginReconnect() {
+  if (reconnecting) return;
+  reconnecting = true;
+  reconnectTries = 0;
+  reconnectGen++;          // всё, что было раньше, теперь «прошлая жизнь»
+  attemptInFlight = false;
+  $('reconnect').classList.add('active');
+  $('rec-attempt').textContent = '';
+  $('rec-text').textContent = `Хост не отвечает. Твой герой ждёт в комнате ${lastJoin?.code || '—'} — вернись, пока он жив.`;
+  scheduleReconnect(600);
+}
+
+function stopReconnectTimer() {
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+}
+
+function reconnectNote(text) {
+  const el = $('rec-attempt');
+  if (el) el.textContent = text;
+}
+
+function scheduleReconnect(delay = 3000) {
+  stopReconnectTimer();
+  const gen = reconnectGen;
+  reconnectTimer = setTimeout(() => tryReconnect(gen), delay);
+}
+
+async function tryReconnect(gen) {
+  if (!reconnecting || !lastJoin || gen !== reconnectGen || attemptInFlight) return;
+  attemptInFlight = true;
+  reconnectTries++;
+  reconnectNote(`попытка ${reconnectTries}…`);
+  let link;
+  try {
+    link = await createHybridClientLink(lastJoin.code, n => { if (gen === reconnectGen) reconnectNote(n); });
+  } catch (e) {
+    attemptInFlight = false;
+    if (gen !== reconnectGen || !reconnecting) return;
+    reconnectNote(`не вышло: ${e.message}`);
+    if (reconnectTries < 20) scheduleReconnect(3500);
+    else reconnectNote('хост не вернулся. Нажми «выйти» — и начнём новый забег.');
+    return;
+  }
+  attemptInFlight = false;
+  if (gen !== reconnectGen || !reconnecting) { try { link.close(); } catch { /* ignore */ } return; }
+
+  // старый линк закрываем: иначе в комнате висят два «одних и тех же» игрока
+  if (clientLink && clientLink !== link) { try { clientLink.close(); } catch { /* ignore */ } }
+  clientLink = link;
+  const sess = createClientSession({ link, name: lastJoin.name });
+  clientSession = sess;
+  wireClientSession(sess, lastJoin.code, lastJoin.name, gen);
+  sess.hello(lastJoin.heroIdx);
+  // если welcome не пришёл — не зависаем, пробуем ещё раз
+  setTimeout(() => { if (reconnecting && gen === reconnectGen) scheduleReconnect(2500); }, 8000);
+}
+
+function finishReconnect() {
+  reconnecting = false;
+  attemptInFlight = false;
+  stopReconnectTimer();
+  // поколение НЕ трогаем: текущая сессия должна продолжать получать снапшоты.
+  // Старые линки и так молчат — их gen остался позади после beginReconnect().
+  $('reconnect').classList.remove('active');
+  if (typer) logEvent('system', '✦ Связь восстановлена. Герой на месте — продолжаем.');
+}
+
+function leaveReconnect() {
+  reconnecting = false;
+  attemptInFlight = false;
+  stopReconnectTimer();
+  reconnectGen++;
+  $('reconnect').classList.remove('active');
+  if (clientLink) { try { clientLink.close(); } catch { /* ignore */ } }
+  backToSetup('Ты вышел из партии. Герой остался в подземелье — и вряд ли дождётся.');
 }
 
 function backToSetup(note) {
@@ -4821,12 +5712,18 @@ function backToSetup(note) {
   hostSession = null;
   clientSession = null;
   mySnapshot = null;
+  reconnecting = false;
+  attemptInFlight = false;
+  reconnectGen++;
+  stopReconnectTimer();
+  $('reconnect').classList.remove('active');
   showScreen('screen-setup');
   $('lobby-panel').style.display = 'none';
   $('btn-start').disabled = false;
   $('btn-start').textContent = '▶ НАЧАТЬ ЗАБЕГ';
   $('btn-launch').style.display = 'none';
   renderHof();
+  refreshContinue();
   if (note) addSetupNote(note);
 }
 
@@ -4838,6 +5735,7 @@ function applySnapshot(snap) {
   renderQuests($('quest-list'), snap);
   refreshAbilityBtn();
   refreshInventory();
+  refreshShop();
   renderCombat($('combat-panel'), snap.combat || []);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
     + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
@@ -4957,6 +5855,7 @@ function exportChronicle() {
 function submitInput() {
   const text = $('input').value.trim();
   if (!text) return;
+  if (reconnecting) return; // пока нет связи, команду отправить некуда
   if (sessionMode === 'solo') {
     if (!state || state.over) return;
     $('input').value = '';
@@ -5112,6 +6011,31 @@ function wire() {
   });
   $('btn-launch').addEventListener('click', hostLaunch);
   $('btn-export').addEventListener('click', exportChronicle);
+  $('btn-chronicle').addEventListener('click', exportChronicle);
+  $('btn-continue').addEventListener('click', continueRun);
+  $('btn-discard').addEventListener('click', () => {
+    dropSave();
+    addSetupNote('Незаконченный забег удалён. Никто не заметит.');
+  });
+
+  // торговец: клик по «купить» = обычная команда движку
+  $('shop-list').addEventListener('click', e => {
+    const btn = e.target.closest('.shop-btn');
+    if (!btn) return;
+    const m = sessionMode === 'solo' ? state?.merchant : mySnapshot?.merchant;
+    const item = m && m.stock[Number(btn.dataset.i)];
+    if (!item) return;
+    $('input').value = `купить ${item.name}`;
+    submitInput();
+  });
+
+  // переподключение
+  $('btn-reconnect').addEventListener('click', () => {
+    if (!reconnecting) { beginReconnect(); return; }
+    reconnectTries = 0;
+    scheduleReconnect(150);
+  });
+  $('btn-rec-leave').addEventListener('click', leaveReconnect);
   $('btn-restart').addEventListener('click', () => {
     $('screen-death').classList.remove('active');
     if (sessionMode === 'host' && hostSession) hostSession.stop();
@@ -5130,13 +6054,29 @@ function wire() {
   });
 
   renderClassList();
+  refreshContinue();
   showScreen('screen-setup');
 }
 
 wire();
 
-// отладочный хук для e2e-тестов: доступ к живому состоянию соло
-if (typeof window !== 'undefined') window.__dndState = () => state || null;
+// отладочные хуки для e2e-тестов: доступ к живому состоянию и к сети
+if (typeof window !== 'undefined') {
+  window.__dndState = () => state || null;
+  window.__snap = () => mySnapshot;
+  window.__session = () => ({
+    mode: sessionMode,
+    room: roomCode,
+    reconnecting,
+    absent: hostSession?.getAbsent?.() || [],
+    lobby: hostSession?.getLobby?.() || []
+  });
+  // имитация обрыва связи: закрываем линк, как будто пропал Wi-Fi
+  window.__drop = () => {
+    try { clientLink?.close(); } catch { /* ignore */ }
+    clientSession?.notifyTransportLoss?.();
+  };
+}
 
 </script>
 </body>

@@ -10,8 +10,9 @@ import { createClientSession } from '../net/client.js';
 import { makeRoomCode } from '../net/loopback.js';
 import { createHybridHostNet, createHybridClientLink } from '../net/hybrid.js';
 import { PROTOCOL_VER } from '../net/protocol.js';
+import { saveRun, loadRun, loadRunRaw, clearRun, runSummary } from '../engine/save.js';
 import {
-  createTyper, renderStats, renderQuests, renderInventoryPanel,
+  createTyper, renderStats, renderQuests, renderInventoryPanel, renderShop,
   renderStatsSnap, renderCombat, GLYPH_SETS
 } from './terminal.js';
 import {
@@ -73,6 +74,15 @@ let clientSession = null;
 let mySnapshot = null;
 let roomCode = null;
 
+// переподключение клиента: последняя комната и попытки вернуться
+let lastJoin = null;        // { code, name, heroIdx }
+let clientLink = null;      // текущий транспорт клиента (для диагностики и __drop)
+let reconnecting = false;
+let reconnectTimer = null;
+let reconnectTries = 0;
+let reconnectGen = 0;       // поколение соединения: старые линки не должны мешать
+let attemptInFlight = false;
+
 // ---------- хранилище ----------
 
 function loadCfg() {
@@ -113,6 +123,114 @@ function renderHof() {
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// ---------- сохранение / продолжение забега ----------
+
+/** Показать на стартовом экране «незаконченный забег», если он есть. */
+function refreshContinue() {
+  const panel = $('continue-panel');
+  if (!panel) return;
+  const raw = loadRunRaw();
+  if (!raw || raw.body?.over) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  const when = raw.ts ? new Date(raw.ts).toLocaleString('ru-RU') : '';
+  $('continue-info').textContent = runSummary(raw.meta) + (when ? ` · сохранено ${when}` : '');
+}
+
+/** Автосейв после каждого хода: соло и хост коопа. */
+function maybeSave() {
+  if (sessionMode === 'solo' && state && !state.over) {
+    saveRun(state, { coop: false });
+  } else if (sessionMode === 'host' && hostSession?.getGame() && !hostSession.getGame().over) {
+    saveRun(hostSession.getGame(), { coop: true, room: roomCode });
+  }
+}
+
+function dropSave() {
+  clearRun();
+  refreshContinue();
+}
+
+/** Продолжить забег: соло — сразу, кооп — поднять комнату с тем же кодом. */
+async function continueRun() {
+  const saved = loadRun();
+  if (!saved) { addSetupNote('Сейв не читается — начинаем заново.'); refreshContinue(); return; }
+  if (saved.state.over) { addSetupNote('Тот забег закончен. Начни новый.'); dropSave(); return; }
+  if (saved.meta?.coop) await resumeHostRun(saved);
+  else resumeSolo(saved);
+}
+
+function resumeSolo(saved) {
+  saveCfg();
+  initAudio();
+  currentClient();
+  sessionMode = 'solo';
+  state = saved.state;
+  chronicle = [
+    `МИР: ${state.worldDesc}`,
+    `ПРОДОЛЖЕНО: ${state.floorName}, ход ${state.turn}`,
+    `ГЕРОЙ: ${state.player.name}, ${state.player.className}`
+  ];
+  typer = createTyper($('log'));
+  showScreen('screen-game');
+  refreshPanelsSolo();
+  $('turn-banner').textContent = 'СОЛО · твой ход всегда';
+  wasMyTurn = true;
+  logEvent('system', `Ты возвращаешься в темноту. ${state.floorName}, ход ${state.turn}. Подземелье ждало.`);
+  if (state.merchant) logEvent('system', `⚖ ${state.merchant.name} всё ещё здесь — «торговец» покажет товар.`);
+  $('input').disabled = false;
+  $('input').focus();
+}
+
+async function resumeHostRun(saved) {
+  saveCfg();
+  initAudio();
+  currentClient();
+  const meta = saved.meta || {};
+  roomCode = meta.room || makeRoomCode();
+  const hostName = meta.party?.[0] || $('set-name').value.trim() || 'Хост';
+
+  $('lobby-panel').style.display = 'block';
+  $('room-code').textContent = roomCode;
+  $('lobby-list').innerHTML = '<div class="class-loading">Возвращаемся в комнату…</div>';
+  addSetupNote(`Комната ${roomCode}: партия вернётся по тем же именам.`);
+
+  let net;
+  try {
+    net = await createHybridHostNet(roomCode);
+  } catch (e) {
+    $('lobby-panel').style.display = 'none';
+    addSetupNote(`Не удалось поднять комнату ${roomCode}: ${e.message}`);
+    return;
+  }
+  window.__transport = net.transport;
+  window.__channels = () => (net.channels ? net.channels() : [net.transport]);
+
+  sessionMode = 'host';
+  hostSession = createHostSession({ net, hostName, dm: makeDmResolver(), turnMs: 60000 });
+  wireHostSession();
+
+  if (!hostSession.resumeGame(saved.state)) {
+    addSetupNote('Забег не восстановился — начни новый.');
+    backToSetup('');
+    return;
+  }
+  $('lobby-panel').style.display = 'none';
+  typer = createTyper($('log'));
+  chronicle = [
+    `МИР: ${saved.state.worldDesc}`,
+    `ПРОДОЛЖЕНО: ${saved.state.floorName}, ход ${saved.state.turn} · комната ${roomCode}`,
+    `ПАРТИЯ: ${saved.state.heroes.map(h => h.name).join(', ')}`
+  ];
+  showScreen('screen-game');
+  $('turn-banner').textContent = 'ЖДЁМ ХОДА…';
+  wasMyTurn = false;
+  logEvent('system', `Комната ${roomCode} снова открыта. Герои возвращаются по именам: ${saved.state.heroes.slice(1).map(h => h.name).join(', ') || 'никого'}.`);
+  $('input').disabled = false;
 }
 
 // ---------- экраны ----------
@@ -338,6 +456,8 @@ function startSolo() {
   const classes = selectedClasses();
   const cls = classes[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
 
+  clearRun();                       // новый забег вытесняет старый сейв
+  refreshContinue();
   resetStub();
   sessionMode = 'solo';
   state = newGame({
@@ -375,6 +495,7 @@ function refreshPanelsSolo() {
   renderCombat($('combat-panel'), engagedEnemies(state, state.activeIdx));
   refreshAbilityBtn();
   refreshInventory();
+  refreshShop();
   $('floor-label').textContent = state.floorName
     + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
 }
@@ -487,11 +608,29 @@ function refreshInventory() {
   const el = $('inv-list');
   if (!el) return;
   const items = sessionMode === 'solo' ? state?.player?.inventory : mySnapshot?.self?.inventory;
-  renderInventoryPanel(el, items);
+  const merchant = sessionMode === 'solo' ? state?.merchant : mySnapshot?.merchant;
+  renderInventoryPanel(el, items, { sell: !!merchant });
   const myTurn = sessionMode === 'solo'
     ? !!state && !state.over
     : !!mySnapshot && mySnapshot.turnOf === mySnapshot.you;
   el.querySelectorAll('.inv-btn').forEach(b => { b.disabled = !myTurn; });
+}
+
+/**
+ * Прилавок торговца. Появляется только когда торговец есть на этаже,
+ * кнопки гаснут не в свой ход (движок всё равно отклонит чужую покупку).
+ */
+function refreshShop() {
+  const panel = $('shop-panel');
+  if (!panel) return;
+  const merchant = sessionMode === 'solo' ? state?.merchant : mySnapshot?.merchant;
+  renderShop(panel, $('shop-list'), merchant);
+  if (!merchant) return;
+  $('shop-name').textContent = `${merchant.name}: «${merchant.greeting}»`;
+  const myTurn = sessionMode === 'solo'
+    ? !!state && !state.over
+    : !!mySnapshot && mySnapshot.turnOf === mySnapshot.you;
+  panel.querySelectorAll('.shop-btn').forEach(b => { b.disabled = !myTurn; });
 }
 
 function handleEventsSolo(events) {
@@ -503,7 +642,11 @@ function handleEventsSolo(events) {
   }
   showSuggestions(events);
   refreshPanelsSolo();
-  if (state.over) typer.onFinish(state.story?.won ? () => showDeathCommon(state.epitaph || '', soloStatsLine(), true) : showDeathSolo);
+  maybeSave();
+  if (state.over) {
+    clearRun(); // забег закончен — «продолжить» больше нечего
+    typer.onFinish(state.story?.won ? () => showDeathCommon(state.epitaph || '', soloStatsLine(), true) : showDeathSolo);
+  }
 }
 
 function soloStatsLine() {
@@ -555,9 +698,7 @@ async function startHostRoom() {
     dm: makeDmResolver(),
     turnMs: 60000
   });
-  hostSession.onLobby(renderLobby);
-  hostSession.onEvents(evs => { if (typer) { evs.forEach(e => logEvent(e.kind, e.text)); showSuggestions(evs); } });
-  hostSession.onSnapshot(snap => applySnapshot(snap));
+  wireHostSession();
 
   $('room-code').textContent = roomCode;
   $('btn-start').disabled = false;
@@ -567,9 +708,21 @@ async function startHostRoom() {
   renderLobby(hostSession.getLobby());
 }
 
+/** Подписки хоста — общие для новой партии и для продолжения сохранённой. */
+function wireHostSession() {
+  hostSession.onLobby(renderLobby);
+  hostSession.onEvents(evs => {
+    if (typer) { evs.forEach(e => logEvent(e.kind, e.text)); showSuggestions(evs); }
+    maybeSave();
+    if (hostSession.getGame()?.over) clearRun();
+  });
+  hostSession.onSnapshot(snap => applySnapshot(snap));
+  hostSession.onOver(() => { clearRun(); refreshContinue(); });
+}
+
 function renderLobby(players) {
   $('lobby-list').innerHTML = players.map(p =>
-    `<div class="lobby-card"><pre class="avatar">${asciiAvatar(p.name)}</pre><div class="lobby-name">◆ ${esc(p.name)}${p.host ? ' <span class="hof-meta">(хост, оплачивает ИИ)</span>' : ''}</div></div>`
+    `<div class="lobby-card${p.offline ? ' offline' : ''}"><pre class="avatar">${asciiAvatar(p.name)}</pre><div class="lobby-name">◆ ${esc(p.name)}${p.host ? ' <span class="hof-meta">(хост, оплачивает ИИ)</span>' : ''}${p.offline ? ' <span class="hof-meta">(ждём возвращения…)</span>' : ''}</div></div>`
   ).join('');
   if (sessionMode === 'host') {
     $('btn-launch').disabled = players.length < 1;
@@ -582,6 +735,8 @@ function renderLobby(players) {
 async function hostLaunch() {
   const { world, mode, name, backstory } = readCommonConfig();
   const classes = selectedClasses();
+  clearRun();
+  refreshContinue();
   const lobby = hostSession.getLobby();
   const classAssignments = lobby.map((p, i) => ({
     name: p.name,
@@ -636,11 +791,33 @@ async function joinRoom() {
   window.__transport = link.transport;
 
   sessionMode = 'client';
+  lastJoin = { code, name, heroIdx: null };
+  clientLink = link;
   clientSession = createClientSession({ link, name });
-  clientSession.onLobby(renderLobby);
-  clientSession.onEvents(evs => { if (typer) { evs.forEach(e => logEvent(e.kind, e.text)); showSuggestions(evs); } });
-  clientSession.onSnapshot(snap => applySnapshot(snap));
-  clientSession.onStart(() => {
+  wireClientSession(clientSession, code, name);
+  clientSession.hello();
+}
+
+/**
+ * Подписки клиента — общие для первого входа и для переподключения.
+ * gen — поколение соединения: обработчики старого линка молчат, иначе «мёртвый»
+ * сокет через минуту снова выкинет игрока на экран «связь потеряна».
+ */
+function wireClientSession(sess, code, name, gen = reconnectGen) {
+  const fresh = () => gen === reconnectGen;
+  sess.onLobby(players => { if (fresh()) renderLobby(players); });
+  sess.onEvents(evs => {
+    if (!fresh() || !typer) return;
+    evs.forEach(e => logEvent(e.kind, e.text));
+    showSuggestions(evs);
+  });
+  sess.onSnapshot(snap => {
+    if (!fresh()) return;
+    applySnapshot(snap);
+    if (lastJoin) lastJoin.heroIdx = snap.you; // запомнить слот для возврата
+  });
+  sess.onStart(() => {
+    if (!fresh() || typer) return; // после переподключения экран уже на месте
     chronicle = [`КО-ОП · комната ${code}`];
     typer = createTyper($('log'));
     showScreen('screen-game');
@@ -648,12 +825,102 @@ async function joinRoom() {
     wasMyTurn = false;
     showIntro([`КО-ОП · КОМНАТА ${code}`, 'ДАЛЕЕ: ТЬМА, ТРОЛЛИНГ И ПЕРМАСМЕРТЬ']);
   });
-  clientSession.onReject(r => backToSetup(`Отказ: ${r.reason}`));
-  clientSession.onKicked(r => backToSetup(`Тебя выгнали: ${r.reason}`));
-  clientSession.onClose(() => {
-    if (sessionMode === 'client') backToSetup('Соединение с хостом потеряно. Забег погиб вместе с ним.');
+  sess.onWelcome(w => {
+    if (w.name && lastJoin) lastJoin.name = w.name; // тёзку хост переименовал — возвращаемся под новым ником
+    if (fresh() && reconnecting) finishReconnect();
   });
-  clientSession.hello();
+  sess.onReject(r => {
+    if (!fresh()) return;
+    if (reconnecting) { reconnectNote(`хост отказал: ${r.reason}`); scheduleReconnect(4000); }
+    else backToSetup(`Отказ: ${r.reason}`);
+  });
+  sess.onKicked(r => {
+    if (!fresh()) return;
+    reconnecting = false;
+    stopReconnectTimer();
+    $('reconnect').classList.remove('active');
+    backToSetup(`Тебя выгнали: ${r.reason}`);
+  });
+  sess.onClose(() => { if (fresh() && sessionMode === 'client') beginReconnect(); });
+}
+
+// ---------- переподключение клиента ----------
+
+function beginReconnect() {
+  if (reconnecting) return;
+  reconnecting = true;
+  reconnectTries = 0;
+  reconnectGen++;          // всё, что было раньше, теперь «прошлая жизнь»
+  attemptInFlight = false;
+  $('reconnect').classList.add('active');
+  $('rec-attempt').textContent = '';
+  $('rec-text').textContent = `Хост не отвечает. Твой герой ждёт в комнате ${lastJoin?.code || '—'} — вернись, пока он жив.`;
+  scheduleReconnect(600);
+}
+
+function stopReconnectTimer() {
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+}
+
+function reconnectNote(text) {
+  const el = $('rec-attempt');
+  if (el) el.textContent = text;
+}
+
+function scheduleReconnect(delay = 3000) {
+  stopReconnectTimer();
+  const gen = reconnectGen;
+  reconnectTimer = setTimeout(() => tryReconnect(gen), delay);
+}
+
+async function tryReconnect(gen) {
+  if (!reconnecting || !lastJoin || gen !== reconnectGen || attemptInFlight) return;
+  attemptInFlight = true;
+  reconnectTries++;
+  reconnectNote(`попытка ${reconnectTries}…`);
+  let link;
+  try {
+    link = await createHybridClientLink(lastJoin.code, n => { if (gen === reconnectGen) reconnectNote(n); });
+  } catch (e) {
+    attemptInFlight = false;
+    if (gen !== reconnectGen || !reconnecting) return;
+    reconnectNote(`не вышло: ${e.message}`);
+    if (reconnectTries < 20) scheduleReconnect(3500);
+    else reconnectNote('хост не вернулся. Нажми «выйти» — и начнём новый забег.');
+    return;
+  }
+  attemptInFlight = false;
+  if (gen !== reconnectGen || !reconnecting) { try { link.close(); } catch { /* ignore */ } return; }
+
+  // старый линк закрываем: иначе в комнате висят два «одних и тех же» игрока
+  if (clientLink && clientLink !== link) { try { clientLink.close(); } catch { /* ignore */ } }
+  clientLink = link;
+  const sess = createClientSession({ link, name: lastJoin.name });
+  clientSession = sess;
+  wireClientSession(sess, lastJoin.code, lastJoin.name, gen);
+  sess.hello(lastJoin.heroIdx);
+  // если welcome не пришёл — не зависаем, пробуем ещё раз
+  setTimeout(() => { if (reconnecting && gen === reconnectGen) scheduleReconnect(2500); }, 8000);
+}
+
+function finishReconnect() {
+  reconnecting = false;
+  attemptInFlight = false;
+  stopReconnectTimer();
+  // поколение НЕ трогаем: текущая сессия должна продолжать получать снапшоты.
+  // Старые линки и так молчат — их gen остался позади после beginReconnect().
+  $('reconnect').classList.remove('active');
+  if (typer) logEvent('system', '✦ Связь восстановлена. Герой на месте — продолжаем.');
+}
+
+function leaveReconnect() {
+  reconnecting = false;
+  attemptInFlight = false;
+  stopReconnectTimer();
+  reconnectGen++;
+  $('reconnect').classList.remove('active');
+  if (clientLink) { try { clientLink.close(); } catch { /* ignore */ } }
+  backToSetup('Ты вышел из партии. Герой остался в подземелье — и вряд ли дождётся.');
 }
 
 function backToSetup(note) {
@@ -661,12 +928,18 @@ function backToSetup(note) {
   hostSession = null;
   clientSession = null;
   mySnapshot = null;
+  reconnecting = false;
+  attemptInFlight = false;
+  reconnectGen++;
+  stopReconnectTimer();
+  $('reconnect').classList.remove('active');
   showScreen('screen-setup');
   $('lobby-panel').style.display = 'none';
   $('btn-start').disabled = false;
   $('btn-start').textContent = '▶ НАЧАТЬ ЗАБЕГ';
   $('btn-launch').style.display = 'none';
   renderHof();
+  refreshContinue();
   if (note) addSetupNote(note);
 }
 
@@ -678,6 +951,7 @@ function applySnapshot(snap) {
   renderQuests($('quest-list'), snap);
   refreshAbilityBtn();
   refreshInventory();
+  refreshShop();
   renderCombat($('combat-panel'), snap.combat || []);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
     + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
@@ -797,6 +1071,7 @@ function exportChronicle() {
 function submitInput() {
   const text = $('input').value.trim();
   if (!text) return;
+  if (reconnecting) return; // пока нет связи, команду отправить некуда
   if (sessionMode === 'solo') {
     if (!state || state.over) return;
     $('input').value = '';
@@ -952,6 +1227,31 @@ function wire() {
   });
   $('btn-launch').addEventListener('click', hostLaunch);
   $('btn-export').addEventListener('click', exportChronicle);
+  $('btn-chronicle').addEventListener('click', exportChronicle);
+  $('btn-continue').addEventListener('click', continueRun);
+  $('btn-discard').addEventListener('click', () => {
+    dropSave();
+    addSetupNote('Незаконченный забег удалён. Никто не заметит.');
+  });
+
+  // торговец: клик по «купить» = обычная команда движку
+  $('shop-list').addEventListener('click', e => {
+    const btn = e.target.closest('.shop-btn');
+    if (!btn) return;
+    const m = sessionMode === 'solo' ? state?.merchant : mySnapshot?.merchant;
+    const item = m && m.stock[Number(btn.dataset.i)];
+    if (!item) return;
+    $('input').value = `купить ${item.name}`;
+    submitInput();
+  });
+
+  // переподключение
+  $('btn-reconnect').addEventListener('click', () => {
+    if (!reconnecting) { beginReconnect(); return; }
+    reconnectTries = 0;
+    scheduleReconnect(150);
+  });
+  $('btn-rec-leave').addEventListener('click', leaveReconnect);
   $('btn-restart').addEventListener('click', () => {
     $('screen-death').classList.remove('active');
     if (sessionMode === 'host' && hostSession) hostSession.stop();
@@ -970,10 +1270,26 @@ function wire() {
   });
 
   renderClassList();
+  refreshContinue();
   showScreen('screen-setup');
 }
 
 wire();
 
-// отладочный хук для e2e-тестов: доступ к живому состоянию соло
-if (typeof window !== 'undefined') window.__dndState = () => state || null;
+// отладочные хуки для e2e-тестов: доступ к живому состоянию и к сети
+if (typeof window !== 'undefined') {
+  window.__dndState = () => state || null;
+  window.__snap = () => mySnapshot;
+  window.__session = () => ({
+    mode: sessionMode,
+    room: roomCode,
+    reconnecting,
+    absent: hostSession?.getAbsent?.() || [],
+    lobby: hostSession?.getLobby?.() || []
+  });
+  // имитация обрыва связи: закрываем линк, как будто пропал Wi-Fi
+  window.__drop = () => {
+    try { clientLink?.close(); } catch { /* ignore */ }
+    clientSession?.notifyTransportLoss?.();
+  };
+}

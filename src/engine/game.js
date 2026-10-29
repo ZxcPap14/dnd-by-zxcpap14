@@ -13,6 +13,7 @@ import {
   rollInitiative, attackRoll, damageRoll, monsterAttack, rollDrop, BASIC_DROP_TABLE
 } from './combat.js';
 import { DIRS, W, parseCommand } from './parser.js';
+import { openMerchant, buyFromMerchant, sellToMerchant, closeMerchant, shopText } from './merchant.js';
 
 // ре-экспорт: снаружи (host.js, тесты) парсер по-прежнему берут из game.js
 export { DIRS, parseCommand };
@@ -108,6 +109,7 @@ export function newGame(opts) {
     activeIdx: 0,
     monsters: [],
     floorItems: [],
+    merchant: null, // торговец текущего этажа (см. merchant.js)
     memory: [] // кольцевой журнал последних событий — память ИИ-ДМа между ходами
   };
   // сюжет: арка с злодеем, тремя актами и финальным боссом
@@ -137,6 +139,17 @@ export function newGame(opts) {
   });
 
   // совместимость: state.player / state.pos / state.fov → активный герой
+  attachAccessors(state);
+
+  populateFloor(state);
+  return state;
+}
+
+/**
+ * Геттеры «активный герой» навешиваются и при новой игре, и при загрузке сейва
+ * (после JSON-раундтрипа их нет — они не enumerable и в JSON не попадают).
+ */
+export function attachAccessors(state) {
   Object.defineProperties(state, {
     player: { get() { return state.heroes[state.activeIdx]; }, configurable: true },
     pos: {
@@ -150,8 +163,6 @@ export function newGame(opts) {
       configurable: true
     }
   });
-
-  populateFloor(state);
   return state;
 }
 
@@ -315,6 +326,20 @@ function useActiveAbility(state, hero, intent, heroIdx) {
  */
 export function applyIntent(state, intent, heroIdx = state.activeIdx) {
   if (state.over || intent.intent === 'none') return [];
+  const speaker = state.heroes[heroIdx];
+  if (!speaker || !speaker.alive) return [];
+
+  // Реплика партии — не действие: ход не тратится, очередь не ждётся.
+  // Свобода общения важнее формальной очерёдности (в коопе это единственный
+  // способ договориться, не сжигая ход).
+  if (intent.intent === 'say') {
+    const said = String(intent.text ?? '').slice(0, 240).trim();
+    if (!said) return [];
+    const events = [ev('say', `${speaker.name} ${intent.verb || 'говорит'}: «${said}»`)];
+    rememberEvents(state, events);
+    return events;
+  }
+
   if (heroIdx !== state.activeIdx) return []; // не твой ход
   const hero = state.heroes[heroIdx];
   if (!hero || !hero.alive) return [];
@@ -426,8 +451,11 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       });
       state.floorName = `Этаж ${state.depth}`;
       populateFloor(state);
+      // торговец ждёт на новом этаже: золото снова есть куда потратить
+      state.merchant = openMerchant(state);
       gainXp(hero, 30);
       push('system', `Партия спускается глубже. ${state.floorName}. Воздух гуще, тьма наглее.`);
+      push('system', `⚖ Здесь торгует ${state.merchant.name}. Скажи «торговец» — покажет прилавок.`);
       // сюжет: смена акта и финальный босс
       if (state.story) {
         const act = storyAct(state.depth);
@@ -493,6 +521,41 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       const foeName = foes.length ? foes[0].name : null;
       push('system', `${hero.name} ретируется${foeName ? ` от ${foeName}` : ''} со скоростью, достойной легенды. Дерзость — тоже тактика.`);
       break;
+    }
+
+    // ---- торговец ----
+    case 'trade': {
+      if (!state.merchant) { push('unhandled', 'Торговца поблизости нет — только эхо и сырость.'); break; }
+      push('system', shopText(state));
+      break;
+    }
+
+    case 'buy': {
+      if (!state.merchant) { push('unhandled', 'Покупать не у кого: торговец остался на прошлом этаже.'); break; }
+      const res = buyFromMerchant(state, hero, intent.target);
+      events.push(...res.events);
+      if (!res.ok) break;          // тупик → ДМу, ход не сгорает
+      state.turn--;                // покупка — разговор, а не ход
+      rememberEvents(state, events);
+      return events;
+    }
+
+    case 'sell': {
+      if (!state.merchant) { push('unhandled', 'Продавать некому: вокруг только тьма.'); break; }
+      const res = sellToMerchant(state, hero, intent.target);
+      events.push(...res.events);
+      if (!res.ok) break;
+      state.turn--;
+      rememberEvents(state, events);
+      return events;
+    }
+
+    case 'leave': {
+      if (!state.merchant) { push('unhandled', intent.raw || 'Ты уходишь в темноту.'); break; }
+      events.push(...closeMerchant(state));
+      state.turn--;
+      rememberEvents(state, events);
+      return events;
     }
 
     case 'ability': {
@@ -665,7 +728,8 @@ export function describeSurroundings(state, heroIdx = state.activeIdx) {
   if (party.length) parts.push(`Рядом товарищи: ${party.map(p => p.name).join(', ')}. `);
   if (mons.length) parts.push(`Рядом: ${mons.join(', ')}. `);
   if (items.length) parts.push(`На земле: ${items.map(i => i.name).join(', ')}. `);
-  if (!mons.length && !items.length && !party.length) parts.push('Пока ничего интересного.');
+  if (state.merchant) parts.push(`Неподалёку прилавок: ${state.merchant.name} торгует (скажи «торговец»). `);
+  if (!mons.length && !items.length && !party.length && !state.merchant) parts.push('Пока ничего интересного.');
   return parts.join('');
 }
 
@@ -913,7 +977,10 @@ export function buildSnapshot(state, heroIdx = state.activeIdx) {
       abilityCd: abilityCooldownLeft(state, hero)
     },
     map: { w: state.dungeon.w, h: state.dungeon.h, cells, monsters, items },
-    combat: engagedEnemies(state, heroIdx)
+    combat: engagedEnemies(state, heroIdx),
+    merchant: state.merchant
+      ? { name: state.merchant.name, greeting: state.merchant.greeting, stock: state.merchant.stock.map(it => ({ ...it })) }
+      : null
   };
 }
 

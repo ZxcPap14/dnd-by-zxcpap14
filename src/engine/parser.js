@@ -25,7 +25,7 @@ export function escapeRe(s) {
 /** Слово(а) после глагола в исходной строке. */
 export function afterVerb(t, m) {
   const idx = t.indexOf(m[0]) + m[0].length;
-  return t.slice(idx).replace(/^[,\s]+/, '').trim();
+  return t.slice(idx).replace(/^[,\s:;—–-]+/, '').trim();
 }
 
 /**
@@ -50,6 +50,17 @@ export function parseCommand(text, abilityName = null) {
   // побег раньше движения: «убегаю на север» — это побег, а не прогулка
   if (W('убега|убеж|отступа|сбежа|уносим ноги|бегу от|бегу прочь|flee|retreat', true).test(t)) return { intent: 'flee', raw };
 
+  // реплика партии (крикнул/шепнул/бормотнул) — не действие, ход не тратит.
+  // «говорю с торговцем» сюда НЕ попадает: разговор с миром — работа ДМа.
+  let mSay;
+  if ((mSay = t.match(W('крич|шепч|бормоч|воплю|ору|say|shout|whisper|mutter', true)))) {
+    const said = afterVerb(t, mSay);
+    const verb = /шепч|whisper/.test(t) ? 'шепчет'
+      : /бормоч|mutter/.test(t) ? 'бормочет'
+        : /крич|воплю|ору|shout/.test(t) ? 'кричит' : 'говорит';
+    return { intent: 'say', text: said, verb, raw };
+  }
+
   // движение (только целые слова: «с» не должно матчиться внутри «стражу»)
   for (const [word, d] of Object.entries(DIRS)) {
     if (W(word).test(t)) {
@@ -67,6 +78,16 @@ export function parseCommand(text, abilityName = null) {
   }
   if (W('ждать|постоять|wait|отдохну', true).test(t)) return { intent: 'wait', raw };
   if (W('спус|лестниц|descend', true).test(t)) return { intent: 'descend', raw };
+
+  // торговец: витрина, покупка, продажа, уйти от него
+  let mTrade;
+  if ((mTrade = t.match(W('куп|покуп|buy|покупа', true))))
+    return { intent: 'buy', target: afterVerb(t, mTrade), raw };
+  if ((mTrade = t.match(W('прода|сбыва|sell', true))))
+    return { intent: 'sell', target: afterVerb(t, mTrade), raw };
+  if (W('торговец|торговца|торговцу|лавочник|купец|merchant|магазин|прилавок', true).test(t))
+    return { intent: 'trade', raw };
+  if (W('ухожу|уйти|отхожу от|leave', true).test(t)) return { intent: 'leave', raw };
 
   let m;
   if ((m = t.match(W('выпей|выпить|пью|использ|примен|use|drink', true))))

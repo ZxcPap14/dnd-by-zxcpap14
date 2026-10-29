@@ -14,9 +14,9 @@ const CLASSES = [
 
 const tick = (n = 10) => new Promise(r => setTimeout(r, n));
 
-function setup(hostName = 'Дима') {
+function setup(hostName = 'Дима', opts = {}) {
   const net = createLoopbackNet();
-  const host = createHostSession({ net: net.host, hostName, turnMs: 0 });
+  const host = createHostSession({ net: net.host, hostName, turnMs: 0, ...opts });
   return { net, host };
 }
 
@@ -163,16 +163,22 @@ test('reject: полная комната (хост + 4)', async () => {
   assert.match(rejects[0].reason, /полна/);
 });
 
-test('вышедший клиент: герой умирает с эпитафией', async () => {
-  const { net, host } = setup();
+test('вышедший клиент: герой ждёт переподключения, а потом умирает с эпитафией', async () => {
+  const { net, host } = setup('Дима', { graceMs: 40 });
   const c1 = spawnClient(net, host, 'Катя');
   await tick();
   host.startGame({ worldDesc: 'X', mode: 'story', classAssignments: CLASSES.slice(0, 2), intro: async () => ({}) });
   await tick(30);
   assert.equal(host.getGame().heroes[1].alive, true);
+
   c1.link.close();
   await tick();
-  assert.equal(host.getGame().heroes[1].alive, false);
+  assert.equal(host.getGame().heroes[1].alive, true, 'сразу не убиваем — ждём возвращения');
+  assert.equal(host.getAbsent().length, 1, 'герой в списке ожидающих');
+  assert.match(host.getAbsent()[0].name, /Катя/);
+
+  await tick(120);
+  assert.equal(host.getGame().heroes[1].alive, false, 'после грейса герой потерян');
   assert.match(host.getGame().heroes[1].epitaph, /по-английски/);
   assert.equal(host.getGame().over, false, 'партия жива, пока жив хост');
 });

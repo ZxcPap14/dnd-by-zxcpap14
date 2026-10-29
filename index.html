@@ -241,6 +241,7 @@
   .avatar-sm { font-size: 6px; margin-top: 3px; }
   .stat-hero { align-items: flex-start; }
   .lobby-card { display: flex; align-items: center; gap: 12px; padding: 4px 0; }
+  .lobby-card.offline { opacity: 0.5; }
   .lobby-name { font-size: 18px; }
 
   /* ---------- игра ---------- */
@@ -250,6 +251,13 @@
     font-family: var(--font-pixel); font-size: 11px; letter-spacing: 2px; color: var(--bright);
   }
   #floor-label { color: var(--dim); font-size: 9px; }
+  #btn-chronicle {
+    font-family: var(--font-pixel); font-size: 7px; letter-spacing: 1px;
+    padding: 4px 8px; margin-left: 8px; vertical-align: middle;
+    color: var(--dim); background: transparent; border: 1px solid var(--dim);
+    cursor: pointer;
+  }
+  #btn-chronicle:hover { color: var(--bright); border-color: var(--bright); }
   #turn-banner {
     font-family: var(--font-pixel);
     font-size: 9px; color: var(--bright); letter-spacing: 1px; margin-top: 4px;
@@ -314,6 +322,47 @@
     border-color: var(--bright); box-shadow: 0 0 8px var(--tint);
   }
   #suggest-row .chip::before { content: '▸ '; color: var(--dim); }
+
+  /* ---------- незаконченный забег ---------- */
+  #continue-panel {
+    border: 1px solid var(--loot);
+    background: rgba(0,0,0,0.25);
+    padding: 12px 14px;
+    margin: 14px 0 0;
+  }
+  #continue-panel .cont-title {
+    color: var(--loot); font-size: 17px; letter-spacing: 2px; margin-bottom: 6px;
+    text-shadow: 0 0 10px var(--loot);
+  }
+  #continue-info { color: var(--main); font-size: 16px; margin-left: 0; }
+
+  /* ---------- торговец ---------- */
+  #shop-panel { flex: 0 1 auto; max-height: 40%; display: none; }
+  #shop-panel .panel-title { color: var(--loot); }
+  #shop-name { color: var(--dim); font-size: 15px; margin-bottom: 6px; }
+  .shop-price { color: var(--loot); font-size: 15px; flex-shrink: 0; }
+  .inv-sell { border-color: var(--loot); color: var(--loot); }
+
+  /* ---------- переподключение ---------- */
+  #reconnect {
+    position: fixed; inset: 0; z-index: 180;
+    background: rgba(3, 1, 0, 0.94);
+    display: none; align-items: center; justify-content: center;
+  }
+  #reconnect.active { display: flex; }
+  .rec-box {
+    border: 1px solid var(--red); background: var(--panel);
+    padding: 28px 34px; text-align: center; max-width: min(520px, 90vw);
+    box-shadow: 0 0 60px rgba(255, 60, 60, 0.25);
+  }
+  .rec-title {
+    color: var(--red); font-size: 20px; letter-spacing: 3px;
+    font-family: var(--font-pixel); text-shadow: 0 0 18px var(--red);
+    margin-bottom: 12px;
+  }
+  #rec-text { color: var(--main); font-size: 17px; margin: 0 0 6px; }
+  #rec-attempt { color: var(--dim); font-size: 15px; min-height: 20px; }
+  .kind-say { color: var(--bright); font-style: italic; }
 
   /* боевое окно: кто тебя бьёт / кого бьёшь ты — HP-бары врагов */
   #combat-panel {
@@ -698,6 +747,15 @@
     <div class="hint" style="margin-left:140px">Любой OpenAI-совместимый: OpenAI, DeepSeek, OpenRouter, локальная Ollama. Ключ хранится только в твоём браузере.</div>
     <div id="setup-note"></div>
 
+    <div id="continue-panel" style="display:none">
+      <div class="cont-title">◆ НЕЗАКОНЧЕННЫЙ ЗАБЕГ</div>
+      <div id="continue-info" class="hint">…</div>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn-primary" id="btn-continue">▶ ПРОДОЛЖИТЬ</button>
+        <button id="btn-discard">УДАЛИТЬ</button>
+      </div>
+    </div>
+
     <div class="btn-row">
       <button class="btn-primary" id="btn-start">▶ НАЧАТЬ ЗАБЕГ</button>
     </div>
@@ -710,7 +768,9 @@
 <!-- ЭКРАН ИГРЫ -->
 <div class="screen" id="screen-game">
   <header style="padding:0 0 2px">
-    <div id="game-title">dnd by ZxcPap14 <span id="floor-label"></span></div>
+    <div id="game-title">dnd by ZxcPap14 <span id="floor-label"></span>
+      <button id="btn-chronicle" title="Скачать хронику забега в файл">⤓ ХРОНИКА</button>
+    </div>
     <div id="turn-banner"></div>
   </header>
   <div class="game-grid">
@@ -719,6 +779,11 @@
       <div class="panel" id="inv-panel">
         <div class="panel-title">РЮКЗАК</div>
         <div id="inv-list"></div>
+      </div>
+      <div class="panel" id="shop-panel">
+        <div class="panel-title">⚖ ТОРГОВЕЦ</div>
+        <div id="shop-name"></div>
+        <div id="shop-list"></div>
       </div>
       <div class="panel" id="quests">
         <div class="panel-title">ЖУРНАЛ ЗАДАЧ</div>
@@ -758,6 +823,17 @@
 <div id="crt-boot"></div>
 <div id="flash"></div>
 <div id="dice"><pre id="dice-art"></pre></div>
+<div id="reconnect">
+  <div class="rec-box">
+    <div class="rec-title">⚡ СВЯЗЬ ПОТЕРЯНА</div>
+    <div id="rec-text">Хост не отвечает. Твой герой ещё жив — он ждёт тебя в подземелье.</div>
+    <div id="rec-attempt"></div>
+    <div class="btn-row">
+      <button class="btn-primary" id="btn-reconnect">ПЕРЕПОДКЛЮЧИТЬСЯ</button>
+      <button id="btn-rec-leave">ВЫЙТИ</button>
+    </div>
+  </div>
+</div>
 <div id="intro">
   <div id="intro-scroll"><pre id="intro-text"></pre></div>
   <button id="btn-skip-intro">ПРОПУСТИТЬ ▶▶</button>
