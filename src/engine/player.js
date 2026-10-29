@@ -12,8 +12,20 @@ export const STAT_NAMES = {
 
 let itemSeq = 0;
 
-export function makeItem({ name, type, dmg = 0, ac = 0, heal = 0, bonus = 0, qty = 1 }) {
-  return { id: `it${++itemSeq}`, name, type, dmg, ac, heal, bonus, qty };
+export function makeItem({ name, type, dmg = 0, ac = 0, heal = 0, bonus = 0, qty = 1, finesse = false }) {
+  return { id: `it${++itemSeq}`, name, type, dmg, ac, heal, bonus, qty, finesse };
+}
+
+/**
+ * Поднять счётчик id выше уже существующих. Нужен после загрузки сейва:
+ * счётчик модуля сбрасывается в 0 при перезагрузке страницы, и новый предмет
+ * получал бы id, который уже занят старым (removeItem тогда удаляет не тот).
+ */
+export function syncItemSeq(ids = []) {
+  for (const id of ids) {
+    const n = Number(String(id ?? '').replace(/\D+/g, ''));
+    if (Number.isFinite(n) && n > itemSeq) itemSeq = n;
+  }
 }
 
 /**
@@ -96,16 +108,19 @@ export function xpForNextLevel(level) {
 
 /**
  * Начисление XP (опыт за всё по спецификации).
+ * rng — кубик партии: прибавка HP за уровень должна идти из того же
+ * seeded-потока, иначе после загрузки сейва развитие героя расходится с забегом.
  * @returns {number} сколько уровней получено
  */
-export function gainXp(player, amount) {
+export function gainXp(player, amount, rng = null) {
   player.xp += Math.max(0, amount | 0);
   let levels = 0;
   while (player.xp >= xpForNextLevel(player.level)) {
     player.xp -= xpForNextLevel(player.level);
     player.level++;
     levels++;
-    const gain = 4 + Math.floor(Math.random() * 3) + mod(player.stats.con);
+    const roll = rng ? Math.floor(rng() * 3) : Math.floor(Math.random() * 3);
+    const gain = 4 + roll + mod(player.stats.con);
     player.maxHp += gain;
     player.hp += gain;
   }
@@ -121,9 +136,11 @@ export function playerAc(player) {
   return ac;
 }
 
-/** Оружейный бонус к атаке и урон. */
+/** Оружейный бонус к атаке и урон. Кулаки — общий объект: новый id на каждый удар не нужен. */
+const FISTS = Object.freeze({ id: 'fists', name: 'кулаки', type: 'weapon', dmg: 2, ac: 0, heal: 0, bonus: 0, qty: 1, finesse: false });
+
 export function playerWeapon(player) {
-  return player.equipment.weapon || makeItem({ name: 'кулаки', type: 'weapon', dmg: 2 });
+  return player.equipment.weapon || FISTS;
 }
 
 export function addItem(player, item) {

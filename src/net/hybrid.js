@@ -9,19 +9,26 @@
 import { createTrysteroHostNet, createTrysteroClientLink } from './trystero.js';
 import { createPeerHostNet, createPeerClientLink } from './peer.js';
 
-/** Первый успешно созданный транспорт (null-и — неудачи, их пропускаем). */
-function firstSuccess(promises) {
+/**
+ * Первый успешно созданный транспорт.
+ * ВАЖНО: фабрики не бросают — они возвращают null при неудаче. Если считать
+ * только reject'ы, «оба канала не поднялись» никогда не разрешится и комната
+ * будет вечно висеть на «Создаём комнату…». Поэтому null — тоже провал.
+ */
+export function firstSuccess(promises) {
   return new Promise((resolve, reject) => {
-    let failed = 0;
     let done = false;
+    let settled = 0;
+    const fail = () => {
+      if (done) return;
+      settled++;
+      if (settled === promises.length) { done = true; reject(new Error('ни один транспорт не поднялся')); }
+    };
     promises.forEach(p => {
       p.then(v => {
         if (done) return;
-        if (v) { done = true; resolve(v); }
-      }, () => {
-        if (done) return;
-        if (++failed === promises.length) { done = true; reject(new Error('ни один транспорт не поднялся')); }
-      });
+        if (v) { done = true; resolve(v); } else fail();
+      }, fail);
     });
   });
 }

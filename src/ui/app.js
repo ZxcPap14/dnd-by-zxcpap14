@@ -927,6 +927,7 @@ function backToSetup(note) {
   sessionMode = 'solo';
   hostSession = null;
   clientSession = null;
+  if (clientLink) { try { clientLink.close(); } catch { /* ignore */ } clientLink = null; } // сокет не должен жить своей жизнью
   mySnapshot = null;
   reconnecting = false;
   attemptInFlight = false;
@@ -956,15 +957,18 @@ function applySnapshot(snap) {
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
     + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
   const hero = snap.heroes[snap.you];
+  if (!hero) return; // битый снапшот не должен ронять UI
   const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
   // сигнал «твой ход»
   if (myTurn && !wasMyTurn) turnSound();
   wasMyTurn = myTurn;
   if (snap.over) {
     $('turn-banner').textContent = snap.won ? '⚜ ПОБЕДА — злодей повержен' : '☠ ПАРТИЯ УНИЧТОЖЕНА';
+    $('turn-banner').classList.remove('mine');
     typer.onFinish(() => showDeathSnap(snap));
   } else if (!hero.alive) {
     $('turn-banner').textContent = '☠ ТЫ МЁРТВ — наблюдаешь за партией';
+    $('turn-banner').classList.remove('mine');
   } else if (myTurn) {
     $('turn-banner').textContent = `▶ ТВОЙ ХОД (${hero.name})`;
     $('turn-banner').classList.add('mine');
@@ -1136,14 +1140,20 @@ function wireVis() {
 /** Опция «терминатор» появляется после 10 смертей в зале славы. */
 function refreshThemeOptions() {
   const sel = $('vis-theme');
-  const has = [...sel.options].some(o => o.value === 'terminator');
+  const existing = [...sel.options].find(o => o.value === 'terminator');
   const unlocked = deathCount() >= TERMINATOR_AFTER;
-  if (unlocked && !has) {
-    const opt = document.createElement('option');
-    opt.value = 'terminator';
-    opt.textContent = '■ ТЕРМИНАТОР (секретная)';
-    sel.appendChild(opt);
-  } else if (!unlocked && !has) {
+  if (unlocked) {
+    if (!existing) {
+      const opt = document.createElement('option');
+      opt.value = 'terminator';
+      opt.textContent = '■ ТЕРМИНАТОР (секретная)';
+      sel.appendChild(opt);
+    } else if (existing.disabled) {
+      // разблокировалось прямо в этой сессии: иначе пункт остаётся серым до перезагрузки
+      existing.disabled = false;
+      existing.textContent = '■ ТЕРМИНАТОР (секретная)';
+    }
+  } else if (!existing) {
     const opt = document.createElement('option');
     opt.value = 'terminator';
     opt.disabled = true;

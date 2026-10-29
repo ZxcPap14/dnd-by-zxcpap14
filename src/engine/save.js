@@ -4,7 +4,8 @@
 // разворачивать Set (туман войны), rng (замыкание) и геттеры state.player/pos/fov.
 
 import { createRng, makeDice } from './rng.js';
-import { attachAccessors } from './game.js';
+import { attachAccessors, syncMonSeq } from './game.js';
+import { syncItemSeq } from './player.js';
 
 export const SAVE_KEY = 'dnd_run_v1';
 export const SAVE_VER = 1;
@@ -44,6 +45,7 @@ export function serializeRun(state, meta = {}) {
       floorName: state.floorName,
       activeIdx: state.activeIdx | 0,
       memory: arr(state.memory).slice(),
+      recentRolls: arr(state.recentRolls).slice(),
       story: state.story ? { ...state.story } : null,
       merchant: state.merchant
         ? { ...state.merchant, stock: arr(state.merchant.stock).map(it => ({ ...it })) }
@@ -97,6 +99,18 @@ export function deserializeRun(data) {
     stairs: { ...obj(b.dungeon.stairs) }
   };
   if (state.activeIdx >= state.heroes.length) state.activeIdx = 0;
+  // счётчики id модулей живут в памяти процесса: после перезагрузки страницы
+  // они начинаются с нуля и выдают id, которые уже заняты в сейве
+  const itemIds = [];
+  for (const h of state.heroes) {
+    arr(h.inventory).forEach(i => itemIds.push(i.id));
+    if (h.equipment?.weapon) itemIds.push(h.equipment.weapon.id);
+    if (h.equipment?.armor) itemIds.push(h.equipment.armor.id);
+  }
+  state.floorItems.forEach(i => itemIds.push(i.id));
+  arr(state.merchant?.stock).forEach(i => itemIds.push(i.id));
+  syncItemSeq(itemIds);
+  syncMonSeq(state.monsters.map(m => m.id));
   attachAccessors(state);
   return state;
 }

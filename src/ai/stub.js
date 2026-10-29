@@ -1,9 +1,6 @@
 // stub.js — офлайн-заглушка ДМа: играется без API-ключа.
 // Тот же юмор и троллинг, но из заготовленного пула. Тот же JSON-контракт эффектов.
 
-import { randomFloor } from '../engine/map.js';
-import { makeItem } from '../engine/player.js';
-
 const SNARK = [
   'Ты делаешь что-то настолько смелое, что даже тьма делает шаг назад. Из уважения. Или ужаса.',
   'Древние руны на стене складываются в слово «новичок». Совпадение? Не думаю.',
@@ -69,18 +66,17 @@ export function stubDmTurn(state, input) {
 
   // редкая встреча
   if (roll < 0.15 && !state.over) {
-    const pos = randomFloor(rng, state.dungeon);
     return {
       narrative: `От тьмы отделяется ${'нечто недоброе'}. Похоже, тишина тебе не понравилась.`,
       enemySpawn: { name: 'неудобный знакомый', hp: 4 + state.depth, toHit: 2, dmg: 1, xp: 25 + state.depth * 5 },
       suggestions: ['Атаковать первым', 'Отступить в тень', 'Попробовать договориться']
     };
   }
-  // редкий лут
+  // редкий лут (описание предмета, а не готовый объект: id выдаст applyDmEffects)
   if (roll < 0.25 && !state.over) {
     return {
       narrative: 'Ты нащупываешь в темноте что-то полезное. Подземелье сегодня щедрое. Подозрительно.',
-      itemGain: makeItem({ name: 'Зелье лечения', type: 'potion', heal: 8 }),
+      itemGain: { name: 'Зелье лечения', type: 'potion', heal: 8, qty: 1 },
       suggestions: ['Подобрать и выпить', 'Понюхать зелье', 'Идти дальше']
     };
   }

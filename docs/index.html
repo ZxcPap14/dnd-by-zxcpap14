@@ -1064,8 +1064,20 @@ const STAT_NAMES = {
 
 let itemSeq = 0;
 
-function makeItem({ name, type, dmg = 0, ac = 0, heal = 0, bonus = 0, qty = 1 }) {
-  return { id: `it${++itemSeq}`, name, type, dmg, ac, heal, bonus, qty };
+function makeItem({ name, type, dmg = 0, ac = 0, heal = 0, bonus = 0, qty = 1, finesse = false }) {
+  return { id: `it${++itemSeq}`, name, type, dmg, ac, heal, bonus, qty, finesse };
+}
+
+/**
+ * Поднять счётчик id выше уже существующих. Нужен после загрузки сейва:
+ * счётчик модуля сбрасывается в 0 при перезагрузке страницы, и новый предмет
+ * получал бы id, который уже занят старым (removeItem тогда удаляет не тот).
+ */
+function syncItemSeq(ids = []) {
+  for (const id of ids) {
+    const n = Number(String(id ?? '').replace(/\D+/g, ''));
+    if (Number.isFinite(n) && n > itemSeq) itemSeq = n;
+  }
 }
 
 /**
@@ -1148,16 +1160,19 @@ function xpForNextLevel(level) {
 
 /**
  * Начисление XP (опыт за всё по спецификации).
+ * rng — кубик партии: прибавка HP за уровень должна идти из того же
+ * seeded-потока, иначе после загрузки сейва развитие героя расходится с забегом.
  * @returns {number} сколько уровней получено
  */
-function gainXp(player, amount) {
+function gainXp(player, amount, rng = null) {
   player.xp += Math.max(0, amount | 0);
   let levels = 0;
   while (player.xp >= xpForNextLevel(player.level)) {
     player.xp -= xpForNextLevel(player.level);
     player.level++;
     levels++;
-    const gain = 4 + Math.floor(Math.random() * 3) + mod(player.stats.con);
+    const roll = rng ? Math.floor(rng() * 3) : Math.floor(Math.random() * 3);
+    const gain = 4 + roll + mod(player.stats.con);
     player.maxHp += gain;
     player.hp += gain;
   }
@@ -1173,9 +1188,11 @@ function playerAc(player) {
   return ac;
 }
 
-/** Оружейный бонус к атаке и урон. */
+/** Оружейный бонус к атаке и урон. Кулаки — общий объект: новый id на каждый удар не нужен. */
+const FISTS = Object.freeze({ id: 'fists', name: 'кулаки', type: 'weapon', dmg: 2, ac: 0, heal: 0, bonus: 0, qty: 1, finesse: false });
+
 function playerWeapon(player) {
-  return player.equipment.weapon || makeItem({ name: 'кулаки', type: 'weapon', dmg: 2 });
+  return player.equipment.weapon || FISTS;
 }
 
 function addItem(player, item) {
@@ -1488,6 +1505,11 @@ function afterVerb(t, m) {
   return t.slice(idx).replace(/^[,\s:;—–-]+/, '').trim();
 }
 
+// Глаголы реплики. Хвост слова нужен для «кричу/шепнул/бормочет»,
+// но он же ловит «оружие» на стеме «ору» — такие слова отсекаем отдельно.
+const SAY_VERB_RE = W('крич|шепч|бормоч|воплю|ору|say|shout|whisper|mutter', true);
+const SAY_STOP_RE = /^(оруж|оруд|орудов)/i;
+
 /**
  * Парсер свободного текста → интент. Всё, что не распознано, уходит ИИ как 'free'.
  * Каждый интент несёт raw — исходный текст: если движок не справится,
@@ -1512,8 +1534,9 @@ function parseCommand(text, abilityName = null) {
 
   // реплика партии (крикнул/шепнул/бормотнул) — не действие, ход не тратит.
   // «говорю с торговцем» сюда НЕ попадает: разговор с миром — работа ДМа.
+  // «оружие» на стеме «ору» — не реплика (иначе «надеваю оружие» = крик в чат).
   let mSay;
-  if ((mSay = t.match(W('крич|шепч|бормоч|воплю|ору|say|shout|whisper|mutter', true)))) {
+  if ((mSay = t.match(SAY_VERB_RE)) && !SAY_STOP_RE.test(mSay[0].replace(/^[^а-яёa-z]+/i, ''))) {
     const said = afterVerb(t, mSay);
     const verb = /шепч|whisper/.test(t) ? 'шепчет'
       : /бормоч|mutter/.test(t) ? 'бормочет'
@@ -1536,7 +1559,9 @@ function parseCommand(text, abilityName = null) {
     if (afterVerb(t, mLook)) return { intent: 'free', text, raw };
     return { intent: 'look', raw };
   }
-  if (W('ждать|постоять|wait|отдохну', true).test(t)) return { intent: 'wait', raw };
+  // «жду» — самое частое, что пишут игроки вместо «ждать»: это ход ожидания,
+  // а не свободное действие (иначе каждый такой ход дёргает ДМ и жжёт токены)
+  if (W('ждать|жду|подожду|дождусь|постоять|wait|отдохну', true).test(t)) return { intent: 'wait', raw };
   if (W('спус|лестниц|descend', true).test(t)) return { intent: 'descend', raw };
 
   // торговец: витрина, покупка, продажа, уйти от него
@@ -1552,7 +1577,7 @@ function parseCommand(text, abilityName = null) {
   let m;
   if ((m = t.match(W('выпей|выпить|пью|использ|примен|use|drink', true))))
     return { intent: 'use', target: afterVerb(t, m), raw };
-  if ((m = t.match(W('надень|надеть|экипир|возьми|equip|wield', true))))
+  if ((m = t.match(W('надень|надеть|надева|одева|экипир|возьми|equip|wield', true))))
     return { intent: 'equip', target: afterVerb(t, m), raw };
   if ((m = t.match(W('атак|бей|бью|удар|убей|убить|attack|hit|kill', true))))
     return { intent: 'attack', target: afterVerb(t, m), raw };
@@ -1596,6 +1621,18 @@ const OFFLINE_VILLAINS = [
 ];
 
 let monSeq = 0;
+
+/**
+ * Поднять счётчик монстров выше уже существующих (после загрузки сейва).
+ * Иначе новый монстр получал бы id из прошлой жизни, и боевое окно
+ * (`hero.combat[id]`) показывало бы чужого врага.
+ */
+function syncMonSeq(ids = []) {
+  for (const id of ids) {
+    const n = Number(String(id ?? '').replace(/\D+/g, ''));
+    if (Number.isFinite(n) && n > monSeq) monSeq = n;
+  }
+}
 
 /** Офлайн-спавн: монстры и лут по этажу. */
 function populateFloor(state) {
@@ -1668,6 +1705,7 @@ function newGame(opts) {
     monsters: [],
     floorItems: [],
     merchant: null, // торговец текущего этажа (см. merchant.js)
+    recentRolls: [], // последние броски — их видит ИИ-ДМ
     memory: [] // кольцевой журнал последних событий — память ИИ-ДМа между ходами
   };
   // сюжет: арка с злодеем, тремя актами и финальным боссом
@@ -1738,6 +1776,18 @@ function advanceTurn(state) {
 /** Событие для лога/ИИ. kind: dm|system|roll|combat|loot|death|levelup */
 function ev(kind, text) {
   return { kind, text, turn: 0 };
+}
+
+const ROLL_MEMORY = 6;
+
+/**
+ * Последние проверки кубиков — их видит ИИ-ДМ (блок «ПРОВЕРКИ ДВИЖКА»).
+ * Без этого ДМ выдумывал исходы, не зная, что реально выпало.
+ */
+function recordRoll(state, text) {
+  if (!Array.isArray(state.recentRolls)) state.recentRolls = [];
+  state.recentRolls.push(String(text).slice(0, 80));
+  if (state.recentRolls.length > ROLL_MEMORY) state.recentRolls.splice(0, state.recentRolls.length - ROLL_MEMORY);
 }
 
 /** Монстры в зоне видимости героя. */
@@ -1837,7 +1887,7 @@ function useActiveAbility(state, hero, intent, heroIdx) {
     }
     hero.combat = {}; // рывок разрывает бой — боевое окно гаснет
     hero.fov = computeFov(state.dungeon, hero.pos.x, hero.pos.y);
-    gainXp(hero, 2);
+    gainXp(hero, 2, state.rng);
     push('system', `${hero.name} использует «${a.name}» и перемахивает ${moved === 1 ? 'клетку' : 'клетки'} — только пыль осталась.`);
     return { events, ok: true };
   }
@@ -1863,7 +1913,7 @@ function useActiveAbility(state, hero, intent, heroIdx) {
   markCombat(state, hero, target);
   if (target.hp <= 0) {
     push('combat', `${hero.name} бьёт «${a.name}» по ${target.name}: -${dmg} HP, и ${target.name} разваливается.`);
-    const levels = gainXp(hero, target.xp);
+    const levels = gainXp(hero, target.xp, state.rng);
     push('loot', `${hero.name} получает ${target.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
     const drop = rollDrop(dice, BASIC_DROP_TABLE, state.depth);
     if (drop) {
@@ -1926,7 +1976,7 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
       hero.pos = { x: nx, y: ny };
       const tile = state.dungeon.grid[ny][nx];
       if (tile === TILE.STAIRS) push('system', 'Ты стоишь на лестнице вниз. (Скажи «спускаюсь» — когда вся партия будет готова)');
-      gainXp(hero, 2); // опыт за исследование
+      gainXp(hero, 2, state.rng); // опыт за исследование
       hero.fov = computeFov(state.dungeon, nx, ny);
       const here = state.floorItems.find(it => it.x === nx && it.y === ny);
       if (here) events.push(...pickupItem(state, hero, here));
@@ -2011,7 +2061,7 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
       populateFloor(state);
       // торговец ждёт на новом этаже: золото снова есть куда потратить
       state.merchant = openMerchant(state);
-      gainXp(hero, 30);
+      gainXp(hero, 30, state.rng);
       push('system', `Партия спускается глубже. ${state.floorName}. Воздух гуще, тьма наглее.`);
       push('system', `⚖ Здесь торгует ${state.merchant.name}. Скажи «торговец» — покажет прилавок.`);
       // сюжет: смена акта и финальный босс
@@ -2075,7 +2125,7 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
       }
       hero.pos = { x: best.x, y: best.y };
       hero.fov = computeFov(state.dungeon, best.x, best.y);
-      gainXp(hero, 1);
+      gainXp(hero, 1, state.rng);
       const foeName = foes.length ? foes[0].name : null;
       push('system', `${hero.name} ретируется${foeName ? ` от ${foeName}` : ''} со скоростью, достойной легенды. Дерзость — тоже тактика.`);
       break;
@@ -2193,7 +2243,7 @@ function pickupItem(state, hero, item) {
     addItem(hero, item);
     events.push(ev('loot', `${hero.name} подбирает: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`));
   }
-  gainXp(hero, 5);
+  gainXp(hero, 5, state.rng);
   return events;
 }
 
@@ -2211,11 +2261,13 @@ function resolveCombatRound(state, hero, monster, dice, opts = {}) {
   markCombat(state, hero, monster); // бой начался — враг появляется в боевом окне
 
   const pInit = rollInitiative(dice, hero.stats.dex).total;
-  const mInit = rollInitiative(dice, hero.stats.dex).total + 1;
+  // инициатива монстра — свой d20 (+1 за звериную наглость), а НЕ ловкость героя
+  const mInit = rollInitiative(dice, 10).total + 1;
   const playerFirst = pInit >= mInit;
 
   const playerStrike = () => {
     const atk = attackRoll(dice, hero.stats, weapon, 10 + (monster.toHit || 0), critRange);
+    recordRoll(state, `${hero.name} d20[${atk.raw}]→${atk.total}${atk.crit ? ' КРИТ' : atk.fumble ? ' провал' : ''}`);
     events.push(ev('roll', `${hero.name}: d20 [${atk.raw}]${atk.crit ? ' КРИТ!' : atk.fumble ? ' провал...' : ''} → атака ${atk.total}`));
     if (!atk.hit) {
       push('combat', `${hero.name} промахивается по ${monster.name}. ${atk.fumble ? 'Очень зрелищно промахивается.' : ''}`);
@@ -2233,7 +2285,7 @@ function resolveCombatRound(state, hero, monster, dice, opts = {}) {
       if (hero.hp > before) push('loot', `${hero.name} впитывает ${hero.hp - before} HP из чужой боли (${hero.hp}/${hero.maxHp}).`);
     }
     if (monster.hp <= 0) {
-      const levels = gainXp(hero, monster.xp);
+      const levels = gainXp(hero, monster.xp, state.rng);
       push('loot', `${hero.name} получает ${monster.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
       const drop = rollDrop(dice, BASIC_DROP_TABLE, state.depth);
       if (drop) {
@@ -2252,6 +2304,7 @@ function resolveCombatRound(state, hero, monster, dice, opts = {}) {
     const target = candidates[0] || hero;
     markCombat(state, target, monster); // цель тоже видит врага в боевом окне
     const atk = monsterAttack(dice, monster, playerAc(target));
+    recordRoll(state, `${monster.name} d20[${atk.raw}]→${atk.total}${atk.crit ? ' КРИТ' : ''}`);
     if (!atk.hit) {
       push('combat', `${monster.name} бьёт мимо ${target.name} ${atk.crit ? '(а ведь чуть не кританул)' : ''}.`);
       return;
@@ -2577,7 +2630,7 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       target.hp -= dmg;
       push('combat', `${target.name} получает ${dmg} урона. ${target.hp <= 0 ? 'Повержен!' : `Осталось ${target.hp} HP.`}`);
       if (target.hp <= 0) {
-        const levels = gainXp(hero, target.xp);
+        const levels = gainXp(hero, target.xp, state.rng);
         push('loot', `${hero.name} получает ${target.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
         if (target.isBoss) grantVictory(state, hero, push);
       }
@@ -2600,7 +2653,7 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       addItem(hero, item);
       push('loot', `${hero.name} получает: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`);
     }
-    gainXp(hero, 5);
+    gainXp(hero, 5, state.rng);
   }
 
   if (effects.goldGain) {
@@ -2626,7 +2679,7 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
   }
 
   if (effects.xpGain) {
-    const levels = gainXp(hero, clamp(effects.xpGain, 0, 100));
+    const levels = gainXp(hero, clamp(effects.xpGain, 0, 100), state.rng);
     push('loot', `${hero.name} получает ${clamp(effects.xpGain, 0, 100)} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
   }
 
@@ -2662,6 +2715,9 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       state.over = true;
       state.epitaph = hero.epitaph;
       push('death', `☠ Партия уничтожена.`);
+    } else if (heroIdx === state.activeIdx) {
+      // умер именно тот, чей ход, — очередь иначе застрянет на мёртвом навсегда
+      advanceTurn(state);
     }
   }
   rememberEvents(state, events);
@@ -2673,6 +2729,7 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
 // Хранится в localStorage одним JSON: хост/соло может закрыть вкладку и вернуться.
 // Состояние движка почти целиком JSON-совместимо; отдельно приходится
 // разворачивать Set (туман войны), rng (замыкание) и геттеры state.player/pos/fov.
+
 
 
 
@@ -2715,6 +2772,7 @@ function serializeRun(state, meta = {}) {
       floorName: state.floorName,
       activeIdx: state.activeIdx | 0,
       memory: arr(state.memory).slice(),
+      recentRolls: arr(state.recentRolls).slice(),
       story: state.story ? { ...state.story } : null,
       merchant: state.merchant
         ? { ...state.merchant, stock: arr(state.merchant.stock).map(it => ({ ...it })) }
@@ -2768,6 +2826,18 @@ function deserializeRun(data) {
     stairs: { ...obj(b.dungeon.stairs) }
   };
   if (state.activeIdx >= state.heroes.length) state.activeIdx = 0;
+  // счётчики id модулей живут в памяти процесса: после перезагрузки страницы
+  // они начинаются с нуля и выдают id, которые уже заняты в сейве
+  const itemIds = [];
+  for (const h of state.heroes) {
+    arr(h.inventory).forEach(i => itemIds.push(i.id));
+    if (h.equipment?.weapon) itemIds.push(h.equipment.weapon.id);
+    if (h.equipment?.armor) itemIds.push(h.equipment.armor.id);
+  }
+  state.floorItems.forEach(i => itemIds.push(i.id));
+  arr(state.merchant?.stock).forEach(i => itemIds.push(i.id));
+  syncItemSeq(itemIds);
+  syncMonSeq(state.monsters.map(m => m.id));
   attachAccessors(state);
   return state;
 }
@@ -3111,9 +3181,6 @@ JSON: {"classes":[{"name":"...","desc":"1 предложение","stats":{"str"
 // stub.js — офлайн-заглушка ДМа: играется без API-ключа.
 // Тот же юмор и троллинг, но из заготовленного пула. Тот же JSON-контракт эффектов.
 
-
-
-
 const SNARK = [
   'Ты делаешь что-то настолько смелое, что даже тьма делает шаг назад. Из уважения. Или ужаса.',
   'Древние руны на стене складываются в слово «новичок». Совпадение? Не думаю.',
@@ -3179,18 +3246,17 @@ function stubDmTurn(state, input) {
 
   // редкая встреча
   if (roll < 0.15 && !state.over) {
-    const pos = randomFloor(rng, state.dungeon);
     return {
       narrative: `От тьмы отделяется ${'нечто недоброе'}. Похоже, тишина тебе не понравилась.`,
       enemySpawn: { name: 'неудобный знакомый', hp: 4 + state.depth, toHit: 2, dmg: 1, xp: 25 + state.depth * 5 },
       suggestions: ['Атаковать первым', 'Отступить в тень', 'Попробовать договориться']
     };
   }
-  // редкий лут
+  // редкий лут (описание предмета, а не готовый объект: id выдаст applyDmEffects)
   if (roll < 0.25 && !state.over) {
     return {
       narrative: 'Ты нащупываешь в темноте что-то полезное. Подземелье сегодня щедрое. Подозрительно.',
-      itemGain: makeItem({ name: 'Зелье лечения', type: 'potion', heal: 8 }),
+      itemGain: { name: 'Зелье лечения', type: 'potion', heal: 8, qty: 1 },
       suggestions: ['Подобрать и выпить', 'Понюхать зелье', 'Идти дальше']
     };
   }
@@ -3290,6 +3356,9 @@ function makeRoomCode(rng = Math.random) {
 
 
 
+/** Через сколько молчания игрока его слот можно отдать вернувшемуся (полумёртвый сокет). */
+const STALE_MS = 20000;
+
 /**
  * @param {object} opts
  * @param {object} opts.net  — { broadcast, sendTo, onClientMessage, onClientJoin, onClientLeave }
@@ -3297,8 +3366,9 @@ function makeRoomCode(rng = Math.random) {
  * @param {object} [opts.dm] — { resolveFree(game, text, heroIdx) → Promise<effects>, intro(game) → Promise<effects> }
  * @param {number} [opts.turnMs] — таймер хода, 0 = выключен
  * @param {number} [opts.graceMs] — сколько герой ждёт вернувшегося игрока
+ * @param {number} [opts.staleMs] — через сколько молчания слот считается брошенным
  */
-function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs = RECONNECT_GRACE_MS }) {
+function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs = RECONNECT_GRACE_MS, staleMs = STALE_MS }) {
   const players = new Map();  // clientId → {id, name, heroIdx}
   const absent = new Map();   // name → {name, heroIdx, timer, since}
   let game = null;
@@ -3383,8 +3453,12 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs
       game.over = true;
       game.epitaph = hero.epitaph;
       events.push({ kind: 'death', text: '☠ Партия уничтожена.' });
+    } else if (game.activeIdx === heroIdx) {
+      // выбыл именно тот, чей ход, — иначе очередь навсегда застрянет на мёртвом
+      advanceTurn(game);
     }
     broadcastEvents(events);
+    armTurnTimer();
   }
 
   /** Поставить героя «на паузу» до возвращения игрока. */
@@ -3465,9 +3539,15 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs
           }
           lastFree.set(cooldownKey, now);
         }
-        const effects = (dm && dm.resolveFree)
-          ? await dm.resolveFree(game, text, heroIdx)
-          : stubDmTurn(game, text);
+        // ДМ может упасть (сеть, ключ, кривой JSON) — партия не должна зависнуть молча
+        let effects;
+        try {
+          effects = (dm && dm.resolveFree)
+            ? await dm.resolveFree(game, text, heroIdx)
+            : stubDmTurn(game, text);
+        } catch (e) {
+          effects = { narrative: `ДМ замолк (${e.message}). Тьма вежливо молчит.` };
+        }
         events.push(...applyDmEffects(game, effects, heroIdx));
       }
     }
@@ -3495,17 +3575,29 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs
   // ---- сетевые события ----
   net.onClientMessage(async (id, msg) => {
     try {
+      const known = players.get(id);
+      if (known) known.lastSeen = Date.now(); // жив ли сокет — видно по любым сообщениям
       if (msg.t === 'hello') {
         const wantName = String(msg.name || 'Игрок').slice(0, 16).trim() || 'Игрок';
         // 1) возвращение потерявшегося: имя совпало с тем, кто ждёт
         if (started && absent.has(wantName)) { reattach(id, wantName); return; }
-        if (started) { net.sendTo(id, { t: 'reject', reason: 'Игра уже началась. Если ты был в партии — вернись по тому же коду и имени.' }); return; }
+        if (started) {
+          // 2) тот же игрок с полумёртвым сокетом: старый вход молчит, слот отдаём
+          const ghost = [...players.entries()].find(([pid, p]) => pid !== id && p.name === wantName && Date.now() - (p.lastSeen || 0) > staleMs);
+          if (ghost) {
+            players.delete(ghost[0]);
+            absent.set(wantName, { name: wantName, heroIdx: ghost[1].heroIdx, timer: null, since: Date.now() });
+            if (reattach(id, wantName)) return;
+          }
+          net.sendTo(id, { t: 'reject', reason: 'Игра уже началась. Если ты был в партии — вернись по тому же коду и имени.' });
+          return;
+        }
         if (msg.ver !== PROTOCOL_VER) { net.sendTo(id, { t: 'reject', reason: 'Разные версии игры — обнови страницу.' }); return; }
         if (players.size >= MAX_PLAYERS) { net.sendTo(id, { t: 'reject', reason: 'Комната полна (макс 4).' }); return; }
         const taken = new Set([hostName, ...[...players.values()].map(p => p.name)]);
         let name = wantName;
         if (taken.has(name)) name = name.slice(0, 13) + Math.floor(Math.random() * 90 + 10);
-        players.set(id, { id, name, heroIdx: null });
+        players.set(id, { id, name, heroIdx: null, lastSeen: Date.now() });
         net.sendTo(id, { t: 'welcome', ver: PROTOCOL_VER, playerId: id, name });
         broadcastLobby();
       } else if (msg.t === 'intent') {
@@ -3635,6 +3727,10 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs
       absent.clear();
       started = false;
       game = null;
+      players.clear();
+      // закрыть транспорт: иначе комната висит в релеях/брокере призраком,
+      // а клиенты считают, что хост ещё жив
+      try { net.close?.(); } catch { /* ignore */ }
     }
   };
 }
@@ -3648,12 +3744,16 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs
  * @param {object} opts
  * @param {object} opts.link — { send(msg), onMessage(cb), onClose(cb), close() }
  * @param {string} opts.name
+ * @param {number} [opts.heartbeatMs] — как часто напоминать о себе хосту (0 = выключить)
+ * @param {number} [opts.staleMs] — сколько молчания хоста терпим, прежде чем звать переподключение
  */
-function createClientSession({ link, name }) {
+function createClientSession({ link, name, heartbeatMs = 8000, staleMs = 24000 }) {
   let myId = null;
   let myName = name;   // хост может выдать другое имя (тёзка) — возвращаться надо под ним
   let lastSeq = 0;
   let closed = false;
+  let lastInbound = Date.now();
+  let hbTimer = null;
   const cbs = {
     welcome: [], lobby: [], events: [], snapshot: [], start: [],
     reject: [], kicked: [], close: []
@@ -3661,8 +3761,27 @@ function createClientSession({ link, name }) {
 
   function emit(key, payload) { cbs[key].forEach(fn => { try { fn(payload); } catch { /* ignore */ } }); }
 
+  /**
+   * Heartbeat: WebRTC не всегда сообщает о мёртвом канале (заснувший ноутбук хоста,
+   * смена сети) — игрок сидел бы с «ждём хода» вечно. Стучимся ping/pong и по
+   * тишине сами зовём переподключение.
+   */
+  function stopHeartbeat() {
+    if (hbTimer) { clearInterval(hbTimer); hbTimer = null; }
+  }
+  function startHeartbeat() {
+    if (!heartbeatMs || hbTimer || typeof setInterval !== 'function') return;
+    hbTimer = setInterval(() => {
+      if (closed) { stopHeartbeat(); return; }
+      if (Date.now() - lastInbound > staleMs) { stopHeartbeat(); markClosed(); return; }
+      try { link.send({ t: 'ping' }); } catch { /* ignore */ }
+    }, heartbeatMs);
+    if (typeof hbTimer.unref === 'function') hbTimer.unref();
+  }
+
   link.onMessage(msg => {
     if (!msg || typeof msg !== 'object') return;
+    lastInbound = Date.now();
     switch (msg.t) {
       case 'welcome':
         myId = msg.playerId;
@@ -3699,10 +3818,11 @@ function createClientSession({ link, name }) {
 
   /** Транспорт умер: сообщаем наверх ровно один раз. */
   function markClosed() {
-    if (!closed) { closed = true; emit('close', {}); }
+    if (!closed) { closed = true; stopHeartbeat(); emit('close', {}); }
   }
 
   link.onClose(markClosed);
+  startHeartbeat();
 
   return {
     /** hello с heroIdx — это заявка «я тот, кто потерял связь, вот мой герой». */
@@ -3710,7 +3830,7 @@ function createClientSession({ link, name }) {
     sendCommand(text) { if (!closed) link.send({ t: 'intent', command: String(text).slice(0, 200) }); },
     ping() { link.send({ t: 'ping' }); },
     getId: () => myId,
-    close() { closed = true; link.close(); },
+    close() { closed = true; stopHeartbeat(); link.close(); },
     /** Явно сказать сессии «связи больше нет» (транспорт не всегда успевает сам). */
     notifyTransportLoss: markClosed,
     onWelcome(fn) { cbs.welcome.push(fn); },
@@ -3849,16 +3969,31 @@ async function createPeerHostNet(code) {
     conns.set(conn.peer, conn);
     conn.on('data', msg => { if (onMsg) onMsg(conn.peer, msg); });
     conn.on('open', () => { if (onJoin) onJoin(conn.peer); });
-    conn.on('close', () => { conns.delete(conn.peer); if (onLeave) onLeave(conn.peer); });
+    // 'error' без обработчика оставлял мёртвый сокет в conns: onLeave не срабатывал,
+    // игрок не уходил в «ждём возвращения», а герой висел в комнате вечно
+    const drop = () => {
+      if (!conns.has(conn.peer)) return;
+      conns.delete(conn.peer);
+      if (onLeave) onLeave(conn.peer);
+    };
+    conn.on('close', drop);
+    conn.on('error', drop);
   });
 
   return {
-    broadcast(msg) { conns.forEach(c => { if (c.open) c.send(msg); }); },
-    sendTo(id, msg) { const c = conns.get(id); if (c && c.open) c.send(msg); },
+    broadcast(msg) { conns.forEach(c => { if (c.open) { try { c.send(msg); } catch { /* ignore */ } } }); },
+    sendTo(id, msg) {
+      const c = conns.get(id);
+      if (c && c.open) { try { c.send(msg); } catch { /* ignore */ } }
+    },
     onClientMessage(cb) { onMsg = cb; },
     onClientJoin(cb) { onJoin = cb; },
     onClientLeave(cb) { onLeave = cb; },
-    close() { peer.destroy(); }
+    close() {
+      conns.forEach(c => { try { c.close(); } catch { /* ignore */ } });
+      conns.clear();
+      try { peer.destroy(); } catch { /* ignore */ }
+    }
   };
 }
 
@@ -4095,19 +4230,26 @@ async function createTrysteroClientLink(code) {
 
 
 
-/** Первый успешно созданный транспорт (null-и — неудачи, их пропускаем). */
+/**
+ * Первый успешно созданный транспорт.
+ * ВАЖНО: фабрики не бросают — они возвращают null при неудаче. Если считать
+ * только reject'ы, «оба канала не поднялись» никогда не разрешится и комната
+ * будет вечно висеть на «Создаём комнату…». Поэтому null — тоже провал.
+ */
 function firstSuccess(promises) {
   return new Promise((resolve, reject) => {
-    let failed = 0;
     let done = false;
+    let settled = 0;
+    const fail = () => {
+      if (done) return;
+      settled++;
+      if (settled === promises.length) { done = true; reject(new Error('ни один транспорт не поднялся')); }
+    };
     promises.forEach(p => {
       p.then(v => {
         if (done) return;
-        if (v) { done = true; resolve(v); }
-      }, () => {
-        if (done) return;
-        if (++failed === promises.length) { done = true; reject(new Error('ни один транспорт не поднялся')); }
-      });
+        if (v) { done = true; resolve(v); } else fail();
+      }, fail);
     });
   });
 }
@@ -4610,11 +4752,11 @@ function renderMap(pre, state, glyphSetName = 'classic') {
       const tile = state.dungeon.grid[y][x];
       if (tile === TILE.WALL) { parts.push(`<span class="m-wall">${g.wall}</span>`); continue; }
       const mon = state.monsters.find(m => m.hp > 0 && m.x === x && m.y === y);
-      if (mon) { parts.push(`<span class="m-mon" title="${mon.name}">${g.mon}</span>`); continue; }
+      if (mon) { parts.push(`<span class="m-mon" title="${escHtml(mon.name)}">${g.mon}</span>`); continue; }
       const item = state.floorItems.find(it => it.x === x && it.y === y);
       if (item) {
         const ch = item.type === 'gold' ? g.gold : item.type === 'potion' ? g.potion : g.item;
-        parts.push(`<span class="m-item" title="${item.name}">${ch}</span>`);
+        parts.push(`<span class="m-item" title="${escHtml(item.name)}">${ch}</span>`);
         continue;
       }
       if (tile === TILE.STAIRS) { parts.push(`<span class="m-stair">${escGlyph(g.stair)}</span>`); continue; }
@@ -4648,12 +4790,12 @@ function renderStats(el, state) {
   el.innerHTML = `
     <div class="stat-row stat-hero">
       <pre class="avatar avatar-sm">${asciiAvatar(p.name)}</pre>
-      <span class="stat-label">${p.name}</span><span>${p.className} · ур.${p.level}</span>
+      <span class="stat-label">${escHtml(p.name)}</span><span>${escHtml(p.className)} · ур.${p.level}</span>
     </div>
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${hpBar(p)} ${p.hp}/${p.maxHp}</span></div>
     <div class="stat-row"><span class="stat-label">AC / XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
-    <div class="stat-row"><span class="stat-label">Оружие</span><span>${p.equipment.weapon ? p.equipment.weapon.name : 'кулаки'}</span></div>
-    <div class="stat-row"><span class="stat-label">Броня</span><span>${p.equipment.armor ? p.equipment.armor.name : 'нет'}</span></div>
+    <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(p.equipment.weapon ? p.equipment.weapon.name : 'кулаки')}</span></div>
+    <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(p.equipment.armor ? p.equipment.armor.name : 'нет')}</span></div>
     ${abilityRow}
     <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
   `;
@@ -4684,7 +4826,7 @@ function renderInventoryPanel(el, items, opts = {}) {
       <span class="inv-name" title="${escHtml(it.name)}">${escHtml(it.name)}${it.qty > 1 ? ` ×${it.qty}` : ''}</span>
       <span class="inv-meta">${meta}</span>
       ${sell}
-      ${act ? `<button class="inv-btn" data-i="${i}" data-act="${act}">${act === 'выпить' ? 'ВЫПИТЬ' : 'НАТЬ'}</button>` : ''}
+      ${act ? `<button class="inv-btn" data-i="${i}" data-act="${act}">${act === 'выпить' ? 'ВЫПИТЬ' : 'НАДЕТЬ'}</button>` : ''}
     </div>`;
   }).join('');
 }
@@ -4716,7 +4858,7 @@ function renderShop(panelEl, listEl, merchant) {
 
 function renderQuests(el, state) {
   el.innerHTML = state.quests.length
-    ? state.quests.map(q => `<div class="quest">◆ ${q}</div>`).join('')
+    ? state.quests.map(q => `<div class="quest">◆ ${escHtml(q)}</div>`).join('')
     : '<div class="quest quest-empty">Журнал пуст — судьба ещё не наградила тебя поручениями</div>';
 }
 
@@ -4752,7 +4894,7 @@ function renderStatsSnap(el, snap) {
   const party = snap.heroes.map(h => {
     const dead = h.alive ? '' : ' <span class="hof-epitaph">☠</span>';
     const you = h.idx === snap.you ? ' (ты)' : '';
-    return `<div class="stat-row"><span class="stat-label">${h.glyph} ${h.name}${you}</span><span>ур.${h.level} · ${h.hp}/${h.maxHp} HP${dead}</span></div>`;
+    return `<div class="stat-row"><span class="stat-label">${h.glyph} ${escHtml(h.name)}${you}</span><span>ур.${h.level} · ${h.hp}/${h.maxHp} HP${dead}</span></div>`;
   }).join('');
   el.innerHTML = `
     <div class="stat-row stat-hero">
@@ -4760,8 +4902,8 @@ function renderStatsSnap(el, snap) {
       <span class="stat-label">Уровень ${s.level}</span><span>XP ${s.xp}/${s.xpNext} · золото ${s.gold}</span>
     </div>
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${bar} ${s.hp}/${s.maxHp}</span></div>
-    <div class="stat-row"><span class="stat-label">Оружие</span><span>${s.equipment.weapon ? s.equipment.weapon.name : 'кулаки'}</span></div>
-    <div class="stat-row"><span class="stat-label">Броня</span><span>${s.equipment.armor ? s.equipment.armor.name : 'нет'} (AC ${s.ac})</span></div>
+    <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(s.equipment.weapon ? s.equipment.weapon.name : 'кулаки')}</span></div>
+    <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(s.equipment.armor ? s.equipment.armor.name : 'нет')} (AC ${s.ac})</span></div>
     ${s.ability ? `<div class="stat-row"><span class="stat-label">Способность</span><span>${escHtml(s.ability.name)}${s.ability.active ? (s.abilityCd > 0 ? ` · КД ${s.abilityCd}` : ' · <span style="color:var(--loot)">ГОТОВО</span>') : ''}</span></div>` : ''}
     <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
     ${party}
@@ -4782,7 +4924,7 @@ function renderCombat(el, list) {
     foes.map(foe => {
       const pct = Math.max(0, Math.min(100, Math.round((foe.hp / (foe.maxHp || 1)) * 100)));
       const cls = pct > 60 ? '' : pct > 30 ? ' mid' : ' low';
-      const label = foe.boss ? `☠ ${foe.name}` : foe.name;
+      const label = foe.boss ? `☠ ${escHtml(foe.name)}` : escHtml(foe.name);
       return `<div class="combat-row${foe.boss ? ' boss' : ''}">` +
         `<span class="combat-name">${label}</span>` +
         `<div class="combat-bar"><div class="combat-fill${cls}" style="width:${pct}%"></div></div>` +
@@ -5711,6 +5853,7 @@ function backToSetup(note) {
   sessionMode = 'solo';
   hostSession = null;
   clientSession = null;
+  if (clientLink) { try { clientLink.close(); } catch { /* ignore */ } clientLink = null; } // сокет не должен жить своей жизнью
   mySnapshot = null;
   reconnecting = false;
   attemptInFlight = false;
@@ -5740,15 +5883,18 @@ function applySnapshot(snap) {
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
     + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
   const hero = snap.heroes[snap.you];
+  if (!hero) return; // битый снапшот не должен ронять UI
   const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
   // сигнал «твой ход»
   if (myTurn && !wasMyTurn) turnSound();
   wasMyTurn = myTurn;
   if (snap.over) {
     $('turn-banner').textContent = snap.won ? '⚜ ПОБЕДА — злодей повержен' : '☠ ПАРТИЯ УНИЧТОЖЕНА';
+    $('turn-banner').classList.remove('mine');
     typer.onFinish(() => showDeathSnap(snap));
   } else if (!hero.alive) {
     $('turn-banner').textContent = '☠ ТЫ МЁРТВ — наблюдаешь за партией';
+    $('turn-banner').classList.remove('mine');
   } else if (myTurn) {
     $('turn-banner').textContent = `▶ ТВОЙ ХОД (${hero.name})`;
     $('turn-banner').classList.add('mine');
@@ -5920,14 +6066,20 @@ function wireVis() {
 /** Опция «терминатор» появляется после 10 смертей в зале славы. */
 function refreshThemeOptions() {
   const sel = $('vis-theme');
-  const has = [...sel.options].some(o => o.value === 'terminator');
+  const existing = [...sel.options].find(o => o.value === 'terminator');
   const unlocked = deathCount() >= TERMINATOR_AFTER;
-  if (unlocked && !has) {
-    const opt = document.createElement('option');
-    opt.value = 'terminator';
-    opt.textContent = '■ ТЕРМИНАТОР (секретная)';
-    sel.appendChild(opt);
-  } else if (!unlocked && !has) {
+  if (unlocked) {
+    if (!existing) {
+      const opt = document.createElement('option');
+      opt.value = 'terminator';
+      opt.textContent = '■ ТЕРМИНАТОР (секретная)';
+      sel.appendChild(opt);
+    } else if (existing.disabled) {
+      // разблокировалось прямо в этой сессии: иначе пункт остаётся серым до перезагрузки
+      existing.disabled = false;
+      existing.textContent = '■ ТЕРМИНАТОР (секретная)';
+    }
+  } else if (!existing) {
     const opt = document.createElement('option');
     opt.value = 'terminator';
     opt.disabled = true;

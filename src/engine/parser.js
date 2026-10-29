@@ -28,6 +28,11 @@ export function afterVerb(t, m) {
   return t.slice(idx).replace(/^[,\s:;—–-]+/, '').trim();
 }
 
+// Глаголы реплики. Хвост слова нужен для «кричу/шепнул/бормочет»,
+// но он же ловит «оружие» на стеме «ору» — такие слова отсекаем отдельно.
+const SAY_VERB_RE = W('крич|шепч|бормоч|воплю|ору|say|shout|whisper|mutter', true);
+const SAY_STOP_RE = /^(оруж|оруд|орудов)/i;
+
 /**
  * Парсер свободного текста → интент. Всё, что не распознано, уходит ИИ как 'free'.
  * Каждый интент несёт raw — исходный текст: если движок не справится,
@@ -52,8 +57,9 @@ export function parseCommand(text, abilityName = null) {
 
   // реплика партии (крикнул/шепнул/бормотнул) — не действие, ход не тратит.
   // «говорю с торговцем» сюда НЕ попадает: разговор с миром — работа ДМа.
+  // «оружие» на стеме «ору» — не реплика (иначе «надеваю оружие» = крик в чат).
   let mSay;
-  if ((mSay = t.match(W('крич|шепч|бормоч|воплю|ору|say|shout|whisper|mutter', true)))) {
+  if ((mSay = t.match(SAY_VERB_RE)) && !SAY_STOP_RE.test(mSay[0].replace(/^[^а-яёa-z]+/i, ''))) {
     const said = afterVerb(t, mSay);
     const verb = /шепч|whisper/.test(t) ? 'шепчет'
       : /бормоч|mutter/.test(t) ? 'бормочет'
@@ -76,7 +82,9 @@ export function parseCommand(text, abilityName = null) {
     if (afterVerb(t, mLook)) return { intent: 'free', text, raw };
     return { intent: 'look', raw };
   }
-  if (W('ждать|постоять|wait|отдохну', true).test(t)) return { intent: 'wait', raw };
+  // «жду» — самое частое, что пишут игроки вместо «ждать»: это ход ожидания,
+  // а не свободное действие (иначе каждый такой ход дёргает ДМ и жжёт токены)
+  if (W('ждать|жду|подожду|дождусь|постоять|wait|отдохну', true).test(t)) return { intent: 'wait', raw };
   if (W('спус|лестниц|descend', true).test(t)) return { intent: 'descend', raw };
 
   // торговец: витрина, покупка, продажа, уйти от него
@@ -92,7 +100,7 @@ export function parseCommand(text, abilityName = null) {
   let m;
   if ((m = t.match(W('выпей|выпить|пью|использ|примен|use|drink', true))))
     return { intent: 'use', target: afterVerb(t, m), raw };
-  if ((m = t.match(W('надень|надеть|экипир|возьми|equip|wield', true))))
+  if ((m = t.match(W('надень|надеть|надева|одева|экипир|возьми|equip|wield', true))))
     return { intent: 'equip', target: afterVerb(t, m), raw };
   if ((m = t.match(W('атак|бей|бью|удар|убей|убить|attack|hit|kill', true))))
     return { intent: 'attack', target: afterVerb(t, m), raw };

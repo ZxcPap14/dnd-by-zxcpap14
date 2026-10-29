@@ -102,11 +102,11 @@ export function renderMap(pre, state, glyphSetName = 'classic') {
       const tile = state.dungeon.grid[y][x];
       if (tile === TILE.WALL) { parts.push(`<span class="m-wall">${g.wall}</span>`); continue; }
       const mon = state.monsters.find(m => m.hp > 0 && m.x === x && m.y === y);
-      if (mon) { parts.push(`<span class="m-mon" title="${mon.name}">${g.mon}</span>`); continue; }
+      if (mon) { parts.push(`<span class="m-mon" title="${escHtml(mon.name)}">${g.mon}</span>`); continue; }
       const item = state.floorItems.find(it => it.x === x && it.y === y);
       if (item) {
         const ch = item.type === 'gold' ? g.gold : item.type === 'potion' ? g.potion : g.item;
-        parts.push(`<span class="m-item" title="${item.name}">${ch}</span>`);
+        parts.push(`<span class="m-item" title="${escHtml(item.name)}">${ch}</span>`);
         continue;
       }
       if (tile === TILE.STAIRS) { parts.push(`<span class="m-stair">${escGlyph(g.stair)}</span>`); continue; }
@@ -140,12 +140,12 @@ export function renderStats(el, state) {
   el.innerHTML = `
     <div class="stat-row stat-hero">
       <pre class="avatar avatar-sm">${asciiAvatar(p.name)}</pre>
-      <span class="stat-label">${p.name}</span><span>${p.className} · ур.${p.level}</span>
+      <span class="stat-label">${escHtml(p.name)}</span><span>${escHtml(p.className)} · ур.${p.level}</span>
     </div>
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${hpBar(p)} ${p.hp}/${p.maxHp}</span></div>
     <div class="stat-row"><span class="stat-label">AC / XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
-    <div class="stat-row"><span class="stat-label">Оружие</span><span>${p.equipment.weapon ? p.equipment.weapon.name : 'кулаки'}</span></div>
-    <div class="stat-row"><span class="stat-label">Броня</span><span>${p.equipment.armor ? p.equipment.armor.name : 'нет'}</span></div>
+    <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(p.equipment.weapon ? p.equipment.weapon.name : 'кулаки')}</span></div>
+    <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(p.equipment.armor ? p.equipment.armor.name : 'нет')}</span></div>
     ${abilityRow}
     <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
   `;
@@ -176,7 +176,7 @@ export function renderInventoryPanel(el, items, opts = {}) {
       <span class="inv-name" title="${escHtml(it.name)}">${escHtml(it.name)}${it.qty > 1 ? ` ×${it.qty}` : ''}</span>
       <span class="inv-meta">${meta}</span>
       ${sell}
-      ${act ? `<button class="inv-btn" data-i="${i}" data-act="${act}">${act === 'выпить' ? 'ВЫПИТЬ' : 'НАТЬ'}</button>` : ''}
+      ${act ? `<button class="inv-btn" data-i="${i}" data-act="${act}">${act === 'выпить' ? 'ВЫПИТЬ' : 'НАДЕТЬ'}</button>` : ''}
     </div>`;
   }).join('');
 }
@@ -208,7 +208,7 @@ export function renderShop(panelEl, listEl, merchant) {
 
 export function renderQuests(el, state) {
   el.innerHTML = state.quests.length
-    ? state.quests.map(q => `<div class="quest">◆ ${q}</div>`).join('')
+    ? state.quests.map(q => `<div class="quest">◆ ${escHtml(q)}</div>`).join('')
     : '<div class="quest quest-empty">Журнал пуст — судьба ещё не наградила тебя поручениями</div>';
 }
 
@@ -244,7 +244,7 @@ export function renderStatsSnap(el, snap) {
   const party = snap.heroes.map(h => {
     const dead = h.alive ? '' : ' <span class="hof-epitaph">☠</span>';
     const you = h.idx === snap.you ? ' (ты)' : '';
-    return `<div class="stat-row"><span class="stat-label">${h.glyph} ${h.name}${you}</span><span>ур.${h.level} · ${h.hp}/${h.maxHp} HP${dead}</span></div>`;
+    return `<div class="stat-row"><span class="stat-label">${h.glyph} ${escHtml(h.name)}${you}</span><span>ур.${h.level} · ${h.hp}/${h.maxHp} HP${dead}</span></div>`;
   }).join('');
   el.innerHTML = `
     <div class="stat-row stat-hero">
@@ -252,8 +252,8 @@ export function renderStatsSnap(el, snap) {
       <span class="stat-label">Уровень ${s.level}</span><span>XP ${s.xp}/${s.xpNext} · золото ${s.gold}</span>
     </div>
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${bar} ${s.hp}/${s.maxHp}</span></div>
-    <div class="stat-row"><span class="stat-label">Оружие</span><span>${s.equipment.weapon ? s.equipment.weapon.name : 'кулаки'}</span></div>
-    <div class="stat-row"><span class="stat-label">Броня</span><span>${s.equipment.armor ? s.equipment.armor.name : 'нет'} (AC ${s.ac})</span></div>
+    <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(s.equipment.weapon ? s.equipment.weapon.name : 'кулаки')}</span></div>
+    <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(s.equipment.armor ? s.equipment.armor.name : 'нет')} (AC ${s.ac})</span></div>
     ${s.ability ? `<div class="stat-row"><span class="stat-label">Способность</span><span>${escHtml(s.ability.name)}${s.ability.active ? (s.abilityCd > 0 ? ` · КД ${s.abilityCd}` : ' · <span style="color:var(--loot)">ГОТОВО</span>') : ''}</span></div>` : ''}
     <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
     ${party}
@@ -274,7 +274,7 @@ export function renderCombat(el, list) {
     foes.map(foe => {
       const pct = Math.max(0, Math.min(100, Math.round((foe.hp / (foe.maxHp || 1)) * 100)));
       const cls = pct > 60 ? '' : pct > 30 ? ' mid' : ' low';
-      const label = foe.boss ? `☠ ${foe.name}` : foe.name;
+      const label = foe.boss ? `☠ ${escHtml(foe.name)}` : escHtml(foe.name);
       return `<div class="combat-row${foe.boss ? ' boss' : ''}">` +
         `<span class="combat-name">${label}</span>` +
         `<div class="combat-bar"><div class="combat-fill${cls}" style="width:${pct}%"></div></div>` +

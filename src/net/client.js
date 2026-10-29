@@ -6,12 +6,16 @@ import { PROTOCOL_VER } from './protocol.js';
  * @param {object} opts
  * @param {object} opts.link — { send(msg), onMessage(cb), onClose(cb), close() }
  * @param {string} opts.name
+ * @param {number} [opts.heartbeatMs] — как часто напоминать о себе хосту (0 = выключить)
+ * @param {number} [opts.staleMs] — сколько молчания хоста терпим, прежде чем звать переподключение
  */
-export function createClientSession({ link, name }) {
+export function createClientSession({ link, name, heartbeatMs = 8000, staleMs = 24000 }) {
   let myId = null;
   let myName = name;   // хост может выдать другое имя (тёзка) — возвращаться надо под ним
   let lastSeq = 0;
   let closed = false;
+  let lastInbound = Date.now();
+  let hbTimer = null;
   const cbs = {
     welcome: [], lobby: [], events: [], snapshot: [], start: [],
     reject: [], kicked: [], close: []
@@ -19,8 +23,27 @@ export function createClientSession({ link, name }) {
 
   function emit(key, payload) { cbs[key].forEach(fn => { try { fn(payload); } catch { /* ignore */ } }); }
 
+  /**
+   * Heartbeat: WebRTC не всегда сообщает о мёртвом канале (заснувший ноутбук хоста,
+   * смена сети) — игрок сидел бы с «ждём хода» вечно. Стучимся ping/pong и по
+   * тишине сами зовём переподключение.
+   */
+  function stopHeartbeat() {
+    if (hbTimer) { clearInterval(hbTimer); hbTimer = null; }
+  }
+  function startHeartbeat() {
+    if (!heartbeatMs || hbTimer || typeof setInterval !== 'function') return;
+    hbTimer = setInterval(() => {
+      if (closed) { stopHeartbeat(); return; }
+      if (Date.now() - lastInbound > staleMs) { stopHeartbeat(); markClosed(); return; }
+      try { link.send({ t: 'ping' }); } catch { /* ignore */ }
+    }, heartbeatMs);
+    if (typeof hbTimer.unref === 'function') hbTimer.unref();
+  }
+
   link.onMessage(msg => {
     if (!msg || typeof msg !== 'object') return;
+    lastInbound = Date.now();
     switch (msg.t) {
       case 'welcome':
         myId = msg.playerId;
@@ -57,10 +80,11 @@ export function createClientSession({ link, name }) {
 
   /** Транспорт умер: сообщаем наверх ровно один раз. */
   function markClosed() {
-    if (!closed) { closed = true; emit('close', {}); }
+    if (!closed) { closed = true; stopHeartbeat(); emit('close', {}); }
   }
 
   link.onClose(markClosed);
+  startHeartbeat();
 
   return {
     /** hello с heroIdx — это заявка «я тот, кто потерял связь, вот мой герой». */
@@ -68,7 +92,7 @@ export function createClientSession({ link, name }) {
     sendCommand(text) { if (!closed) link.send({ t: 'intent', command: String(text).slice(0, 200) }); },
     ping() { link.send({ t: 'ping' }); },
     getId: () => myId,
-    close() { closed = true; link.close(); },
+    close() { closed = true; stopHeartbeat(); link.close(); },
     /** Явно сказать сессии «связи больше нет» (транспорт не всегда успевает сам). */
     notifyTransportLoss: markClosed,
     onWelcome(fn) { cbs.welcome.push(fn); },

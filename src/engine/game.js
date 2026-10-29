@@ -39,6 +39,18 @@ const OFFLINE_VILLAINS = [
 
 let monSeq = 0;
 
+/**
+ * Поднять счётчик монстров выше уже существующих (после загрузки сейва).
+ * Иначе новый монстр получал бы id из прошлой жизни, и боевое окно
+ * (`hero.combat[id]`) показывало бы чужого врага.
+ */
+export function syncMonSeq(ids = []) {
+  for (const id of ids) {
+    const n = Number(String(id ?? '').replace(/\D+/g, ''));
+    if (Number.isFinite(n) && n > monSeq) monSeq = n;
+  }
+}
+
 /** Офлайн-спавн: монстры и лут по этажу. */
 export function populateFloor(state) {
   const rng = state.rng;
@@ -110,6 +122,7 @@ export function newGame(opts) {
     monsters: [],
     floorItems: [],
     merchant: null, // торговец текущего этажа (см. merchant.js)
+    recentRolls: [], // последние броски — их видит ИИ-ДМ
     memory: [] // кольцевой журнал последних событий — память ИИ-ДМа между ходами
   };
   // сюжет: арка с злодеем, тремя актами и финальным боссом
@@ -180,6 +193,18 @@ export function advanceTurn(state) {
 /** Событие для лога/ИИ. kind: dm|system|roll|combat|loot|death|levelup */
 export function ev(kind, text) {
   return { kind, text, turn: 0 };
+}
+
+const ROLL_MEMORY = 6;
+
+/**
+ * Последние проверки кубиков — их видит ИИ-ДМ (блок «ПРОВЕРКИ ДВИЖКА»).
+ * Без этого ДМ выдумывал исходы, не зная, что реально выпало.
+ */
+export function recordRoll(state, text) {
+  if (!Array.isArray(state.recentRolls)) state.recentRolls = [];
+  state.recentRolls.push(String(text).slice(0, 80));
+  if (state.recentRolls.length > ROLL_MEMORY) state.recentRolls.splice(0, state.recentRolls.length - ROLL_MEMORY);
 }
 
 /** Монстры в зоне видимости героя. */
@@ -279,7 +304,7 @@ function useActiveAbility(state, hero, intent, heroIdx) {
     }
     hero.combat = {}; // рывок разрывает бой — боевое окно гаснет
     hero.fov = computeFov(state.dungeon, hero.pos.x, hero.pos.y);
-    gainXp(hero, 2);
+    gainXp(hero, 2, state.rng);
     push('system', `${hero.name} использует «${a.name}» и перемахивает ${moved === 1 ? 'клетку' : 'клетки'} — только пыль осталась.`);
     return { events, ok: true };
   }
@@ -305,7 +330,7 @@ function useActiveAbility(state, hero, intent, heroIdx) {
   markCombat(state, hero, target);
   if (target.hp <= 0) {
     push('combat', `${hero.name} бьёт «${a.name}» по ${target.name}: -${dmg} HP, и ${target.name} разваливается.`);
-    const levels = gainXp(hero, target.xp);
+    const levels = gainXp(hero, target.xp, state.rng);
     push('loot', `${hero.name} получает ${target.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
     const drop = rollDrop(dice, BASIC_DROP_TABLE, state.depth);
     if (drop) {
@@ -368,7 +393,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       hero.pos = { x: nx, y: ny };
       const tile = state.dungeon.grid[ny][nx];
       if (tile === TILE.STAIRS) push('system', 'Ты стоишь на лестнице вниз. (Скажи «спускаюсь» — когда вся партия будет готова)');
-      gainXp(hero, 2); // опыт за исследование
+      gainXp(hero, 2, state.rng); // опыт за исследование
       hero.fov = computeFov(state.dungeon, nx, ny);
       const here = state.floorItems.find(it => it.x === nx && it.y === ny);
       if (here) events.push(...pickupItem(state, hero, here));
@@ -453,7 +478,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       populateFloor(state);
       // торговец ждёт на новом этаже: золото снова есть куда потратить
       state.merchant = openMerchant(state);
-      gainXp(hero, 30);
+      gainXp(hero, 30, state.rng);
       push('system', `Партия спускается глубже. ${state.floorName}. Воздух гуще, тьма наглее.`);
       push('system', `⚖ Здесь торгует ${state.merchant.name}. Скажи «торговец» — покажет прилавок.`);
       // сюжет: смена акта и финальный босс
@@ -517,7 +542,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       }
       hero.pos = { x: best.x, y: best.y };
       hero.fov = computeFov(state.dungeon, best.x, best.y);
-      gainXp(hero, 1);
+      gainXp(hero, 1, state.rng);
       const foeName = foes.length ? foes[0].name : null;
       push('system', `${hero.name} ретируется${foeName ? ` от ${foeName}` : ''} со скоростью, достойной легенды. Дерзость — тоже тактика.`);
       break;
@@ -635,7 +660,7 @@ function pickupItem(state, hero, item) {
     addItem(hero, item);
     events.push(ev('loot', `${hero.name} подбирает: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`));
   }
-  gainXp(hero, 5);
+  gainXp(hero, 5, state.rng);
   return events;
 }
 
@@ -653,11 +678,13 @@ export function resolveCombatRound(state, hero, monster, dice, opts = {}) {
   markCombat(state, hero, monster); // бой начался — враг появляется в боевом окне
 
   const pInit = rollInitiative(dice, hero.stats.dex).total;
-  const mInit = rollInitiative(dice, hero.stats.dex).total + 1;
+  // инициатива монстра — свой d20 (+1 за звериную наглость), а НЕ ловкость героя
+  const mInit = rollInitiative(dice, 10).total + 1;
   const playerFirst = pInit >= mInit;
 
   const playerStrike = () => {
     const atk = attackRoll(dice, hero.stats, weapon, 10 + (monster.toHit || 0), critRange);
+    recordRoll(state, `${hero.name} d20[${atk.raw}]→${atk.total}${atk.crit ? ' КРИТ' : atk.fumble ? ' провал' : ''}`);
     events.push(ev('roll', `${hero.name}: d20 [${atk.raw}]${atk.crit ? ' КРИТ!' : atk.fumble ? ' провал...' : ''} → атака ${atk.total}`));
     if (!atk.hit) {
       push('combat', `${hero.name} промахивается по ${monster.name}. ${atk.fumble ? 'Очень зрелищно промахивается.' : ''}`);
@@ -675,7 +702,7 @@ export function resolveCombatRound(state, hero, monster, dice, opts = {}) {
       if (hero.hp > before) push('loot', `${hero.name} впитывает ${hero.hp - before} HP из чужой боли (${hero.hp}/${hero.maxHp}).`);
     }
     if (monster.hp <= 0) {
-      const levels = gainXp(hero, monster.xp);
+      const levels = gainXp(hero, monster.xp, state.rng);
       push('loot', `${hero.name} получает ${monster.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
       const drop = rollDrop(dice, BASIC_DROP_TABLE, state.depth);
       if (drop) {
@@ -694,6 +721,7 @@ export function resolveCombatRound(state, hero, monster, dice, opts = {}) {
     const target = candidates[0] || hero;
     markCombat(state, target, monster); // цель тоже видит врага в боевом окне
     const atk = monsterAttack(dice, monster, playerAc(target));
+    recordRoll(state, `${monster.name} d20[${atk.raw}]→${atk.total}${atk.crit ? ' КРИТ' : ''}`);
     if (!atk.hit) {
       push('combat', `${monster.name} бьёт мимо ${target.name} ${atk.crit ? '(а ведь чуть не кританул)' : ''}.`);
       return;
@@ -1019,7 +1047,7 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       target.hp -= dmg;
       push('combat', `${target.name} получает ${dmg} урона. ${target.hp <= 0 ? 'Повержен!' : `Осталось ${target.hp} HP.`}`);
       if (target.hp <= 0) {
-        const levels = gainXp(hero, target.xp);
+        const levels = gainXp(hero, target.xp, state.rng);
         push('loot', `${hero.name} получает ${target.xp} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
         if (target.isBoss) grantVictory(state, hero, push);
       }
@@ -1042,7 +1070,7 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       addItem(hero, item);
       push('loot', `${hero.name} получает: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`);
     }
-    gainXp(hero, 5);
+    gainXp(hero, 5, state.rng);
   }
 
   if (effects.goldGain) {
@@ -1068,7 +1096,7 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
   }
 
   if (effects.xpGain) {
-    const levels = gainXp(hero, clamp(effects.xpGain, 0, 100));
+    const levels = gainXp(hero, clamp(effects.xpGain, 0, 100), state.rng);
     push('loot', `${hero.name} получает ${clamp(effects.xpGain, 0, 100)} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
   }
 
@@ -1104,6 +1132,9 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       state.over = true;
       state.epitaph = hero.epitaph;
       push('death', `☠ Партия уничтожена.`);
+    } else if (heroIdx === state.activeIdx) {
+      // умер именно тот, чей ход, — очередь иначе застрянет на мёртвом навсегда
+      advanceTurn(state);
     }
   }
   rememberEvents(state, events);

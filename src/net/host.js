@@ -5,9 +5,12 @@
 // он ждёт в «absent» (RECONNECT_GRACE_MS). Игрок возвращается по тому же коду
 // и имени, хост узнаёт его и отдаёт снапшот с тем же heroIdx.
 
-import { newGame, parseCommand, applyIntent, applyDmEffects, buildSnapshot, rememberEvents } from '../engine/game.js';
+import { newGame, parseCommand, applyIntent, applyDmEffects, buildSnapshot, rememberEvents, advanceTurn } from '../engine/game.js';
 import { stubDmTurn, resetStub } from '../ai/stub.js';
 import { PROTOCOL_VER, TURN_MS, FREE_COOLDOWN_MS, SAY_COOLDOWN_MS, MAX_PLAYERS, RECONNECT_GRACE_MS } from './protocol.js';
+
+/** Через сколько молчания игрока его слот можно отдать вернувшемуся (полумёртвый сокет). */
+const STALE_MS = 20000;
 
 /**
  * @param {object} opts
@@ -16,8 +19,9 @@ import { PROTOCOL_VER, TURN_MS, FREE_COOLDOWN_MS, SAY_COOLDOWN_MS, MAX_PLAYERS, 
  * @param {object} [opts.dm] — { resolveFree(game, text, heroIdx) → Promise<effects>, intro(game) → Promise<effects> }
  * @param {number} [opts.turnMs] — таймер хода, 0 = выключен
  * @param {number} [opts.graceMs] — сколько герой ждёт вернувшегося игрока
+ * @param {number} [opts.staleMs] — через сколько молчания слот считается брошенным
  */
-export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs = RECONNECT_GRACE_MS }) {
+export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs = RECONNECT_GRACE_MS, staleMs = STALE_MS }) {
   const players = new Map();  // clientId → {id, name, heroIdx}
   const absent = new Map();   // name → {name, heroIdx, timer, since}
   let game = null;
@@ -102,8 +106,12 @@ export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, 
       game.over = true;
       game.epitaph = hero.epitaph;
       events.push({ kind: 'death', text: '☠ Партия уничтожена.' });
+    } else if (game.activeIdx === heroIdx) {
+      // выбыл именно тот, чей ход, — иначе очередь навсегда застрянет на мёртвом
+      advanceTurn(game);
     }
     broadcastEvents(events);
+    armTurnTimer();
   }
 
   /** Поставить героя «на паузу» до возвращения игрока. */
@@ -184,9 +192,15 @@ export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, 
           }
           lastFree.set(cooldownKey, now);
         }
-        const effects = (dm && dm.resolveFree)
-          ? await dm.resolveFree(game, text, heroIdx)
-          : stubDmTurn(game, text);
+        // ДМ может упасть (сеть, ключ, кривой JSON) — партия не должна зависнуть молча
+        let effects;
+        try {
+          effects = (dm && dm.resolveFree)
+            ? await dm.resolveFree(game, text, heroIdx)
+            : stubDmTurn(game, text);
+        } catch (e) {
+          effects = { narrative: `ДМ замолк (${e.message}). Тьма вежливо молчит.` };
+        }
         events.push(...applyDmEffects(game, effects, heroIdx));
       }
     }
@@ -214,17 +228,29 @@ export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, 
   // ---- сетевые события ----
   net.onClientMessage(async (id, msg) => {
     try {
+      const known = players.get(id);
+      if (known) known.lastSeen = Date.now(); // жив ли сокет — видно по любым сообщениям
       if (msg.t === 'hello') {
         const wantName = String(msg.name || 'Игрок').slice(0, 16).trim() || 'Игрок';
         // 1) возвращение потерявшегося: имя совпало с тем, кто ждёт
         if (started && absent.has(wantName)) { reattach(id, wantName); return; }
-        if (started) { net.sendTo(id, { t: 'reject', reason: 'Игра уже началась. Если ты был в партии — вернись по тому же коду и имени.' }); return; }
+        if (started) {
+          // 2) тот же игрок с полумёртвым сокетом: старый вход молчит, слот отдаём
+          const ghost = [...players.entries()].find(([pid, p]) => pid !== id && p.name === wantName && Date.now() - (p.lastSeen || 0) > staleMs);
+          if (ghost) {
+            players.delete(ghost[0]);
+            absent.set(wantName, { name: wantName, heroIdx: ghost[1].heroIdx, timer: null, since: Date.now() });
+            if (reattach(id, wantName)) return;
+          }
+          net.sendTo(id, { t: 'reject', reason: 'Игра уже началась. Если ты был в партии — вернись по тому же коду и имени.' });
+          return;
+        }
         if (msg.ver !== PROTOCOL_VER) { net.sendTo(id, { t: 'reject', reason: 'Разные версии игры — обнови страницу.' }); return; }
         if (players.size >= MAX_PLAYERS) { net.sendTo(id, { t: 'reject', reason: 'Комната полна (макс 4).' }); return; }
         const taken = new Set([hostName, ...[...players.values()].map(p => p.name)]);
         let name = wantName;
         if (taken.has(name)) name = name.slice(0, 13) + Math.floor(Math.random() * 90 + 10);
-        players.set(id, { id, name, heroIdx: null });
+        players.set(id, { id, name, heroIdx: null, lastSeen: Date.now() });
         net.sendTo(id, { t: 'welcome', ver: PROTOCOL_VER, playerId: id, name });
         broadcastLobby();
       } else if (msg.t === 'intent') {
@@ -354,6 +380,10 @@ export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, 
       absent.clear();
       started = false;
       game = null;
+      players.clear();
+      // закрыть транспорт: иначе комната висит в релеях/брокере призраком,
+      // а клиенты считают, что хост ещё жив
+      try { net.close?.(); } catch { /* ignore */ }
     }
   };
 }

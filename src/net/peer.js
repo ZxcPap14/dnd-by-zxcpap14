@@ -122,16 +122,31 @@ export async function createPeerHostNet(code) {
     conns.set(conn.peer, conn);
     conn.on('data', msg => { if (onMsg) onMsg(conn.peer, msg); });
     conn.on('open', () => { if (onJoin) onJoin(conn.peer); });
-    conn.on('close', () => { conns.delete(conn.peer); if (onLeave) onLeave(conn.peer); });
+    // 'error' без обработчика оставлял мёртвый сокет в conns: onLeave не срабатывал,
+    // игрок не уходил в «ждём возвращения», а герой висел в комнате вечно
+    const drop = () => {
+      if (!conns.has(conn.peer)) return;
+      conns.delete(conn.peer);
+      if (onLeave) onLeave(conn.peer);
+    };
+    conn.on('close', drop);
+    conn.on('error', drop);
   });
 
   return {
-    broadcast(msg) { conns.forEach(c => { if (c.open) c.send(msg); }); },
-    sendTo(id, msg) { const c = conns.get(id); if (c && c.open) c.send(msg); },
+    broadcast(msg) { conns.forEach(c => { if (c.open) { try { c.send(msg); } catch { /* ignore */ } } }); },
+    sendTo(id, msg) {
+      const c = conns.get(id);
+      if (c && c.open) { try { c.send(msg); } catch { /* ignore */ } }
+    },
     onClientMessage(cb) { onMsg = cb; },
     onClientJoin(cb) { onJoin = cb; },
     onClientLeave(cb) { onLeave = cb; },
-    close() { peer.destroy(); }
+    close() {
+      conns.forEach(c => { try { c.close(); } catch { /* ignore */ } });
+      conns.clear();
+      try { peer.destroy(); } catch { /* ignore */ }
+    }
   };
 }
 
