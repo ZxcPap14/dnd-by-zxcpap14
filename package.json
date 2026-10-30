@@ -9,5 +9,9 @@
     "check": "npm test && npm run build",
     "serve": "node serve.mjs"
   },
+  "devDependencies": {
+    "aedes": "0.51.3",
+    "mqtt": "5.10.1"
+  },
   "license": "MIT"
 }

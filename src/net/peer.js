@@ -2,6 +2,8 @@
 // Хост: принимает несколько подключений. Клиент: один линк к хосту.
 // Room code → namespaced peer-id на публичном signaling-брокере.
 
+import { iceServers } from './turnconfig.js';
+
 const PEER_NAMESPACE = 'dndzxc14-';
 const PEER_CDNS = [
   'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js',
@@ -11,23 +13,14 @@ const CONNECT_TIMEOUT_MS = 15000;
 const JOIN_TIMEOUT_MS = 25000; // TURN-согласование через NAT занимает дольше
 const REG_ATTEMPTS = 3;        // публичный брокер PeerJS бывает флакает — ретраим
 
-/**
- * ICE-серверы: несколько STUN + бесплатный публичный TURN (Open Relay Project).
- * Без TURN соединение между разными сетями за строгим NAT/CGNAT молча умирает
- * (найдено плейтестом: вкладки одного ПК работают, другой ПК — нет).
- */
-const ICE_SERVERS = [
-  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
-  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:80?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-];
-
-const PEER_OPTS = {
-  config: { iceServers: ICE_SERVERS, iceCandidatePoolSize: 10 },
+// ICE-серверы общие с trystero.js (turnconfig.js): STUN + пользовательский TURN.
+// Бесплатный публичный TURN «Open Relay» закрылся (домен отдаёт фейковые адреса),
+// поэтому без вписанного в настройках TURN соединение между разными сетями за
+// строгим NAT/CGNAT умирает (сигналинг проходит, P2P — нет; найдено HAR-логом).
+const PEER_OPTS = () => ({
+  config: { iceServers: iceServers(), iceCandidatePoolSize: 10 },
   debug: 1
-};
+});
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -112,7 +105,7 @@ export async function createPeerHostNet(code) {
   const Peer = globalThis.Peer;
 
   const peer = await registerPeer(() =>
-    new Peer(PEER_NAMESPACE + String(code).toLowerCase(), PEER_OPTS)
+    new Peer(PEER_NAMESPACE + String(code).toLowerCase(), PEER_OPTS())
   );
 
   const conns = new Map();
@@ -159,7 +152,7 @@ export async function createPeerClientLink(code) {
 
   // СНАЧАЛА ждём регистрации на signaling-брокере (с ретраями) —
   // peer.connect() до 'open' молча теряется (найдено e2e-тестом)
-  const peer = await registerPeer(() => new Peer(PEER_OPTS));
+  const peer = await registerPeer(() => new Peer(PEER_OPTS()));
 
   const conn = peer.connect(PEER_NAMESPACE + String(code).toLowerCase(), { reliable: true });
   let onMsg = null, onClose = null;

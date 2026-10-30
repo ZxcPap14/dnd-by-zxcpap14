@@ -5,6 +5,7 @@ import { createHostSession } from '../net/host.js';
 import { createClientSession } from '../net/client.js';
 import { PROTOCOL_VER } from '../net/protocol.js';
 import { describePeerError } from '../net/peer.js';
+import { firstSuccess, createHybridClientLink } from '../net/hybrid.js';
 
 const CLASSES = [
   { name: 'Воин', className: 'Воин', stats: { str: 16, dex: 12, int: 8, con: 14, cha: 10, luck: 12 } },
@@ -47,6 +48,28 @@ test('describePeerError: сырые типы PeerJS превращаются в 
 test('makeRoomCode: 4 символа из безопасного алфавита', () => {
   const code = makeRoomCode();
   assert.match(code, /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$/);
+});
+
+test('firstSuccess: первый не-null побеждает, все провалились → reject', async () => {
+  assert.equal(await firstSuccess([Promise.resolve(null), Promise.resolve('x'), Promise.resolve('y')]), 'x');
+  assert.equal(await firstSuccess([Promise.reject(new Error('a')), Promise.resolve('b')]), 'b');
+  await assert.rejects(firstSuccess([Promise.resolve(null), Promise.resolve(null)]), /ни один транспорт/);
+  await assert.rejects(firstSuccess([Promise.reject(new Error('a')), Promise.resolve(null)]), /ни один транспорт/);
+});
+
+test('createHybridClientLink в окружении без браузера падает быстро, а не висит', async () => {
+  // в node нет динамического import() с https и нет document — оба транспорта
+  // отклоняются сразу; важно, что промис вообще завершается (раньше «все каналы
+  // не поднялись» могло висеть вечно — см. firstSuccess)
+  await assert.rejects(
+    createHybridClientLink('0000'),
+    e => {
+      assert.match(e.message, /trystero:/);
+      assert.match(e.message, /relay:/);
+      assert.match(e.message, /peerjs:/);
+      return true;
+    }
+  );
 });
 
 test('полный цикл: лобби → старт → снапшоты всем → ходы по очереди', async () => {

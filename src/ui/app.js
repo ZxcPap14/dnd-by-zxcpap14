@@ -9,6 +9,7 @@ import { createHostSession } from '../net/host.js';
 import { createClientSession } from '../net/client.js';
 import { makeRoomCode } from '../net/loopback.js';
 import { createHybridHostNet, createHybridClientLink } from '../net/hybrid.js';
+import { loadCustomTurn, saveCustomTurn } from '../net/turnconfig.js';
 import { PROTOCOL_VER } from '../net/protocol.js';
 import { saveRun, loadRun, loadRunRaw, clearRun, runSummary } from '../engine/save.js';
 import {
@@ -1145,6 +1146,27 @@ function wireVis() {
   );
 }
 
+/** Настройка своего TURN-сервера: без него кооп работает только в одной сети. */
+function wireNetSettings() {
+  const input = $('net-turn');
+  const note = $('net-turn-note');
+  const cur = loadCustomTurn();
+  if (cur) {
+    input.value = `${cur.urls.join(',')}|${cur.username}|${cur.credential}`;
+    note.textContent = 'TURN вписан — кооп сможет пробивать NAT между разными сетями.';
+  }
+  input.addEventListener('change', () => {
+    const res = saveCustomTurn(input.value);
+    if (!res.ok) {
+      note.textContent = res.error;
+      return;
+    }
+    note.textContent = res.turn
+      ? 'TURN сохранён. Вступит в силу при следующем подключении к комнате.'
+      : 'Очищено — используется только STUN (кооп только в одной сети).';
+  });
+}
+
 /** Опция «терминатор» появляется после 10 смертей в зале славы. */
 function refreshThemeOptions() {
   const sel = $('vis-theme');
@@ -1176,6 +1198,7 @@ function wire() {
   loadCfg();
   renderHof();
   wireVis();
+  wireNetSettings();
   bootCRT();
   startMatrix();
 

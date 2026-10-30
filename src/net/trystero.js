@@ -11,16 +11,14 @@ const TRYSTERO_CDNS = [
 ];
 const TRYSTERO_APP_ID = 'dnd-zxcpap14';
 const ROOM_PREFIX = 'dndzxc14-';
-const RELAY_WAIT_MS = 14000;  // сколько ждём первый живой релей
-const HOST_WAIT_MS = 18000;   // сколько клиент ждёт, пока хост объявится
-const ANNOUNCE_MS = 1200;     // как часто клиент напоминает о себе
+const RELAY_WAIT_MS = 14000; // сколько ждём первый живой релей
+// сколько клиент ищет хоста. В HAR реальной игры answer от хоста шёл по релеям
+// ~10 секунд — запас на медленные релеи + 2-3 попытки ICE (trystero ретраит
+// соединение на каждом реанонсе)
+const HOST_WAIT_MS = 20000;
+const ANNOUNCE_MS = 1200;    // как часто клиент напоминает о себе
 
-// TURN переиспользуем тот же, что в peer.js: без него symmetric NAT не пробить
-const TRYSTERO_TURN = [
-  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-];
+import { iceServers } from './turnconfig.js';
 
 // Префикс tSleep, а не sleep: build.mjs склеивает модули в одну область,
 // и одинаковые имена (как const sleep в peer.js) роняют весь бандл.
@@ -46,10 +44,7 @@ export function loadTrystero() {
 function roomConfig() {
   return {
     appId: TRYSTERO_APP_ID,
-    turnConfig: TRYSTERO_TURN,
-    rtcConfig: {
-      iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }]
-    }
+    rtcConfig: { iceServers: iceServers(), iceCandidatePoolSize: 10 }
   };
 }
 
@@ -82,7 +77,11 @@ export async function createTrysteroHostNet(code) {
   let onMsg = null, onJoin = null, onLeave = null;
 
   hi.onMessage = (data, ctx) => {
-    if (!data || data.r !== 'c' || clients.has(ctx.peerId)) return;
+    if (!data || data.r !== 'c') return;
+    // клиент мог не услышать 'h' из onPeerJoin (гонка при открытии канала) —
+    // дублируем ответ на каждый стук, клиент игнорирует повторы сам
+    try { hi.send({ r: 'h' }, { target: ctx.peerId }); } catch { /* ignore */ }
+    if (clients.has(ctx.peerId)) return;
     clients.add(ctx.peerId);
     if (onJoin) onJoin(ctx.peerId);
   };
@@ -118,9 +117,19 @@ export async function createTrysteroHostNet(code) {
  * Линк клиента поверх Trystero. Ищет в комнате того, кто назвался хостом.
  * Интерфейс: { send, onMessage, onClose, close }
  */
-export async function createTrysteroClientLink(code) {
+export async function createTrysteroClientLink(code, { hostWaitMs = HOST_WAIT_MS } = {}) {
   const T = await loadTrystero();
-  const room = T.joinRoom(roomConfig(), ROOM_PREFIX + String(code).toLowerCase());
+  const roomId = ROOM_PREFIX + String(code).toLowerCase();
+
+  // Trystero сам репортит провал ICE после обмена SDP («could not connect to
+  // peer X after exchanging SDP»). Это точный диагноз «сигналинг прошёл,
+  // но NAT/TURN не пробился» — не путаем его с «хост не найден».
+  let natFailed = false;
+  const room = T.joinRoom(roomConfig(), roomId, {
+    onJoinError: ({ error } = {}) => {
+      if (typeof error === 'string' && error.includes('after exchanging SDP')) natFailed = true;
+    }
+  });
 
   const hi = room.makeAction('hi');
   const msg = room.makeAction('msg');
@@ -148,15 +157,24 @@ export async function createTrysteroClientLink(code) {
   }
   announce();
 
-  // ждём хоста: он мог зайти раньше нас, тогда его 'h' уже в пути
+  // Ждём ответа хоста. Два исхода различаются сообщением:
+  //  notfound — в комнате никого (опечатка в коде) — PeerJS-фолбэк имеет смысл
+  //  nat      — пир найден и SDP обменялись, но ICE не пробился. PeerJS здесь
+  //             не поможет: ICE-серверы те же — нужен VPN или свой TURN
   const t0 = Date.now();
-  while (!hostId && Date.now() - t0 < HOST_WAIT_MS) {
+  while (!hostId) {
     await tSleep(ANNOUNCE_MS);
-    if (!hostId) announce();
+    if (hostId) break;
+    announce();
+    if (Date.now() - t0 >= hostWaitMs) break;
   }
   if (!hostId) {
-    try { await room.leave(); } catch { /* ignore */ }
-    throw new Error('Хост не найден в комнате — проверь код или создай комнату заново');
+    bail();
+    const err = new Error(natFailed
+      ? 'хост найден, но P2P-канал не пробился через NAT'
+      : 'Хост не найден в комнате за ' + Math.round(hostWaitMs / 1000) + ' с');
+    if (natFailed) err.natFail = true; // гибрид сразу пойдёт на релей, без PeerJS
+    throw err;
   }
 
   return {
