@@ -1,0 +1,14 @@
+# Cloudflare Workers: релей для коопа. Деплой: npx wrangler deploy
+name = "dnd-relay"
+main = "server/relay-worker.mjs"
+compatibility_date = "2026-09-01"
+
+# Одна комната = один Durable Object с SQLite-хранилищем (это доступно на
+# бесплатном тарифе; old-style DO требуют платный план).
+[[durable_objects.bindings]]
+name = "RELAY_ROOM"
+class_name = "RelayRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelayRoom"]

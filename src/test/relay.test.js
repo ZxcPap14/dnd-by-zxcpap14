@@ -1,13 +1,15 @@
-// Реальный брокер (aedes) + реальный MQTT-клиент: проверяем именно то, что
-// ломалось у игроков в разных сетях — вход в лобби через релей, без WebRTC.
+// Реальный сервер релея (тот же код комнаты, что и в воркере) + реальные
+// WebSocket-клиенты: проверяем именно то, что ломалось у игроков в разных
+// сетях — вход в лобби через релей, без WebRTC.
 
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import net from 'node:net';
-import aedes from 'aedes';
+import { createServer } from 'node:http';
+import { WebSocketServer } from 'ws';
 import { createHostSession } from '../net/host.js';
 import { createClientSession } from '../net/client.js';
-import { createRelayHostNet, createRelayClientLink, roomTopic, loadRelayUrl, saveRelayUrl } from '../net/relay.js';
+import { createRelayHostNet, createRelayClientLink, loadRelayUrl, saveRelayUrl, roomUrl } from '../net/relay.js';
+import { Room } from '../net/relayroom.js';
 
 const CLASSES = [
   { name: 'Воин', className: 'Воин', stats: { str: 16, dex: 12, int: 8, con: 14, cha: 10, luck: 12 } },
@@ -15,14 +17,39 @@ const CLASSES = [
   { name: 'Волхв', className: 'Волхв', stats: { str: 8, dex: 10, int: 16, con: 12, cha: 14, luck: 12 } }
 ];
 
-const broker = aedes();
-const server = net.createServer(broker.handle);
-await new Promise(r => server.listen(0, '127.0.0.1', r));
-const BROKER = `mqtt://127.0.0.1:${server.address().port}`;
+const rooms = new Map();
+const http = createServer((req, res) => { res.writeHead(200); res.end('ok'); });
+const wss = new WebSocketServer({ noServer: true });
+
+http.on('upgrade', (req, socket, head) => {
+  const url = new URL(req.url, 'http://relay');
+  const m = url.pathname.match(/^\/room\/([^/]+)\/?$/);
+  if (!m) { socket.destroy(); return; }
+  const code = decodeURIComponent(m[1]).toLowerCase();
+  wss.handleUpgrade(req, socket, head, ws => {
+    let room = rooms.get(code);
+    if (!room) {
+      room = new Room({ onEmpty: () => rooms.delete(code) });
+      rooms.set(code, room);
+    }
+    const sock = {
+      id: url.searchParams.get('id') || 'anon',
+      send: obj => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); },
+      close: () => { try { ws.close(); } catch { /* ignore */ } }
+    };
+    ws.on('message', raw => room.receive(sock, raw.toString()));
+    ws.on('close', () => room.detach(sock));
+    room.attach(url.searchParams.get('role') === 'host' ? 'host' : 'client', sock.id, sock);
+  });
+});
+
+await new Promise(r => http.listen(0, '127.0.0.1', r));
+const RELAY = `http://127.0.0.1:${http.address().port}`;
 
 after(async () => {
-  await new Promise(r => server.close(r));
-  await new Promise(r => broker.close(r));
+  for (const room of rooms.values()) room.checkEmpty();
+  wss.close();
+  await new Promise(r => http.close(r));
 });
 
 const code = () => Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -37,13 +64,13 @@ async function waitFor(fn, ms = 5000) {
 }
 
 async function hostRoom(room = code()) {
-  const hostNet = await createRelayHostNet(room, { brokerUrl: BROKER });
+  const hostNet = await createRelayHostNet(room, { relayUrl: RELAY });
   const host = createHostSession({ net: hostNet, hostName: 'Хост', turnMs: 0 });
   return { room, hostNet, host };
 }
 
 async function join(room, name) {
-  const link = await createRelayClientLink(room, { brokerUrl: BROKER });
+  const link = await createRelayClientLink(room, { relayUrl: RELAY });
   const client = createClientSession({ link, name });
   const got = { lobby: [], snapshots: [], events: [], start: null, welcome: null };
   client.onLobby(l => got.lobby.push(l));
@@ -72,7 +99,7 @@ test('релей: игрок входит в лобби к хосту и ста�
   await waitFor(() => c.got.start && c.got.snapshots.length > 0);
   assert.equal(c.got.snapshots.at(-1).you, 1);
 
-  // ход хоста → ход гостя, команда реально доходит через брокера
+  // ход хоста → ход гостя, команда реально доходит через релей
   host.localIntent('постоять');
   await waitFor(() => host.getGame().activeIdx === 1);
   c.client.sendCommand('постоять');
@@ -113,7 +140,7 @@ test('релей: переподключение по имени возвращ�
   await waitFor(() => host.getAbsent().length === 1);
   assert.match(host.getAbsent()[0].name, /Катя/);
 
-  const link2 = await createRelayClientLink(room, { brokerUrl: BROKER });
+  const link2 = await createRelayClientLink(room, { relayUrl: RELAY });
   const c2 = createClientSession({ link: link2, name: 'Катя' });
   t.after(() => c2.close());
   const snaps = [];
@@ -124,35 +151,41 @@ test('релей: переподключение по имени возвращ�
   assert.equal(host.getAbsent().length, 0);
 });
 
-test('релей: сохранённый свой брокер проверяется и сбрасывается', async () => {
+test('релей: адрес проверяется, сохраняется и сбрасывается', async () => {
   assert.equal(loadRelayUrl(), '');
-  assert.equal(saveRelayUrl('http://не-то').ok, false);
-  assert.equal(saveRelayUrl('wss://relay.example.com/mqtt').ok, true);
-  assert.equal(loadRelayUrl(), 'wss://relay.example.com/mqtt');
+  assert.equal(saveRelayUrl('просто текст').ok, false);
+  assert.equal(saveRelayUrl('https://dnd-relay.example.workers.dev').ok, true);
+  assert.equal(loadRelayUrl(), 'https://dnd-relay.example.workers.dev');
   saveRelayUrl('');
   assert.equal(loadRelayUrl(), '');
 });
 
+test('релей: https-адрес превращается в wss, код комнаты — в путь', () => {
+  assert.equal(
+    roomUrl('https://dnd-relay.example.workers.dev/', 'ab12', 'host', 'h-1'),
+    'wss://dnd-relay.example.workers.dev/room/ab12?role=host&id=h-1'
+  );
+  // локальный сервер в тестах и на своём VPS без TLS
+  assert.equal(
+    roomUrl('http://127.0.0.1:9001', 'AB12', 'client', 'c-2'),
+    'ws://127.0.0.1:9001/room/ab12?role=client&id=c-2'
+  );
+});
+
 test('релей: без хоста — внятная ошибка, а не зависание', async () => {
   await assert.rejects(
-    createRelayClientLink(code(), { brokerUrl: BROKER, hostWaitMs: 1200 }),
+    createRelayClientLink(code(), { relayUrl: RELAY, hostWaitMs: 1200 }),
     /Хост не найден через релей/
   );
 });
 
-test('релей: retained-присутствие мёртвой комнаты игнорируется', async () => {
-  const mqtt = (await import('mqtt')).default;
-  const dead = mqtt.connect(BROKER);
-  await new Promise((res, rej) => { dead.on('connect', res); dead.on('error', rej); });
-  await new Promise((res, rej) => dead.publish(
-    roomTopic('DEAD'),
-    JSON.stringify({ kind: 'host-here', from: 'h-dead', ts: Date.now() - 120000 }),
-    { retain: true, qos: 1 },
-    e => e ? rej(e) : res()
-  ));
-  await assert.rejects(
-    createRelayClientLink('DEAD', { brokerUrl: BROKER, hostWaitMs: 1200 }),
-    /Хост не найден через релей/
-  );
-  await new Promise(r => dead.end(true, r));
+test('релей: игрок, ждавший хоста, получает его без переподключения', async (t) => {
+  const room = code();
+  const waiting = createRelayClientLink(room, { relayUrl: RELAY, hostWaitMs: 5000 });
+  await new Promise(r => setTimeout(r, 300)); // клиент уже сидит в комнате, хоста ещё нет
+  const hostNet = await createRelayHostNet(room, { relayUrl: RELAY });
+  t.after(() => hostNet.close());
+  const link = await waiting;
+  t.after(() => link.close());
+  assert.equal(link.transport, 'relay');
 });

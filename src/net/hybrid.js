@@ -1,7 +1,7 @@
 // hybrid.js — три транспорта.
-// Хост поднимает И Trystero (Nostr-релеи), И PeerJS, И MQTT-релей: клиент найдёт
-// его любым из трёх путей. Клиент: Trystero (P2P, быстрый) → MQTT-релей
-// (работает через любой NAT) → PeerJS (на случай, если релей лежит).
+// Хост поднимает И Trystero (Nostr-релеи), И PeerJS, И свой WebSocket-релей:
+// клиент найдёт его любым из трёх путей. Клиент: Trystero (P2P, быстрый) →
+// релей (работает через любой NAT) → PeerJS (на случай, если релей лежит).
 //
 // Идентификаторы клиентов префиксуются ('t:' / 'p:' / 'm:'), чтобы host.js не
 // знал, по какому каналу пришёл игрок.
@@ -87,7 +87,7 @@ export async function createHybridHostNet(code) {
 }
 
 /**
- * Линк клиента: Trystero (8 с) → MQTT-релей → PeerJS.
+ * Линк клиента: Trystero (8 с) → релей → PeerJS.
  * Интерфейс: { send, onMessage, onClose, close, transport }
  */
 export async function createHybridClientLink(code, onNote = null) {
@@ -100,11 +100,11 @@ export async function createHybridClientLink(code, onNote = null) {
     errors.push('trystero: ' + e.message);
     // NAT не пробился — релей как раз для этого случая. PeerJS не поможет:
     // у него те же ICE-серверы, а его облако сейчас отдаёт 403.
-    if (onNote) onNote(e.natFail ? 'P2P не пробился — иду через релей…' : 'релеи не ответили — пробую MQTT-релей…');
+    if (onNote) onNote(e.natFail ? 'P2P не пробился — иду через релей…' : 'релеи не ответили — пробую релей…');
   }
   try {
     const link = await createRelayClientLink(code);
-    if (onNote) onNote('канал: MQTT-релей' + (link.broker ? ' (' + link.broker + ')' : ''));
+    if (onNote) onNote('канал: релей' + (link.relay ? ' (' + link.relay + ')' : ''));
     return link;
   } catch (e) {
     errors.push('relay: ' + e.message);

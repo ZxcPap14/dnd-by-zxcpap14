@@ -758,11 +758,11 @@
       <span class="hint" id="net-turn-note">Без TURN кооп соединяется только внутри одной сети. Впиши свой TURN — подойдёт бесплатный от Cloudflare Calls TURN.</span>
     </div>
     <div class="field">
-      <label for="net-relay">MQTT-релей</label>
-      <input id="net-relay" type="text" placeholder="wss://relay.example.com/mqtt" autocomplete="off">
+      <label for="net-relay">Релей</label>
+      <input id="net-relay" type="text" placeholder="https://dnd-relay.ты.workers.dev" autocomplete="off">
     </div>
     <div class="bs-meta">
-      <span class="hint" id="net-relay-note">Запасной канал: игровой трафик идёт через MQTT-брокер по WSS. Публичные брокеры обрывают долгую сессию — свой держит (сервер в репозитории: server/relay-broker.mjs).</span>
+      <span class="hint" id="net-relay-note">Запасной канал: игровой трафик идёт через релей по WebSocket. Нужен, когда P2P не пробивает NAT (мобильный интернет, CGNAT). Адрес выдаётся один раз при деплое: server/relay-worker.mjs.</span>
     </div>
 
     <h2>ИИ-ДМАСТЕР (необязательно — без ключа играет заглушка)</h2>

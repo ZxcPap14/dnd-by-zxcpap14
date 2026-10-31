@@ -10,7 +10,7 @@ import { createClientSession } from '../net/client.js';
 import { makeRoomCode } from '../net/loopback.js';
 import { createHybridHostNet, createHybridClientLink } from '../net/hybrid.js';
 import { loadCustomTurn, saveCustomTurn } from '../net/turnconfig.js';
-import { loadRelayUrl, saveRelayUrl, relayBrokerOverride } from '../net/relay.js';
+import { loadRelayUrl, saveRelayUrl, relayUrlOverride } from '../net/relay.js';
 import { PROTOCOL_VER } from '../net/protocol.js';
 import { saveRun, loadRun, loadRunRaw, clearRun, runSummary } from '../engine/save.js';
 import {
@@ -1171,7 +1171,7 @@ function wireNetSettings() {
   const relayNote = $('net-relay-note');
   // Ссылку с ?relay= хост отправляет другу один раз — запоминаем, чтобы
   // после перезагрузки страницы канал остался тем же.
-  const fromQuery = relayBrokerOverride();
+  const fromQuery = relayUrlOverride();
   if (fromQuery) saveRelayUrl(fromQuery.split(',')[0].trim());
   const savedRelay = loadRelayUrl();
   if (savedRelay) relayInput.value = savedRelay;
@@ -1180,7 +1180,7 @@ function wireNetSettings() {
     if (!res.ok) { relayNote.textContent = res.error; return; }
     relayNote.textContent = res.url
       ? 'Релей сохранён. Вступит в силу при следующем подключении к комнате.'
-      : 'Очищено — используются публичные брокеры (нестабильны).';
+      : 'Очищено — используется релей по умолчанию (или только P2P).';
   });
 }
 

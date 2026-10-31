@@ -8,11 +8,10 @@
     "build": "node build.mjs",
     "check": "npm test && npm run build",
     "serve": "node serve.mjs",
-    "relay": "node server/relay-broker.mjs"
+    "relay": "node server/relay-server.mjs"
   },
   "devDependencies": {
-    "aedes": "0.51.3",
-    "mqtt": "5.10.1",
+    "wrangler": "^4.156.0",
     "ws": "8.18.0"
   },
   "license": "MIT"
