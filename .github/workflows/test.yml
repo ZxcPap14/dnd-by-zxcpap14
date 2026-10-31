@@ -15,6 +15,10 @@ jobs:
         with:
           node-version: 22
 
+      # aedes/mqtt нужны тестам релея; в рантайме игры зависимостей по-прежнему нет
+      - name: Установка dev-зависимостей
+        run: npm ci
+
       - name: Тесты движка и сети
         run: npm test
 
