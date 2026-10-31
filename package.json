@@ -7,11 +7,13 @@
     "test": "node --test \"src/test/*.test.js\"",
     "build": "node build.mjs",
     "check": "npm test && npm run build",
-    "serve": "node serve.mjs"
+    "serve": "node serve.mjs",
+    "relay": "node server/relay-broker.mjs"
   },
   "devDependencies": {
     "aedes": "0.51.3",
-    "mqtt": "5.10.1"
+    "mqtt": "5.10.1",
+    "ws": "8.18.0"
   },
   "license": "MIT"
 }

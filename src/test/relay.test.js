@@ -7,7 +7,7 @@ import net from 'node:net';
 import aedes from 'aedes';
 import { createHostSession } from '../net/host.js';
 import { createClientSession } from '../net/client.js';
-import { createRelayHostNet, createRelayClientLink, roomTopic } from '../net/relay.js';
+import { createRelayHostNet, createRelayClientLink, roomTopic, loadRelayUrl, saveRelayUrl } from '../net/relay.js';
 
 const CLASSES = [
   { name: 'Воин', className: 'Воин', stats: { str: 16, dex: 12, int: 8, con: 14, cha: 10, luck: 12 } },
@@ -122,6 +122,15 @@ test('релей: переподключение по имени возвращ�
   await waitFor(() => host.getLobby().length === 2 && snaps.length > 0);
   assert.equal(snaps.at(-1).you, heroIdx);
   assert.equal(host.getAbsent().length, 0);
+});
+
+test('релей: сохранённый свой брокер проверяется и сбрасывается', async () => {
+  assert.equal(loadRelayUrl(), '');
+  assert.equal(saveRelayUrl('http://не-то').ok, false);
+  assert.equal(saveRelayUrl('wss://relay.example.com/mqtt').ok, true);
+  assert.equal(loadRelayUrl(), 'wss://relay.example.com/mqtt');
+  saveRelayUrl('');
+  assert.equal(loadRelayUrl(), '');
 });
 
 test('релей: без хоста — внятная ошибка, а не зависание', async () => {

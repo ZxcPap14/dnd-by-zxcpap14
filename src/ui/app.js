@@ -10,6 +10,7 @@ import { createClientSession } from '../net/client.js';
 import { makeRoomCode } from '../net/loopback.js';
 import { createHybridHostNet, createHybridClientLink } from '../net/hybrid.js';
 import { loadCustomTurn, saveCustomTurn } from '../net/turnconfig.js';
+import { loadRelayUrl, saveRelayUrl, relayBrokerOverride } from '../net/relay.js';
 import { PROTOCOL_VER } from '../net/protocol.js';
 import { saveRun, loadRun, loadRunRaw, clearRun, runSummary } from '../engine/save.js';
 import {
@@ -1164,6 +1165,22 @@ function wireNetSettings() {
     note.textContent = res.turn
       ? 'TURN сохранён. Вступит в силу при следующем подключении к комнате.'
       : 'Очищено — используется только STUN (кооп только в одной сети).';
+  });
+
+  const relayInput = $('net-relay');
+  const relayNote = $('net-relay-note');
+  // Ссылку с ?relay= хост отправляет другу один раз — запоминаем, чтобы
+  // после перезагрузки страницы канал остался тем же.
+  const fromQuery = relayBrokerOverride();
+  if (fromQuery) saveRelayUrl(fromQuery.split(',')[0].trim());
+  const savedRelay = loadRelayUrl();
+  if (savedRelay) relayInput.value = savedRelay;
+  relayInput.addEventListener('change', () => {
+    const res = saveRelayUrl(relayInput.value);
+    if (!res.ok) { relayNote.textContent = res.error; return; }
+    relayNote.textContent = res.url
+      ? 'Релей сохранён. Вступит в силу при следующем подключении к комнате.'
+      : 'Очищено — используются публичные брокеры (нестабильны).';
   });
 }
 

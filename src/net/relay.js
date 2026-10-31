@@ -19,7 +19,7 @@ export const RELAY_BROKERS = [
 ];
 
 const BROKER_TIMEOUT_MS = 7000;
-const PRESENCE_MS = 200000;       // как часто хост обновляет retained-присутствие
+const PRESENCE_MS = 20000;       // как часто хост обновляет retained-присутствие
 const PRESENCE_STALE_MS = 60000; // retained старше — хост давно мёртв
 const CLIENT_SILENCE_MS = 45000; // молчание релейного клиента = отвалился
 const HOST_SILENCE_MS = 65000;
@@ -39,8 +39,31 @@ export function relayBrokerOverride() {
   } catch { return undefined; }
 }
 
+const RELAY_KEY = 'dnd-relay-v1';
+let relayMemory = null; // в node (тесты) localStorage нет
+
+/** Свой брокер, сохранённый в настройках («СЕТЬ»). Пустая строка — сброс. */
+export function loadRelayUrl() {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(RELAY_KEY) : relayMemory;
+    return raw || '';
+  } catch { return ''; }
+}
+
+export function saveRelayUrl(text) {
+  const s = String(text || '').trim();
+  const ok = !s || /^wss?:\/\/\S+$/.test(s);
+  if (!ok) return { ok: false, error: 'Нужен адрес вида wss://relay.example.com/mqtt' };
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (s) localStorage.setItem(RELAY_KEY, s); else localStorage.removeItem(RELAY_KEY);
+    } else relayMemory = s;
+  } catch { relayMemory = s; }
+  return { ok: true, url: s };
+}
+
 function brokerList(custom) {
-  const list = custom || relayBrokerOverride();
+  const list = custom || relayBrokerOverride() || loadRelayUrl();
   if (list) return String(list).split(',').map(s => s.trim()).filter(Boolean);
   // В Node нет CDN-загрузчика, а публичные брокеры в юнит-тестах не нужны:
   // без явного brokerUrl релей считается недоступным и гибрид падает быстро.
@@ -112,7 +135,6 @@ async function connectAny(urls) {
     urls.forEach(url => {
       connectOne(url).then(client => {
         if (done) {
-          if (globalThis.__relayTrace) console.info('[relay] closing late loser', shortBroker(url));
           try { client.end(true); } catch { /* ignore */ }
           return;
         }
@@ -149,21 +171,8 @@ export async function createRelayHostNet(code, { brokerUrl } = {}) {
   const seenOrder = [];
   let onMsg = null, onJoin = null, onLeave = null;
 
-  const pubQueue = [];
-  let pubTimer = null;
-  const flush = () => {
-    pubTimer = null;
-    const job = pubQueue.shift();
-    if (!job) return;
-    client.publish(job.topic, job.payload, { qos: QOS, ...job.opts }, job.cb);
-    if (pubQueue.length) pubTimer = setTimeout(flush, 60);
-  };
-  const publish = (topic, env, opts, cb) => {
-    const payload = JSON.stringify({ ...env, from: hostId });
-    if (globalThis.__relayTrace) console.info('[relay-pub]', topic.slice(-4), env.kind, payload.length, 'q', pubQueue.length);
-    pubQueue.push({ topic, payload, opts, cb });
-    if (!pubTimer) pubTimer = setTimeout(flush, 0);
-  };
+  const publish = (topic, env, opts, cb) => client.publish(
+    topic, JSON.stringify({ ...env, from: hostId }), { qos: QOS, ...opts }, cb);
 
   function leaveClient(id) {
     const was = relayClients.delete(id);
@@ -180,19 +189,11 @@ export async function createRelayHostNet(code, { brokerUrl } = {}) {
     return true;
   }
 
-  if (globalThis.__relayTrace) {
-    console.info('[relay-host] up', shortBroker(url), hostId, room);
-    const origEnd = client.end.bind(client);
-    client.end = (...a) => {
-      console.info('[relay-host] end called', new Error('x').stack.split('\n').slice(2, 4).join(' | '));
-      return origEnd(...a);
-    };
-    client.on('close', () => console.info('[relay-host] mqtt close, connected=', client.connected));
-    client.on('offline', () => console.info('[relay-host] mqtt offline'));
-    client.on('reconnect', () => console.info('[relay-host] mqtt reconnect'));
-    client.on('error', e => console.info('[relay-host] mqtt error', e.message));
-  }
   const presence = () => publish(room, { kind: 'host-here', ts: Date.now() }, { retain: true });
+  // Публичные брокеры рвут соединение и сами восстанавливают его через
+  // mqtt.js — после переподключения retained-присутствие надо выложить сразу,
+  // иначе клиент до следующего тика таймера видит устаревшую метку.
+  client.on('connect', presence);
   subscribe(room);
   presence();
   const presenceTimer = setInterval(presence, PRESENCE_MS);
@@ -228,10 +229,7 @@ export async function createRelayHostNet(code, { brokerUrl } = {}) {
   return {
     transport: 'relay',
     broadcast(msg) {
-      if (globalThis.__relayTrace) console.info('[relay-host] broadcast', msg && msg.t, 'clients', relayClients.size);
-      if (relayClients.size) publish(room, { kind: 'msg', id: relayId(), msg }, {}, e => {
-        if (globalThis.__relayTrace) console.info('[relay-host] published', msg && msg.t, e ? e.message : 'ok');
-      });
+      if (relayClients.size) publish(room, { kind: 'msg', id: relayId(), msg });
     },
     sendTo(id, msg) {
       if (relayClients.has(id)) publish(clientTopic(id), { kind: 'msg', id: relayId(), msg });
@@ -355,29 +353,24 @@ export async function createRelayClientLink(code, { brokerUrl, hostWaitMs = 1000
   client.on('message', (topic, raw) => {
     if (topic !== room && topic !== myTopic) return;
     const env = parseRelayEnvelope(raw);
-    if (globalThis.__relayTrace) console.info('[relay-raw]', shortBroker(url), topic, env && env.kind, env && env.from, env && env.msg && env.msg.t, 'want', hostId);
     if (!env || env.from !== hostId) return;
-    if (globalThis.__relayTrace) console.info('[relay-client] recv', env.kind, env.msg && env.msg.t, 'from', env.from, 'host', hostId);
     lastHostMsg = Date.now();
     if (env.kind === 'bye') { fail(); return; }
     if (env.kind !== 'msg') return;
     if (onMsg) onMsg(env.msg); else pending.push(env.msg);
   });
 
-  if (globalThis.__relayTrace) {
-    console.info('[relay-client] link up', shortBroker(url), hostId, myId);
-    client.on('offline', () => console.info('[relay-client] mqtt offline'));
-    client.on('reconnect', () => console.info('[relay-client] mqtt reconnect'));
-    client.on('error', e => console.info('[relay-client] mqtt error', e.message));
-  }
-  // mqtt.js переподключается сам; если за 12 с не вернулся — линк мёртв
+  // mqtt.js переподключается сам. После reconnect хост мог уже списать нас
+  // из лобби по вотчдогу — поэтому заново здороваемся.
+  client.on('connect', () => {
+    clearTimeout(downTimer);
+    sendRaw({ kind: 'hello' });
+  });
   client.on('close', () => {
-    if (globalThis.__relayTrace) console.info('[relay-client] mqtt close, closed=', closed);
     if (closed) return;
     clearTimeout(downTimer);
     downTimer = setTimeout(() => { if (!closed && Date.now() - lastHostMsg > 12000) fail(); }, 12000);
   });
-  client.on('connect', () => clearTimeout(downTimer));
 
   sendRaw({ kind: 'hello' });
 
