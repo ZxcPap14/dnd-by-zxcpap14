@@ -756,14 +756,14 @@
       <input id="net-turn" type="text" placeholder='turn:host:port|логин|пароль' autocomplete="off">
     </div>
     <div class="bs-meta">
-      <span class="hint" id="net-turn-note">Без TURN кооп соединяется только внутри одной сети. Впиши свой TURN — подойдёт бесплатный от Cloudflare Calls TURN.</span>
+      <span class="hint" id="net-turn-note">Необязательно. Ускоряет P2P, когда он пробивается. Если не пробивается — игра сама уходит на релей ниже.</span>
     </div>
     <div class="field">
       <label for="net-relay">Релей</label>
       <input id="net-relay" type="text" placeholder="https://dnd-relay.ты.workers.dev" autocomplete="off">
     </div>
     <div class="bs-meta">
-      <span class="hint" id="net-relay-note">Запасной канал: игровой трафик идёт через релей по WebSocket. Нужен, когда P2P не пробивает NAT (мобильный интернет, CGNAT). Адрес выдаётся один раз при деплое: server/relay-worker.mjs.</span>
+      <span class="hint" id="net-relay-note">Уже прописан свой релей — заполнять не нужно. Поле только для смены: если хотите свой брокер, впишите адрес (сервер: server/relay-worker.mjs).</span>
     </div>
 
     <h2>ИИ-ДМАСТЕР (необязательно — без ключа играет заглушка)</h2>
@@ -6979,7 +6979,9 @@ function wireNetSettings() {
   const fromQuery = relayUrlOverride();
   if (fromQuery) saveRelayUrl(fromQuery.split(',')[0].trim());
   const savedRelay = loadRelayUrl();
-  if (savedRelay) relayInput.value = savedRelay;
+  // По умолчанию уже стоит рабочий релей — показываем его, чтобы не казалось,
+  // что поле надо заполнять вручную.
+  relayInput.value = savedRelay || DEFAULT_RELAY_URL;
   relayInput.addEventListener('change', () => {
     const res = saveRelayUrl(relayInput.value);
     if (!res.ok) { relayNote.textContent = res.error; return; }

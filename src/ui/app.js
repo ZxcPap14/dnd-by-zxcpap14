@@ -10,7 +10,7 @@ import { createClientSession } from '../net/client.js';
 import { makeRoomCode } from '../net/loopback.js';
 import { createHybridHostNet, createHybridClientLink } from '../net/hybrid.js';
 import { loadCustomTurn, saveCustomTurn } from '../net/turnconfig.js';
-import { loadRelayUrl, saveRelayUrl, relayUrlOverride } from '../net/relay.js';
+import { loadRelayUrl, saveRelayUrl, relayUrlOverride, DEFAULT_RELAY_URL } from '../net/relay.js';
 import { PROTOCOL_VER } from '../net/protocol.js';
 import { saveRun, loadRun, loadRunRaw, clearRun, runSummary } from '../engine/save.js';
 import {
@@ -1174,7 +1174,9 @@ function wireNetSettings() {
   const fromQuery = relayUrlOverride();
   if (fromQuery) saveRelayUrl(fromQuery.split(',')[0].trim());
   const savedRelay = loadRelayUrl();
-  if (savedRelay) relayInput.value = savedRelay;
+  // По умолчанию уже стоит рабочий релей — показываем его, чтобы не казалось,
+  // что поле надо заполнять вручную.
+  relayInput.value = savedRelay || DEFAULT_RELAY_URL;
   relayInput.addEventListener('change', () => {
     const res = saveRelayUrl(relayInput.value);
     if (!res.ok) { relayNote.textContent = res.error; return; }
