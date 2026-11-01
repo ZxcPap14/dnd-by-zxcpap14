@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  newGame, applyDmEffects, addQuest, completeQuest, buildSnapshot
+  newGame, applyDmEffects, addQuest, completeQuest, buildSnapshot, rollPowerCheck, STORY_SHAPES, MAX_QUESTS,
+  applyIntent, parseCommand, clipNarrative
 } from '../engine/game.js';
 import { buildContext, introMessages } from '../ai/dm.js';
 import { stubDmTurn, resetStub } from '../ai/stub.js';
@@ -102,4 +103,69 @@ test('канон мира и знакомые переживают сохран�
   assert.equal(restored.worldBrief, 'Соль дороже крови.');
   assert.equal(restored.cast[0].name, 'Гарм');
   assert.ok(buildSnapshot(s, 0).worldBrief);
+});
+
+// --- журнал не разрастается: иначе нить теряется среди двадцати задач ---
+test('журнал: больше MAX_QUESTS задач не копится, новые идут по одной', () => {
+  const s = mk();
+  for (let i = 0; i < 8; i++) {
+    applyDmEffects(s, { questAdd: [`Задача номер ${i}`, `Ещё одна ${i}`, `Третья ${i}`] }, 0);
+  }
+  assert.ok(s.quests.length <= MAX_QUESTS, `в журнале ${s.quests.length}`);
+  const before = s.quests.length;
+  applyDmEffects(s, { questAdd: ['Ещё задача'] }, 0);
+  assert.ok(s.quests.length <= Math.max(before, MAX_QUESTS));
+});
+
+// --- выдуманная способность: исход решает кубик, а не желание игрока ---
+test('способность: d20 решает исход и попадает в проверки движка', () => {
+  const s = mk();
+  assert.equal(rollPowerCheck(s, s.heroes[0], 'осматриваю пол'), null);
+  assert.equal(s.recentRolls.length, 0);
+  const res = rollPowerCheck(s, s.heroes[0], 'использую свою силу и становлюсь невидимым');
+  assert.ok(res && res.roll >= 1 && res.roll <= 20);
+  assert.ok(['успех', 'с огрехами', 'провал'].includes(res.verdict));
+  assert.match(s.recentRolls.at(-1), /d20\[\d+\]/);
+});
+
+// --- формы истории разные, иначе каждый забег про монеты ---
+test('сюжет: форма выбирается из набора и попадает в контекст', () => {
+  const shapes = new Set();
+  for (let i = 0; i < 12; i++) {
+    const s = mk(100 + i);
+    assert.ok(STORY_SHAPES.includes(s.story.shape));
+    shapes.add(s.story.shape);
+  }
+  assert.ok(shapes.size > 1, 'форма должна меняться между забегами');
+  const s = mk(777);
+  assert.match(buildContext(s, 'иду вперёд', 0)[1].content, /ФОРМА ИСТОРИИ/);
+});
+
+
+test('повествование: рискованное действие бросает d20, безопасное — нет', () => {
+  const s = mk(9001);
+  const hero = s.heroes[0];
+  assert.equal(rollPowerCheck(s, hero, 'осматриваю пол и стены'), null);
+  const easy = rollPowerCheck(s, hero, 'тихо крадусь мимо охраны');
+  assert.ok(easy && easy.roll >= 1 && easy.roll <= 20);
+  assert.equal(easy.difficulty, 'легко');
+  const hard = rollPowerCheck(s, hero, 'взрываю всех одним выстрелом');
+  assert.equal(hard.difficulty, 'тяжело');
+  assert.match(s.recentRolls.at(-1), /d20\[\d+\]/);
+});
+
+test('повествование: пропуск хода не попадает в хронику и в память', () => {
+  const s = mk(9002);
+  const events = applyIntent(s, parseCommand('ждём'), 0);
+  assert.ok(events.length > 0);
+  assert.ok(!events.some(e => /тишин/i.test(e.text)), 'пропуск хода не пишет «тишину» в хронику');
+  assert.ok(!s.memory.some(m => /тишин/i.test(m)), 'тишина не оседает в памяти ДМа');
+});
+
+test('повествование: длинный ответ ДМа режется по границе предложения', () => {
+  const long = 'Первое предложение про город. '.repeat(30);
+  const cut = clipNarrative(long);
+  assert.ok(cut.length <= 451, `длина ${cut.length}`);
+  assert.match(cut, /\.$|…$/);
+  assert.equal(clipNarrative('Коротко и по делу.'), 'Коротко и по делу.');
 });

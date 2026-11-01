@@ -32,7 +32,7 @@ test('память кольцевая: не растёт бесконечно (�
   for (let i = 0; i < 30; i++) applyIntent(s, parseCommand('постоять'));
   assert.ok(s.memory.length <= 14, `длина ${s.memory.length}`);
   // старое вытеснилось: последнее событие — свежее
-  assert.match(s.memory[s.memory.length - 1], /system:/);
+  assert.match(s.memory[s.memory.length - 1], /^(system|idle):/);
 });
 
 test('buildContext включает НЕДАВНИЕ СОБЫТИЯ', () => {

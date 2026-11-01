@@ -40,6 +40,20 @@ const OFFLINE_VILLAINS = [
   { villain: 'Хозяин Финальной Двери', goal: 'впустить в мир то, что за дверью' }
 ];
 
+// Формы истории: без них злодей каждый забег собирает монеты/жетоны/долги.
+// Движок выбирает форму сам и передаёт её ДМу — арки перестают повторяться.
+export const STORY_SHAPES = [
+  'осада: место отрезано от мира, злодей ждёт, когда защитники сдадутся сами',
+  'мор: по земле идёт болезнь, у злодея есть лекарство, и он продаёт его за услуги',
+  'похищение: злодей уводит людей и возвращает их изменёнными',
+  'культ: злодей вербует отчаявшихся обещанием второй попытки',
+  'охота: злодей объявил охоту на героев и ведёт её как игру',
+  'подмена: злодей занял чужое лицо и правит от его имени',
+  'голод: злодей забрал воду, урожай или воздух, и все торгуются за глоток',
+  'побег: злодей держит всех внутри, а выйти можно только его путём'
+];
+export const MAX_QUESTS = 5; // больше в журнале не удержится — игрок перестаёт их читать
+
 let monSeq = 0;
 
 /**
@@ -143,6 +157,7 @@ export function newGame(opts) {
     state.story = {
       act: 1, acts: STORY_ACTS, floors: STORY_FLOORS,
       villain: null, villainGoal: null, // приходит от ИИ-интро (или заглушки)
+      shape: STORY_SHAPES[Math.floor(state.rng() * STORY_SHAPES.length)],
       fallbackVillain: v,
       bossSpawned: false, won: false
     };
@@ -230,6 +245,50 @@ export function recordRoll(state, text) {
   if (!Array.isArray(state.recentRolls)) state.recentRolls = [];
   state.recentRolls.push(String(text).slice(0, 80));
   if (state.recentRolls.length > ROLL_MEMORY) state.recentRolls.splice(0, state.recentRolls.length - ROLL_MEMORY);
+}
+
+// Слова, по которым видно: игрок объявил способность, а не обычное действие.
+const POWER_RE = /(способност|сил[аыуе]|умени|навык|маги|заклин|заклят|чит[ао]|взлом|телепорт|невидим|призыв|превращ|левитир|гипно|телепат|воскреш)/i;
+// Действие, которое меняет мир и может провалиться. Осмотр, разговор и ходьба
+// сюда не попадают: иначе кубик бросается на каждую реплику.
+const RISK_RE = /(атак|бью|удар|убива|крад|взлом|прыг|поджиг|взрыв|соблазн|угрож|обман|шантаж|подкуп|отбира|кида|стрел|режь|режу|душ|толка|проник|взбира|лезу|лома|врыва|грабл|похит|подстав|травл|подслуш|притвор|сорв|укра|хвата|тащ|обезоруж|запугива|вербу|договариваюсь с|переубеж)/i;
+const EASY_RE = /(незаметн|тихо|осторожн|потихоньку|украд|подслуш|шепот)/i;
+const HARD_RE = /(всех|всю |всем|арми|толп|стен|башн|мгновенн|одним|на лету|весь город|небоскр)/i;
+
+/** Сложность и пороги: чем наглее заявка, тем выше планка. */
+function checkPlan(text) {
+  if (EASY_RE.test(text)) return { difficulty: 'легко', success: 8, partial: 4 };
+  if (HARD_RE.test(text)) return { difficulty: 'тяжело', success: 14, partial: 9 };
+  return { difficulty: 'средне', success: 11, partial: 6 };
+}
+
+/**
+ * Свободное действие, меняющее мир, проверяется честным d20 — исход решает
+ * движок, а не модель. Возвращает null, если действие безопасное.
+ */
+export function rollPowerCheck(state, hero, text) {
+  const s = String(text);
+  if (!state.dice || !(POWER_RE.test(s) || RISK_RE.test(s))) return null;
+  const plan = checkPlan(s);
+  const roll = state.dice.d20();
+  const verdict = roll >= plan.success ? 'успех' : roll >= plan.partial ? 'с огрехами' : 'провал';
+  recordRoll(state, `${hero.name} ${plan.difficulty}: d20[${roll}] — ${verdict}`);
+  return { roll, verdict, difficulty: plan.difficulty };
+}
+
+/**
+ * Длинный ответ ДМа беспощадно режем: лимит в промпте модель соблюдает через
+ * раз, а «вода» занимает экран и токены. Режем по границе предложения.
+ */
+const NARRATIVE_MAX = 450;
+export function clipNarrative(text) {
+  const s = String(text).trim();
+  if (s.length <= NARRATIVE_MAX) return s;
+  const cut = s.slice(0, NARRATIVE_MAX);
+  const stop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '), cut.lastIndexOf('.\n'));
+  if (stop > 120) return cut.slice(0, stop + 1);
+  const space = cut.lastIndexOf(' ');
+  return (space > 120 ? cut.slice(0, space) : cut) + '…';
 }
 
 /** Монстры в зоне видимости героя. */
@@ -552,7 +611,8 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
       break;
 
     case 'wait':
-      push('system', 'Ты стоишь и слушаешь тишину. Тишина слушает в ответ.');
+      // ход пропущен: это не событие мира, в хронику не пишем
+      push('idle', 'Ждём остальных.');
       break;
 
     case 'flee': {
@@ -1257,8 +1317,15 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
 
   // Задачи: ДМ может закрыть старую (любым способом игрока) и завести новые.
   // questAdd принимает строку или массив — несколько нитей сразу, а не одна общая.
+  // ИИ любит выдавать по 2 задачи каждый ход — журнал превращается в свалку,
+  // и нить теряется. Держим не больше MAX_QUESTS и не больше одной новой
+  // задачи за ход, если в журнале уже что-то висит.
   const questAdds = Array.isArray(effects.questAdd) ? effects.questAdd : [effects.questAdd];
-  for (const raw of questAdds.slice(0, 3)) {
+  const allowance = Math.max(0, Math.min(
+    MAX_QUESTS - state.quests.length,
+    state.quests.length < 2 ? 3 : 1
+  ));
+  for (const raw of questAdds.slice(0, allowance)) {
     const q = addQuest(state, String(raw || '').slice(0, 100));
     if (q) push('quest', `Новая задача: ${q}`);
   }
@@ -1291,7 +1358,7 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
     push('victory', `⚜ ЛЕГЕНДА: ${state.story.villain} — ${state.story.villainGoal || 'твоя главная угроза'}.`);
   }
 
-  if (effects.narrative) push('dm', String(effects.narrative).slice(0, 1200));
+  if (effects.narrative) push('dm', clipNarrative(effects.narrative));
 
   // подсказки ДМа: 2-3 кликабельных варианта действий (UI рендерит чипами)
   if (Array.isArray(effects.suggestions) && effects.suggestions.length) {

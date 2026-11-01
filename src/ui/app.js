@@ -1,6 +1,6 @@
 // app.js — склейка всего: экраны, игровой цикл, ввод, кооп (хост/клиент), смерть, зал славы, экспорт.
 
-import { newGame, parseCommand, applyIntent, applyDmEffects, engagedEnemies } from '../engine/game.js';
+import { newGame, parseCommand, applyIntent, applyDmEffects, engagedEnemies, rollPowerCheck } from '../engine/game.js';
 import { createClient, extractJson } from '../ai/client.js';
 import { buildContext, introMessages, classMessages, backstoryMessages } from '../ai/dm.js';
 import { sanitizeAbility } from '../engine/player.js';
@@ -434,9 +434,12 @@ function selectedClasses() {
 function makeDmResolver() {
   return {
     resolveFree: async (game, text, heroIdx = null) => {
+      // Выдуманная способность проверяется d20 движка, а не желанием игрока:
+      // без броска «я обрёл силу» срабатывало всегда.
+      rollPowerCheck(game, game.heroes[heroIdx ?? game.activeIdx] || game.player, text);
       if (client) {
         try {
-          const raw = await client.chat(buildContext(game, text, heroIdx ?? game.activeIdx), { maxTokens: 2000, jsonMode: true });
+          const raw = await client.chat(buildContext(game, text, heroIdx ?? game.activeIdx), { maxTokens: 800, jsonMode: true });
           const eff = extractJson(raw);
           return eff || { narrative: raw.slice(0, 800) };
         } catch (e) {
@@ -537,6 +540,7 @@ function classify(kind, text) {
 
 function logEvent(kind, text) {
   if (kind === 'suggest') return; // подсказки рендерятся чипами, не в хронике
+  if (kind === 'idle') return;    // пропущенный ход не засоряет хронику
   chronicle.push(`[${kind}] ${text}`);
   // лимит хроники: длинный забег не должен превращаться в тысячу узлов и мегабайт строк
   if (chronicle.length > MAX_LOG_LINES) chronicle.splice(0, chronicle.length - MAX_LOG_LINES);
