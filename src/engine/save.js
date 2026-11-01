@@ -36,6 +36,8 @@ export function serializeRun(state, meta = {}) {
       mode: state.mode,
       worldDesc: state.worldDesc,
       backstory: state.backstory || '',
+      worldBrief: state.worldBrief || '',
+      cast: arr(state.cast).map(c => ({ ...c })),
       depth: state.depth,
       over: !!state.over,
       epitaph: state.epitaph || null,

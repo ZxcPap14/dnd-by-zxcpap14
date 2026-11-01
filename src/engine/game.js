@@ -115,6 +115,11 @@ export function newGame(opts) {
     worldDesc: opts.worldDesc || 'Классическое тёмное фэнтези',
     // предыстория — канон партии: игрок правит её до старта, ДМ обязан её соблюдать
     backstory: String(opts.backstory || '').slice(0, 2400).trim(),
+    // канон мира: 3-4 предложения, которые ДМ написал во вступлении и дальше
+    // обязан соблюдать, а не переписывать. Пусто — ещё не задан.
+    worldBrief: '',
+    // знакомые NPC: без них каждый ход знакомит с новым лицом и нить рвётся
+    cast: [],
     depth: 1,
     over: false,
     epitaph: null,
@@ -838,9 +843,60 @@ export function describeSurroundings(state, heroIdx = state.activeIdx) {
   return parts.join('');
 }
 
-/** Добавить квест в журнал (ИИ или движок). */
+/** Ключ задачи для сравнения: без кавычек, лишних пробелов, регистра и точки. */
+function questKey(text) {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .replace(/[«»"'.,!?:;()]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+const QUEST_NOISE = new Set(['что', 'чтобы', 'этот', 'этом', 'этой', 'какой', 'когда', 'надо', 'нужно', 'найти', 'найди', 'затем']);
+
+function questWords(text) {
+  return questKey(text).split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2 && !QUEST_NOISE.has(w));
+}
+
+/** Слова считаются теми же при совпадении первых 3 букв: «дань» ≈ «данщик», «кузнеца» ≈ «кузнец». */
+function sameWord(a, b) {
+  // shortcut: 3 буквы дают редкие ложные склейки («соль»/«солнце») — ок для
+  // журнала из 3-6 строк; если задач станет много, поднять до 4 и словарь стемов.
+  return a === b || (a.length >= 4 && b.length >= 4 && a.slice(0, 3) === b.slice(0, 3));
+}
+
+/** Добавить задачу в журнал. Возвращает текст, если добавлена, иначе null (дубль). */
 export function addQuest(state, text) {
-  if (text && !state.quests.includes(text)) state.quests.push(text);
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return null;
+  const key = questKey(clean);
+  if (state.quests.some(q => questKey(q) === key)) return null;
+  state.quests.push(clean);
+  return clean;
+}
+
+/**
+ * Закрыть задачу по формулировке ДМа — не дословной: «кузнец Гарм спасён»
+ * закрывает «Найти кузнеца Гарма». Возвращает текст закрытой задачи или null.
+ */
+export function completeQuest(state, text) {
+  const want = questWords(text);
+  if (!want.length) return null;
+  let best = null;
+  let bestScore = 0;
+  for (const q of state.quests) {
+    const words = questWords(q);
+    if (!words.length) continue;
+    const hit = words.filter(w => want.some(x => sameWord(w, x))).length;
+    // Сравниваем с более коротким списком: игрок может закрыть задачу одной
+    // точной фразой («данщик известен»), а не пересказом всей формулировки.
+    const score = hit / Math.min(words.length, want.length);
+    // 2/3 слов задачи уже достаточно: ДМ пересказывает итог своими словами
+    if (score >= 0.5 && score > bestScore) { best = q; bestScore = score; }
+  }
+  if (!best) return null;
+  state.quests = state.quests.filter(q => q !== best);
+  return best;
 }
 
 // ---------- память ДМа ----------
@@ -1083,6 +1139,7 @@ export function buildSnapshot(state, heroIdx = state.activeIdx) {
     t: 'snapshot',
     depth: state.depth, floorName: state.floorName, turnOf: state.activeIdx,
     over: state.over, won: !!state.story?.won, epitaph: state.epitaph, mode: state.mode, worldDesc: state.worldDesc, quests: [...state.quests],
+    worldBrief: state.worldBrief || '', cast: [...(state.cast || [])],
     story: state.story ? { act: state.story.act, acts: state.story.acts, floors: state.story.floors, villain: storyVillain(state), goal: storyGoal(state), bossSpawned: state.story.bossSpawned } : null,
     you: heroIdx,
     heroes: state.heroes.map((h, i) => ({
@@ -1198,10 +1255,33 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
     push('loot', `${hero.name} получает ${clamp(effects.xpGain, 0, 100)} опыта.` + (levels ? ` УРОВЕНЬ ${hero.level}!` : ''));
   }
 
-  if (effects.questAdd) addQuest(state, String(effects.questAdd).slice(0, 100));
+  // Задачи: ДМ может закрыть старую (любым способом игрока) и завести новые.
+  // questAdd принимает строку или массив — несколько нитей сразу, а не одна общая.
+  const questAdds = Array.isArray(effects.questAdd) ? effects.questAdd : [effects.questAdd];
+  for (const raw of questAdds.slice(0, 3)) {
+    const q = addQuest(state, String(raw || '').slice(0, 100));
+    if (q) push('quest', `Новая задача: ${q}`);
+  }
   if (effects.questDone) {
-    const q = state.quests.find(t => t.includes(String(effects.questDone).slice(0, 20)));
-    if (q) state.quests = state.quests.filter(t => t !== q);
+    const done = completeQuest(state, effects.questDone);
+    if (done) push('quest', `✓ Закрыто: ${done}`);
+  }
+
+  // Канон мира задаётся один раз — во вступлении. Дальше ДМ ему следует.
+  if (!state.worldBrief && typeof effects.worldBrief === 'string' && effects.worldBrief.trim()) {
+    state.worldBrief = effects.worldBrief.trim().slice(0, 700);
+    push('lore', state.worldBrief);
+  }
+
+  // Знакомые лица: держим короткий список, чтобы NPC возвращались, а не плодились.
+  if (effects.npcAdd) {
+    if (!Array.isArray(state.cast)) state.cast = [];
+    const npc = typeof effects.npcAdd === 'string' ? { name: effects.npcAdd } : effects.npcAdd;
+    const name = String(npc?.name || '').slice(0, 40).trim();
+    if (name && !state.cast.some(c => c.name.toLowerCase() === name.toLowerCase())) {
+      state.cast.push({ name, role: String(npc.role || '').slice(0, 60).trim() });
+      if (state.cast.length > 8) state.cast.shift();
+    }
   }
 
   // сюжет: ИИ задаёт злодея и его цель (обычно в интро)

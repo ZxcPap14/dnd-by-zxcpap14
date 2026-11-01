@@ -220,9 +220,13 @@ export function renderShop(panelEl, listEl, merchant) {
 }
 
 export function renderQuests(el, state) {
-  el.innerHTML = state.quests.length
+  // Канон мира первой строкой: игрок должен видеть, где он, а не только «что делать».
+  const brief = state.worldBrief
+    ? `<div class="quest quest-empty">${escHtml(state.worldBrief)}</div>`
+    : '';
+  el.innerHTML = brief + (state.quests.length
     ? state.quests.map(q => `<div class="quest">◆ ${escHtml(q)}</div>`).join('')
-    : '<div class="quest quest-empty">Журнал пуст — судьба ещё не наградила тебя поручениями</div>';
+    : '<div class="quest quest-empty">Журнал пуст — судьба ещё не наградила тебя поручениями</div>');
 }
 
 // ---------- рендеры из сетевого снапшота (кооп) ----------
