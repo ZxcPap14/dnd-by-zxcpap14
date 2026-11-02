@@ -1454,6 +1454,7 @@ function equipItem(player, item) {
 
 
 
+
 /** Событие в формате движка (свой, чтобы не тянуть game.js — там уже есть ev). */
 function mev(kind, text) {
   return { kind, text, turn: 0 };
@@ -1517,7 +1518,7 @@ function openMerchant(state) {
     const item = maybeCurse(base, rng, depth, 0.1);
     if (isCursed(item)) item.identified = true; // и не скрывает — «честный» бизнес
     // наценка гуляет ±20% — торг начинается с несправедливой цены
-    const price = Math.max(5, Math.round(g.price * (0.9 + rng() * 0.4)));
+    const price = Math.max(5, Math.round(g.price * (0.9 + rng() * 0.4) * repPriceMult(state)));
     stock.push({ ...item, price });
   }
   return {
@@ -1539,6 +1540,9 @@ function shopText(state, hero = null) {
         : it.type === 'armor' ? `AC +${it.ac}` : '';
     lines.push(`  ${itemNameWithCurse(it)}${meta ? ` (${meta})` : ''} — ${it.price} золота`);
   }
+  const mult = repPriceMult(state);
+  if (mult < 0.999) lines.push('Торговец слышал о вашей славе — уступает.');
+  else if (mult > 1.001) lines.push('Торговец слышал о вашей славе — и заламывает цену.');
   lines.push('Скажи «купить <название>» или «продать <название>».');
   const cursed = hero && ['weapon', 'armor'].filter(s => isCursed(hero.equipment?.[s]));
   if (cursed && cursed.length) {
@@ -2014,6 +2018,60 @@ function storyDigest(state) {
   return `АКТ ${s.act}/${s.acts}, этаж ${state.depth} из ${s.floors}, злодей: ${storyVillain(state)} (${storyGoal(state)}), босс: ${s.bossSpawned ? 'УЖЕ ЖДЁТ' : 'впереди'}.`;
 }
 
+// ---------- акты: что требуется от текущего отрезка истории ----------
+
+/**
+ * Один абзац о том, что должен делать акт. Без него ДМ держит ровный тон
+ * весь забег: ни завязки, ни сгущения, ни финала.
+ */
+function actBrief(state) {
+  const st = state.story;
+  if (!st) return '';
+  const third = Math.max(1, Math.ceil((st.acts || 3) / 3));
+  const act = st.act || 1;
+  if (act <= third) return 'АКТ ЗАВЯЗКИ: показывай мир и людей, угроза только слухами и следами; мелкие беды — её тень. Не выводи злодея на сцену.';
+  if (act <= third * 2) return 'АКТ СГУЩЕНИЯ: угроза уже действует руками слуг, плата за промедление растёт; знакомые страдают первыми. Злодей — пока голос и почерк.';
+  return 'АКТ ФИНАЛА: тяни прямо к злодею, побочное отсекай; каждый ход должен приближать развязку.';
+}
+
+// ---------- репутация: мир помнит, кто ты ----------
+
+const REP_CAP = 5;
+const REP_MAX_FACTIONS = 6;
+
+/** Сдвинуть репутацию фракции (создаёт её при первом упоминании). */
+function addRep(state, name, delta) {
+  const clean = String(name || '').trim().slice(0, 30);
+  const d = Math.max(-2, Math.min(2, delta | 0));
+  if (!clean || !d) return null;
+  if (!Array.isArray(state.factions)) state.factions = [];
+  let f = state.factions.find(x => x.name.toLowerCase() === clean.toLowerCase());
+  if (!f) {
+    if (state.factions.length >= REP_MAX_FACTIONS) state.factions.shift();
+    f = { name: clean, rep: 0 };
+    state.factions.push(f);
+  }
+  f.rep = Math.max(-REP_CAP, Math.min(REP_CAP, f.rep + d));
+  return f;
+}
+
+/** Кому и насколько доверяют — для контекста ИИ. */
+function repDigest(state) {
+  return (state.factions || [])
+    .filter(f => f.rep)
+    .map(f => `${f.name} ${f.rep > 0 ? '+' : ''}${f.rep}`)
+    .join(', ');
+}
+
+/**
+ * Цены торговца: слава даёт скидку до 15%, дурная — наценку до 20%.
+ * Берём самую громкую репутацию: торговец знает не про одну фракцию, а про славу.
+ */
+function repPriceMult(state) {
+  const loud = (state.factions || []).reduce((best, f) => (Math.abs(f.rep) > Math.abs(best) ? f.rep : best), 0);
+  return Math.max(0.85, Math.min(1.2, 1 - loud * 0.03));
+}
+
 
 // monsters.js — поведение монстров: видят героя — преследуют и бьют в упор,
 // не видят — иногда бродят. Всё меняет state и возвращает события.
@@ -2273,6 +2331,7 @@ function newGame(opts) {
     monsters: [],
     floorItems: [],
     merchant: null, // торговец текущего этажа (см. merchant.js)
+  factions: [], // репутация у фракций мира (см. story.js)
     recentRolls: [], // последние броски — их видит ИИ-ДМ
     memory: [], // кольцевой журнал последних событий — память ИИ-ДМа между ходами
     // общая карта партии: союз виден всем, туман рассеивается один раз на всех.
@@ -3161,6 +3220,14 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
     }
   }
 
+  // репутация: поступки меняют отношение фракций, а те — цены и помощь
+  const repChanges = Array.isArray(effects.repChange) ? effects.repChange : [effects.repChange];
+  for (const rc of repChanges) {
+    if (!rc || !rc.name) continue;
+    const f = addRep(state, rc.name, rc.delta);
+    if (f) push('lore', `${f.name}: репутация ${f.rep > 0 ? '+' : ''}${f.rep}${rc.reason ? ' — ' + String(rc.reason).slice(0, 80) : ''}`);
+  }
+
   // сюжет: ИИ задаёт злодея и его цель (обычно в интро)
   if (state.story && !state.story.villain && effects.villain) {
     state.story.villain = String(effects.villain).slice(0, 60);
@@ -3689,7 +3756,7 @@ const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-�
 - Кубики и исходы атак решает движок — ты только описываешь.
 - «Имя способность d20[12] — успех / с огрехами / провал»: исход уже решён, опиши ровно его.
 - Герой может выдумать себе способность: разрешено, но без даровой победы — кубик решает; слишком сильное желание исполняй буквально и мелко, с ценой.
-- Разрешённые эффекты: playerDamage 0-15, heal 0-20, xpGain 0-20, goldGain 1-200, enemyDamage 0-25, enemySpawn, itemGain (слабые предметы), questAdd (1-3), questDone, worldBrief (только во вступлении), npcAdd (одно лицо).
+- Разрешённые эффекты: playerDamage 0-15, heal 0-20, xpGain 0-20, goldGain 1-200, enemyDamage 0-25, enemySpawn, itemGain (слабые предметы), questAdd (1-3), questDone, worldBrief (только во вступлении), npcAdd (одно лицо), repChange ({"name","delta":-2..2,"reason"} — только за настоящий поступок).
 - ОПЫТ И УРОН ТОЛЬКО ЗА ДЕЛО: xpGain давай за победу в бою или закрытую задачу, не за разговор и не за осмотр. playerDamage — только когда герой реально рисковал собой; за болтовню, насмешку или «неловко вышло» урона нет.
 - Лут мощнее кинжала без причины не обещай.
 - suggestions: 2-3 коротких варианта (2-5 слов, глагол первым), выполнимых здесь и ведущих в разные стороны.
@@ -3707,6 +3774,7 @@ const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-�
   "questDone": "",               // формулировка закрытой задачи
   "worldBrief": "",              // канон мира, ТОЛЬКО во вступлении
   "npcAdd": null,                // {"name","role"}
+  "repChange": null,             // {"name","delta","reason"}
   "villain": "", "villainGoal": ""
 }
 Числовые поля по умолчанию 0/null — включай только реально происходящее. villain/villainGoal/worldBrief — только в интро сюжетного режима.`;
@@ -3765,6 +3833,8 @@ function buildContext(state, playerInput, heroIdx = null) {
         (() => { const mem = memoryDigest(state, 12); return mem ? `НЕДАВНИЕ СОБЫТИЯ: ${mem}.` : ''; })(),
         (() => { const f = factsDigest(state); return f ? `ВАЖНОЕ (уже случилось, не забывать и не переигрывать): ${f}.` : ''; })(),
         (() => { const st = storyDigest(state); return st ? `СЮЖЕТ: ${st}` : ''; })(),
+        (() => { const a = actBrief(state); return a ? `ЧТО НУЖНО ОТ АКТА: ${a}` : ''; })(),
+        (() => { const r = repDigest(state); return r ? `РЕПУТАЦИЯ (мир помнит): ${r}. В плюсе — помогают и торгуют дешевле, в минусе — мстят и заламывают цену.` : ''; })(),
         state.story?.shape ? `ФОРМА ИСТОРИИ (веди её, не подменяй привычной): ${state.story.shape}.` : '',
         loadVillains().length ? `УЖЕ БЫЛИ ЗЛОДЕИ (не повторяй ни имя, ни мотив): ${loadVillains().join(', ')}.` : '',
         `ПРОВЕРКИ ДВИЖКА (последние): ${state.recentRolls?.join(', ') || 'нет'}.`,
@@ -3806,6 +3876,7 @@ function introMessages(state) {
 2) narrative — сцена старта, 3-4 КОРОТКИХ предложения: где очнулись, кто рядом, что прямо сейчас тянет вперёд. Каждому герою — своё место и своя зацепка (в коопе это обязательно, героев ${heroes.length}).
 3) questAdd — 2-3 РАЗНЫЕ задачи, 3-8 слов каждая, с именами и местами: личная (про героя), местная (про людей вокруг), большая (про угрозу мира). Не дублируй их друг другом и больше задач в журнал не добавляй.
 4) npcAdd — одно живое лицо в этой сцене: {"name","role"}.
+   repChange — только если поступок героя реально задел фракцию (спас их человека, предал, обобрал): {"name","delta":-2..2,"reason"}.
 5) И шутку в свой стиль — коротко, одной фразой.`
     }
   ];

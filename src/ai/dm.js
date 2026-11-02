@@ -2,7 +2,7 @@
 // Характер по спецификации: юмор и троллинг + беспощадность. Русский язык.
 
 import { playerAc } from '../engine/player.js';
-import { memoryDigest, storyDigest, loadVillains, factsDigest } from '../engine/game.js';
+import { memoryDigest, storyDigest, loadVillains, factsDigest, actBrief, repDigest } from '../engine/game.js';
 
 export const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-игры «dnd by ZxcPap14».
 
@@ -40,7 +40,7 @@ export const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой 
 - Кубики и исходы атак решает движок — ты только описываешь.
 - «Имя способность d20[12] — успех / с огрехами / провал»: исход уже решён, опиши ровно его.
 - Герой может выдумать себе способность: разрешено, но без даровой победы — кубик решает; слишком сильное желание исполняй буквально и мелко, с ценой.
-- Разрешённые эффекты: playerDamage 0-15, heal 0-20, xpGain 0-20, goldGain 1-200, enemyDamage 0-25, enemySpawn, itemGain (слабые предметы), questAdd (1-3), questDone, worldBrief (только во вступлении), npcAdd (одно лицо).
+- Разрешённые эффекты: playerDamage 0-15, heal 0-20, xpGain 0-20, goldGain 1-200, enemyDamage 0-25, enemySpawn, itemGain (слабые предметы), questAdd (1-3), questDone, worldBrief (только во вступлении), npcAdd (одно лицо), repChange ({"name","delta":-2..2,"reason"} — только за настоящий поступок).
 - ОПЫТ И УРОН ТОЛЬКО ЗА ДЕЛО: xpGain давай за победу в бою или закрытую задачу, не за разговор и не за осмотр. playerDamage — только когда герой реально рисковал собой; за болтовню, насмешку или «неловко вышло» урона нет.
 - Лут мощнее кинжала без причины не обещай.
 - suggestions: 2-3 коротких варианта (2-5 слов, глагол первым), выполнимых здесь и ведущих в разные стороны.
@@ -58,6 +58,7 @@ export const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой 
   "questDone": "",               // формулировка закрытой задачи
   "worldBrief": "",              // канон мира, ТОЛЬКО во вступлении
   "npcAdd": null,                // {"name","role"}
+  "repChange": null,             // {"name","delta","reason"}
   "villain": "", "villainGoal": ""
 }
 Числовые поля по умолчанию 0/null — включай только реально происходящее. villain/villainGoal/worldBrief — только в интро сюжетного режима.`;
@@ -116,6 +117,8 @@ export function buildContext(state, playerInput, heroIdx = null) {
         (() => { const mem = memoryDigest(state, 12); return mem ? `НЕДАВНИЕ СОБЫТИЯ: ${mem}.` : ''; })(),
         (() => { const f = factsDigest(state); return f ? `ВАЖНОЕ (уже случилось, не забывать и не переигрывать): ${f}.` : ''; })(),
         (() => { const st = storyDigest(state); return st ? `СЮЖЕТ: ${st}` : ''; })(),
+        (() => { const a = actBrief(state); return a ? `ЧТО НУЖНО ОТ АКТА: ${a}` : ''; })(),
+        (() => { const r = repDigest(state); return r ? `РЕПУТАЦИЯ (мир помнит): ${r}. В плюсе — помогают и торгуют дешевле, в минусе — мстят и заламывают цену.` : ''; })(),
         state.story?.shape ? `ФОРМА ИСТОРИИ (веди её, не подменяй привычной): ${state.story.shape}.` : '',
         loadVillains().length ? `УЖЕ БЫЛИ ЗЛОДЕИ (не повторяй ни имя, ни мотив): ${loadVillains().join(', ')}.` : '',
         `ПРОВЕРКИ ДВИЖКА (последние): ${state.recentRolls?.join(', ') || 'нет'}.`,
@@ -157,6 +160,7 @@ export function introMessages(state) {
 2) narrative — сцена старта, 3-4 КОРОТКИХ предложения: где очнулись, кто рядом, что прямо сейчас тянет вперёд. Каждому герою — своё место и своя зацепка (в коопе это обязательно, героев ${heroes.length}).
 3) questAdd — 2-3 РАЗНЫЕ задачи, 3-8 слов каждая, с именами и местами: личная (про героя), местная (про людей вокруг), большая (про угрозу мира). Не дублируй их друг другом и больше задач в журнал не добавляй.
 4) npcAdd — одно живое лицо в этой сцене: {"name","role"}.
+   repChange — только если поступок героя реально задел фракцию (спас их человека, предал, обобрал): {"name","delta":-2..2,"reason"}.
 5) И шутку в свой стиль — коротко, одной фразой.`
     }
   ];

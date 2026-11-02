@@ -151,6 +151,7 @@ export function newGame(opts) {
     monsters: [],
     floorItems: [],
     merchant: null, // торговец текущего этажа (см. merchant.js)
+  factions: [], // репутация у фракций мира (см. story.js)
     recentRolls: [], // последние броски — их видит ИИ-ДМ
     memory: [], // кольцевой журнал последних событий — память ИИ-ДМа между ходами
     // общая карта партии: союз виден всем, туман рассеивается один раз на всех.
@@ -873,7 +874,7 @@ export function resolveCombatRound(state, hero, monster, dice, opts = {}) {
 
 // Задачи, память ДМа и сюжетные строки живут в story.js; реэкспорт оставлен,
 // чтобы остальной код и тесты продолжали импортировать их из game.js.
-import { addQuest, completeQuest, rememberEvents, storyVillain, storyGoal, floorLabel, rememberVillain, questWords, addFact } from './story.js';
+import { addQuest, completeQuest, rememberEvents, storyVillain, storyGoal, floorLabel, rememberVillain, questWords, addFact, addRep } from './story.js';
 
 /** Спавн финального босса на последнем этаже сюжетного забега. */
 function spawnStoryBoss(state, events) {
@@ -904,7 +905,7 @@ function grantVictory(state, hero, push) {
   state.epitaph = `${hero.name} победил ${storyVillain(state)} и спас мир. На глубине ${state.depth}.`;
   push('victory', `⚜ ${storyVillain(state)} повержен! ${hero.name} — легенда. ПОБЕДА!`);
 }
-export { loadVillains, rememberVillain, floorLabel, addQuest, completeQuest, rememberEvents, memoryDigest, storyVillain, storyGoal, storyDigest, addFact, factsDigest } from './story.js';
+export { loadVillains, rememberVillain, floorLabel, addQuest, completeQuest, rememberEvents, memoryDigest, storyVillain, storyGoal, storyDigest, addFact, factsDigest, addRep, repDigest, repPriceMult, actBrief } from './story.js';
 
 import { monsterTurns } from './monsters.js';
 export { monsterTurns } from './monsters.js';
@@ -1041,6 +1042,14 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
         state.cast.splice(idx >= 0 ? idx : 0, 1);
       }
     }
+  }
+
+  // репутация: поступки меняют отношение фракций, а те — цены и помощь
+  const repChanges = Array.isArray(effects.repChange) ? effects.repChange : [effects.repChange];
+  for (const rc of repChanges) {
+    if (!rc || !rc.name) continue;
+    const f = addRep(state, rc.name, rc.delta);
+    if (f) push('lore', `${f.name}: репутация ${f.rep > 0 ? '+' : ''}${f.rep}${rc.reason ? ' — ' + String(rc.reason).slice(0, 80) : ''}`);
   }
 
   // сюжет: ИИ задаёт злодея и его цель (обычно в интро)

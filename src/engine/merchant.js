@@ -4,6 +4,7 @@
 
 import { makeItem } from './player.js';
 import { isCursed, maybeCurse, cursePrice, uncurseItem, itemNameWithCurse } from './curses.js';
+import { repPriceMult } from './story.js';
 
 /** Событие в формате движка (свой, чтобы не тянуть game.js — там уже есть ev). */
 function mev(kind, text) {
@@ -68,7 +69,7 @@ export function openMerchant(state) {
     const item = maybeCurse(base, rng, depth, 0.1);
     if (isCursed(item)) item.identified = true; // и не скрывает — «честный» бизнес
     // наценка гуляет ±20% — торг начинается с несправедливой цены
-    const price = Math.max(5, Math.round(g.price * (0.9 + rng() * 0.4)));
+    const price = Math.max(5, Math.round(g.price * (0.9 + rng() * 0.4) * repPriceMult(state)));
     stock.push({ ...item, price });
   }
   return {
@@ -90,6 +91,9 @@ export function shopText(state, hero = null) {
         : it.type === 'armor' ? `AC +${it.ac}` : '';
     lines.push(`  ${itemNameWithCurse(it)}${meta ? ` (${meta})` : ''} — ${it.price} золота`);
   }
+  const mult = repPriceMult(state);
+  if (mult < 0.999) lines.push('Торговец слышал о вашей славе — уступает.');
+  else if (mult > 1.001) lines.push('Торговец слышал о вашей славе — и заламывает цену.');
   lines.push('Скажи «купить <название>» или «продать <название>».');
   const cursed = hero && ['weapon', 'armor'].filter(s => isCursed(hero.equipment?.[s]));
   if (cursed && cursed.length) {

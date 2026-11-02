@@ -162,3 +162,57 @@ export function storyDigest(state) {
   if (!s) return '';
   return `АКТ ${s.act}/${s.acts}, этаж ${state.depth} из ${s.floors}, злодей: ${storyVillain(state)} (${storyGoal(state)}), босс: ${s.bossSpawned ? 'УЖЕ ЖДЁТ' : 'впереди'}.`;
 }
+
+// ---------- акты: что требуется от текущего отрезка истории ----------
+
+/**
+ * Один абзац о том, что должен делать акт. Без него ДМ держит ровный тон
+ * весь забег: ни завязки, ни сгущения, ни финала.
+ */
+export function actBrief(state) {
+  const st = state.story;
+  if (!st) return '';
+  const third = Math.max(1, Math.ceil((st.acts || 3) / 3));
+  const act = st.act || 1;
+  if (act <= third) return 'АКТ ЗАВЯЗКИ: показывай мир и людей, угроза только слухами и следами; мелкие беды — её тень. Не выводи злодея на сцену.';
+  if (act <= third * 2) return 'АКТ СГУЩЕНИЯ: угроза уже действует руками слуг, плата за промедление растёт; знакомые страдают первыми. Злодей — пока голос и почерк.';
+  return 'АКТ ФИНАЛА: тяни прямо к злодею, побочное отсекай; каждый ход должен приближать развязку.';
+}
+
+// ---------- репутация: мир помнит, кто ты ----------
+
+export const REP_CAP = 5;
+const REP_MAX_FACTIONS = 6;
+
+/** Сдвинуть репутацию фракции (создаёт её при первом упоминании). */
+export function addRep(state, name, delta) {
+  const clean = String(name || '').trim().slice(0, 30);
+  const d = Math.max(-2, Math.min(2, delta | 0));
+  if (!clean || !d) return null;
+  if (!Array.isArray(state.factions)) state.factions = [];
+  let f = state.factions.find(x => x.name.toLowerCase() === clean.toLowerCase());
+  if (!f) {
+    if (state.factions.length >= REP_MAX_FACTIONS) state.factions.shift();
+    f = { name: clean, rep: 0 };
+    state.factions.push(f);
+  }
+  f.rep = Math.max(-REP_CAP, Math.min(REP_CAP, f.rep + d));
+  return f;
+}
+
+/** Кому и насколько доверяют — для контекста ИИ. */
+export function repDigest(state) {
+  return (state.factions || [])
+    .filter(f => f.rep)
+    .map(f => `${f.name} ${f.rep > 0 ? '+' : ''}${f.rep}`)
+    .join(', ');
+}
+
+/**
+ * Цены торговца: слава даёт скидку до 15%, дурная — наценку до 20%.
+ * Берём самую громкую репутацию: торговец знает не про одну фракцию, а про славу.
+ */
+export function repPriceMult(state) {
+  const loud = (state.factions || []).reduce((best, f) => (Math.abs(f.rep) > Math.abs(best) ? f.rep : best), 0);
+  return Math.max(0.85, Math.min(1.2, 1 - loud * 0.03));
+}
