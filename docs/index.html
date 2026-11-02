@@ -42,6 +42,7 @@
   }
 
   :root {
+    --font-mono: 'Consolas', 'Courier New', monospace;
     --font-pixel: 'Press Start 2P', 'Consolas', monospace;
     --font-term: 'VT323', 'Consolas', monospace;
   }
@@ -142,6 +143,20 @@
     margin-bottom: 4px;
   }
   #logo { text-shadow: 0 0 14px var(--glow2); }
+
+  /* низкий экран: логотип ужимается, иначе список классов уезжает под скролл.
+     font-size у #logo задаётся инлайном (автоподгонка арта) — отсюда !important. */
+  @media (max-height: 900px) {
+    #logo { font-size: 7px !important; }
+    #logo-sub { display: none; }
+    header .tagline { display: none; }
+    .setup-box { padding: 14px; }
+    .setup-box h2 { margin: 8px 0 6px; }
+  }
+  @media (max-height: 780px) {
+    #logo { font-size: 5px !important; }
+    .setup-box { max-height: 96vh; }
+  }
   #logo-sub { color: var(--main); }
   .setup-box h2 {
     font-family: var(--font-pixel);
@@ -233,14 +248,14 @@
 
   /* аватары */
   .avatar {
-    font-family: var(--font-pixel);
-    font-size: 8px;
-    line-height: 1.4;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    line-height: 1.05;
     color: var(--bright);
     text-shadow: 0 0 8px var(--glow);
     white-space: pre;
   }
-  .avatar-sm { font-size: 6px; margin-top: 3px; }
+  .avatar-sm { font-size: 9px; margin-top: 6px; }
   .stat-hero { align-items: flex-start; }
   .lobby-card { display: flex; align-items: center; gap: 12px; padding: 4px 0; }
   .lobby-card.offline { opacity: 0.5; }
@@ -270,11 +285,11 @@
   .game-grid {
     flex: 1;
     display: grid;
-    grid-template-columns: minmax(340px, 42%) 1fr;
+    grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
     gap: 12px;
     min-height: 0;
   }
-  .col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .col { display: flex; flex-direction: column; gap: 12px; min-height: 0; min-width: 0; }
 
   /* рюкзак: предметы с кнопками, панель не разъезжается на весь экран */
   #inv-panel { flex: 0 1 auto; max-height: 34%; }
@@ -294,6 +309,7 @@
   .inv-empty { color: var(--dim); font-size: 16px; }
 
   .panel {
+    min-width: 0;
     border: 1px solid var(--dim);
     background: var(--panel);
     padding: 10px;
@@ -395,8 +411,9 @@
 
   /* ---------- мини-карта: одна на всю партию ---------- */
   .avatar-grid {
-    display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-top: 4px;
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
   }
+  .avatar-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
   .avatar-pick {
     background: transparent; border: 1px solid var(--dim); color: var(--dim);
     padding: 2px; cursor: pointer; font: inherit; line-height: 1;
@@ -424,12 +441,14 @@
   .inv-curse { color: var(--red); text-shadow: 0 0 6px var(--red); }
 
   #stats { font-size: 18px; flex-shrink: 0; }
+  .stat-row > span:last-child { text-align: right; min-width: 0; }
   .stat-row { display: flex; justify-content: space-between; padding: 2px 0; gap: 8px; }
   .stat-label { color: var(--dim); }
   .hp { color: var(--bright); }
-  .stats-line { justify-content: center; color: var(--dim); font-size: 16px; margin-top: 4px; }
+  .stats-line { flex-wrap: wrap; justify-content: flex-start; gap: 2px 12px; color: var(--dim); font-size: 16px; margin-top: 6px; }
+  .stat-chip b { color: var(--main); font-weight: normal; margin-left: 2px; }
 
-  #quests { flex-shrink: 0; max-height: 34vh; overflow-y: auto; font-size: 17px; }
+  #quests { flex: 1 1 auto; min-height: 92px; overflow-y: auto; font-size: 17px; }
   .quest { padding: 2px 0; }
   #quests .quest-empty + .quest-empty { display: none; }
 /* Канон мира свёрнут: раскрытый он занимал всю панель и задачи не были видны. */
@@ -443,12 +462,13 @@
 
   #log {
     flex: 1;
+    overflow-x: hidden;
     font-size: 19px;
     line-height: 1.5;
     min-height: 0;
     cursor: pointer;
   }
-  .line { white-space: pre-wrap; word-break: break-word; margin-bottom: 7px; }
+  .line { white-space: pre-wrap; word-break: break-word; margin-bottom: 7px; max-width: 96ch; }
   .kind-player { color: var(--bright); }
   .kind-dm { color: var(--main); }
   .kind-system { color: var(--dim); }
@@ -472,10 +492,10 @@
   }
   .kind-death { color: var(--red); font-weight: bold; text-shadow: 0 0 12px var(--red); }
 
-  .input-row { display: flex; gap: 8px; flex-shrink: 0; }
+  .input-row { display: flex; gap: 8px; flex-shrink: 0; align-items: stretch; }
   #ability-btn {
-    flex-shrink: 0; font-size: 9px; padding: 0 12px; max-width: 200px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex-shrink: 0; font-size: 9px; padding: 8px 12px; max-width: 260px;
+    line-height: 1.15; white-space: normal;
     border-color: var(--loot); color: var(--loot);
   }
   #ability-btn:disabled { border-color: var(--dim); color: var(--dim); cursor: default; }
@@ -605,8 +625,32 @@
   .death-box .epi { margin: 18px 0; font-size: 21px; color: var(--main); }
   .death-box .dstats { font-size: 17px; color: var(--dim); margin-bottom: 20px; }
 
-  @media (max-width: 800px) {
-    .game-grid { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  /* ---------- мобильный экран: одна колонка, хроника выше панелей ---------- */
+  @media (max-width: 820px) {
+    html, body { height: auto; }
+    body { overflow: auto; font-size: 18px; }
+    .screen { height: auto; min-height: 100vh; padding: 10px; }
+    .screen.active { overflow: visible; }
+    #screen-game { gap: 8px; }
+    #game-title { font-size: 9px; letter-spacing: 1px; }
+    #btn-chronicle, #btn-help, #btn-diag { font-size: 7px; padding: 4px 6px; margin-left: 4px; }
+    .game-grid { display: flex; flex-direction: column; gap: 8px; }
+    .game-grid > .col:nth-child(2) { order: 1; } /* хроника и ввод — первыми */
+    .game-grid > .col:nth-child(1) { order: 2; }
+    #log-panel { min-height: 48vh; }
+    #portrait-panel { display: none; } /* аватарка и так в панели героя */
+    .panel { padding: 8px; }
+    #log { font-size: 18px; }
+    .stat-row { font-size: 17px; }
+    .stat-row > span:last-child { white-space: normal; }
+    #quests, #inv-panel { max-height: none; }
+    .input-row {
+      position: sticky; bottom: 0; z-index: 20;
+      background: var(--bg); padding: 6px 0 10px; flex-wrap: wrap;
+    }
+    #ability-btn { max-width: 100%; }
+    #input { font-size: 18px; }
+    .avatar-grid { grid-template-columns: repeat(4, 1fr); }
   }
 </style>
 </head>
@@ -663,19 +707,17 @@
     </div>
     <div class="field">
       <label for="set-name">Имя героя</label>
-      <input id="set-name" type="text" placeholder="Безымянный" maxlength="20">
+      <input id="set-name" type="text" placeholder="Странник" maxlength="20">
     </div>
-    <div class="field">
-      <label>Аватар</label>
-      <pre class="avatar" id="name-avatar" style="font-size:8px"> </pre>
-    </div>
-
-    <div class="field">
-      <label>АВАТАРКА</label>
-      <div id="avatar-grid" class="avatar-grid"></div>
-    </div>
-    <div class="bs-meta">
-      <span class="hint" id="avatar-note">Выбери портрет. Если ничего не выбрано — рисуется из ника.</span>
+    <div class="field" style="align-items:flex-start">
+      <label>АВАТАР</label>
+      <div style="flex:1; min-width:0">
+        <div class="avatar-head">
+          <pre class="avatar" id="name-avatar"> </pre>
+          <span class="hint" id="avatar-note" style="margin-left:0">Выбери портрет. Если ничего не выбрано — рисуется из ника.</span>
+        </div>
+        <div id="avatar-grid" class="avatar-grid"></div>
+      </div>
     </div>
 
     <div id="lobby-panel" style="display:none; border:1px dashed var(--dim); padding:12px; margin:10px 0">
@@ -6222,7 +6264,7 @@ function renderStats(el, state) {
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(itemNameWithCurse(p.equipment.weapon) || 'кулаки')}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(itemNameWithCurse(p.equipment.armor) || 'нет')}</span></div>
     ${abilityRow}
-    <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
+    <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => `<span class="stat-chip">${k.toUpperCase()}<b>${v}</b></span>`).join('')}</div>
   `;
 }
 
@@ -6348,7 +6390,7 @@ function renderStatsSnap(el, snap) {
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(itemNameWithCurse(s.equipment.weapon) || 'кулаки')}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(itemNameWithCurse(s.equipment.armor) || 'нет')} (AC ${s.ac})</span></div>
     ${s.ability ? `<div class="stat-row"><span class="stat-label">Способность</span><span>${escHtml(s.ability.name)}${s.ability.active ? (s.abilityCd > 0 ? ` · КД ${s.abilityCd}` : ' · <span style="color:var(--loot)">ГОТОВО</span>') : ''}</span></div>` : ''}
-    <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
+    <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `<span class="stat-chip">${k.toUpperCase()}<b>${v}</b></span>`).join('')}</div>
     ${party}
   `;
 }
@@ -6901,7 +6943,7 @@ function offlineBackstory(world, name, className) {
 
 async function generateBackstory() {
   const world = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
-  const name = $('set-name').value.trim() || 'Безымянный';
+  const name = $('set-name').value.trim() || 'Странник';
   const mode = $('set-mode').value;
   const cls = selectedClasses()[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
   const btn = $('btn-backstory');
@@ -6969,7 +7011,7 @@ function readCommonConfig() {
   return {
     world: $('set-world').value.trim() || 'Классическое тёмное фэнтези',
     mode: $('set-mode').value,
-    name: $('set-name').value.trim() || 'Безымянный',
+    name: $('set-name').value.trim() || 'Странник',
     backstory: $('set-backstory').value.trim().slice(0, 2400)
   };
 }
@@ -7323,7 +7365,7 @@ async function joinRoom() {
   saveCfg();
   initAudio();
   const code = ($('set-room').value || '').trim().toUpperCase();
-  const name = $('set-name').value.trim() || 'Безымянный';
+  const name = $('set-name').value.trim() || 'Странник';
   if (code.length !== 4) { addSetupNote('Код комнаты — 4 символа'); return; }
 
   $('lobby-panel').style.display = 'block';
@@ -7774,7 +7816,7 @@ function wire() {
 
   // аватарки: своя выбранная, иначе портрет из ника
   const updateAvatar = () => {
-    const nm = $('set-name').value.trim() || 'Безымянный';
+    const nm = $('set-name').value.trim() || 'Странник';
     $('name-avatar').textContent = heroAvatar(nm);
     paintPortrait(nm);
   };

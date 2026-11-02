@@ -154,7 +154,7 @@ export function renderStats(el, state) {
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(itemNameWithCurse(p.equipment.weapon) || 'кулаки')}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(itemNameWithCurse(p.equipment.armor) || 'нет')}</span></div>
     ${abilityRow}
-    <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
+    <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => `<span class="stat-chip">${k.toUpperCase()}<b>${v}</b></span>`).join('')}</div>
   `;
 }
 
@@ -280,7 +280,7 @@ export function renderStatsSnap(el, snap) {
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(itemNameWithCurse(s.equipment.weapon) || 'кулаки')}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(itemNameWithCurse(s.equipment.armor) || 'нет')} (AC ${s.ac})</span></div>
     ${s.ability ? `<div class="stat-row"><span class="stat-label">Способность</span><span>${escHtml(s.ability.name)}${s.ability.active ? (s.abilityCd > 0 ? ` · КД ${s.abilityCd}` : ' · <span style="color:var(--loot)">ГОТОВО</span>') : ''}</span></div>` : ''}
-    <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `${k.toUpperCase()}${v}`).join(' ')}</div>
+    <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `<span class="stat-chip">${k.toUpperCase()}<b>${v}</b></span>`).join('')}</div>
     ${party}
   `;
 }

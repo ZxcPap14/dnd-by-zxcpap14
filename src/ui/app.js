@@ -415,7 +415,7 @@ function offlineBackstory(world, name, className) {
 
 async function generateBackstory() {
   const world = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
-  const name = $('set-name').value.trim() || 'Безымянный';
+  const name = $('set-name').value.trim() || 'Странник';
   const mode = $('set-mode').value;
   const cls = selectedClasses()[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
   const btn = $('btn-backstory');
@@ -483,7 +483,7 @@ function readCommonConfig() {
   return {
     world: $('set-world').value.trim() || 'Классическое тёмное фэнтези',
     mode: $('set-mode').value,
-    name: $('set-name').value.trim() || 'Безымянный',
+    name: $('set-name').value.trim() || 'Странник',
     backstory: $('set-backstory').value.trim().slice(0, 2400)
   };
 }
@@ -837,7 +837,7 @@ async function joinRoom() {
   saveCfg();
   initAudio();
   const code = ($('set-room').value || '').trim().toUpperCase();
-  const name = $('set-name').value.trim() || 'Безымянный';
+  const name = $('set-name').value.trim() || 'Странник';
   if (code.length !== 4) { addSetupNote('Код комнаты — 4 символа'); return; }
 
   $('lobby-panel').style.display = 'block';
@@ -1288,7 +1288,7 @@ function wire() {
 
   // аватарки: своя выбранная, иначе портрет из ника
   const updateAvatar = () => {
-    const nm = $('set-name').value.trim() || 'Безымянный';
+    const nm = $('set-name').value.trim() || 'Странник';
     $('name-avatar').textContent = heroAvatar(nm);
     paintPortrait(nm);
   };
