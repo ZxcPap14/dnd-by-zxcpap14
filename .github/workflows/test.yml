@@ -19,6 +19,9 @@ jobs:
       - name: Установка dev-зависимостей
         run: npm ci
 
+      - name: Линтер
+        run: npm run lint
+
       - name: Тесты движка и сети
         run: npm test
 
