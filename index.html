@@ -427,6 +427,14 @@
   .help-title { display: flex; justify-content: space-between; align-items: center; gap: 20px; color: var(--bright); margin-bottom: 10px; }
   #help-body { margin: 0; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
   .daily { white-space: nowrap; font-size: 12px; }
+  .preset-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .preset {
+    font: inherit; font-size: 8px; padding: 6px 9px; cursor: pointer;
+    background: transparent; border: 1px solid var(--dim); color: var(--dim);
+  }
+  .preset:hover { color: var(--bright); border-color: var(--bright); }
+  .preset.on { color: var(--bright); border-color: var(--bright); }
+  #set-backstory.flash { border-color: var(--bright); box-shadow: 0 0 0 2px rgba(255, 200, 80, .22); }
   #portrait-panel {
     flex: 0 0 auto; padding: 8px 10px;
     display: flex; flex-direction: column; align-items: center;
@@ -682,6 +690,10 @@
       <label for="set-world">Описание мира</label>
       <input id="set-world" type="text" placeholder="Киберпанк-Токио 2099, ты — курьер-неудачник">
     </div>
+    <div class="field" style="align-items:flex-start">
+      <label>Жанр</label>
+      <div id="world-presets" class="preset-row"></div>
+    </div>
     <div class="field">
       <label for="set-mode">Режим</label>
       <select id="set-mode">
@@ -708,6 +720,12 @@
     <div class="field">
       <label for="set-name">Имя героя</label>
       <input id="set-name" type="text" placeholder="Странник" maxlength="20">
+    </div>
+    <h2>ПРЕДЫСТОРИЯ <button id="btn-backstory" style="font-size:8px; padding:5px 10px; margin-left:8px">сгенерировать</button></h2>
+    <textarea id="set-backstory" maxlength="2400" placeholder="Кто он, откуда, за что попал сюда… Здесь можно писать что угодно — ДМ будет опираться на этот текст как на канон."></textarea>
+    <div class="bs-meta">
+      <span class="hint">Правь руками сколько угодно — ДМ обязан соблюдать написанное.</span>
+      <span class="hint" id="backstory-count">0 / 2400</span>
     </div>
     <div class="field" style="align-items:flex-start">
       <label>АВАТАР</label>
@@ -806,12 +824,6 @@
     </div>
     <div id="custom-class-list"></div>
 
-    <h2>ПРЕДЫСТОРИЯ <button id="btn-backstory" style="font-size:8px; padding:5px 10px; margin-left:8px">сгенерировать</button></h2>
-    <textarea id="set-backstory" maxlength="2400" placeholder="Кто он, откуда, за что попал сюда… Здесь можно писать что угодно — ДМ будет опираться на этот текст как на канон."></textarea>
-    <div class="bs-meta">
-      <span class="hint">Правь руками сколько угодно — ДМ обязан соблюдать написанное.</span>
-      <span class="hint" id="backstory-count">0 / 2400</span>
-    </div>
 
     <h2>ВИЗУАЛ И ЗВУК</h2>
     <div class="field">

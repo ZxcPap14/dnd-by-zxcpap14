@@ -160,7 +160,7 @@ export function storyGoal(state) {
 export function storyDigest(state) {
   const s = state.story;
   if (!s) return '';
-  return `АКТ ${s.act}/${s.acts}, этаж ${state.depth} из ${s.floors}, злодей: ${storyVillain(state)} (${storyGoal(state)}), босс: ${s.bossSpawned ? 'УЖЕ ЖДЁТ' : 'впереди'}.`;
+  return `АКТ ${s.act}/${s.acts}, ${floorLabel(state.worldDesc, state.depth)} из ${s.floors}, злодей: ${storyVillain(state)} (${storyGoal(state)}), босс: ${s.bossSpawned ? 'УЖЕ ЖДЁТ' : 'впереди'}.`;
 }
 
 // ---------- акты: что требуется от текущего отрезка истории ----------

@@ -33,6 +33,16 @@ import {
 
 const $ = (id) => document.getElementById(id);
 // shortcut: версия дублируется из package.json — обновлять вместе с ним
+const WORLD_PRESETS = [
+  { name: 'Киберпанк', world: 'Киберпанк-Токио 2099: неон, корпорации, ты — курьер-неудачник с чужим чипом' },
+  { name: 'Космос', world: 'Грузовой корабль «Атлас» на орбите: воздух на исходе, экипаж врёт' },
+  { name: 'Нуар', world: 'Нуар-город 1947: дождь, долги, частный детектив с лицензией на чужое имя' },
+  { name: 'Пустошь', world: 'Постапокалипсис: пустошь, бензин дороже крови, радиация по расписанию' },
+  { name: 'Фэнтези', world: 'Тёмное фэнтези: пограничная деревня, лес, который двигается по ночам' },
+  { name: 'Котельная', world: 'Советская котельная зимой: нечисть, смены, журнал дежурств и вечное «не положено»' },
+  { name: 'Школа', world: 'Школьный подвал 1999: классы, слухи, что-то за котлами' },
+  { name: 'Пираты', world: 'Пиратский флот: три корабля, одна карта, ни у кого нет полной' }
+];
 const APP_VERSION = '0.2.0';
 // диагностика связи: что за канал, сколько ждали вход, что упало
 const diag = { channel: '', joinMs: 0, errors: [] };
@@ -130,6 +140,53 @@ const STUB_CLASSES = [
     ability: { name: 'Слово заживления', active: 'heal', power: 8, cd: 4, passive: 'regen', passivePower: 1 }
   }
 ];
+
+// Офлайн-классы под жанр: без ключа ИИ игрок всё равно видит свой мир, а не «Плута».
+const STUB_PACKS = [
+  { re: /пират|флот|остров/i, list: [
+    { name: 'Капитан', desc: 'Карта врёт, но он врёт лучше', stats: { str: 14, dex: 12, int: 12, con: 12, cha: 16, luck: 10 }, ability: { name: 'Абордаж', active: 'smite', power: 6, cd: 3, passive: 'gold', passivePower: 2 } },
+    { name: 'Боцман', desc: 'Держит команду и палубу в кулаке', stats: { str: 16, dex: 12, int: 8, con: 16, cha: 10, luck: 10 }, ability: { name: 'Кулак боцмана', active: 'stun', power: 5, cd: 3, passive: 'ac', passivePower: 2 } },
+    { name: 'Канонир', desc: 'Считает до трёх и стреляет', stats: { str: 12, dex: 16, int: 10, con: 12, cha: 10, luck: 14 }, ability: { name: 'Залп', active: 'smite', power: 8, cd: 4, passive: 'crit', passivePower: 2 } }
+  ] },
+  { re: /кибер|неон|корпорац|чип|токио/i, list: [
+    { name: 'Хакер', desc: 'Взламывает двери и чужие жизни', stats: { str: 8, dex: 12, int: 16, con: 10, cha: 12, luck: 12 }, ability: { name: 'Ледокол', active: 'stun', power: 6, cd: 4, passive: 'crit', passivePower: 2 } },
+    { name: 'Курьер', desc: 'Доставляет всё, кроме плохих новостей', stats: { str: 10, dex: 16, int: 12, con: 12, cha: 12, luck: 12 }, ability: { name: 'Срез дворами', active: 'dash', power: 5, cd: 2, passive: 'gold', passivePower: 2 } },
+    { name: 'Рипер', desc: 'Хирургия по контракту, без анестезии', stats: { str: 14, dex: 14, int: 10, con: 12, cha: 8, luck: 10 }, ability: { name: 'Разряд', active: 'smite', power: 7, cd: 3, passive: 'lifesteal', passivePower: 2 } }
+  ] },
+  { re: /косм|орбит|звезд|станц|экипаж|атлас/i, list: [
+    { name: 'Пилот', desc: 'Сажает что угодно, куда угодно', stats: { str: 10, dex: 16, int: 12, con: 12, cha: 12, luck: 12 }, ability: { name: 'Форсаж', active: 'dash', power: 6, cd: 3, passive: 'crit', passivePower: 1 } },
+    { name: 'Инженер', desc: 'Починит реактор и починит тебя', stats: { str: 12, dex: 10, int: 16, con: 12, cha: 8, luck: 12 }, ability: { name: 'Аварийный наддув', active: 'heal', power: 7, cd: 4, passive: 'regen', passivePower: 1 } },
+    { name: 'Ксенобиолог', desc: 'Знает, что тебя съест первым', stats: { str: 8, dex: 12, int: 16, con: 10, cha: 14, luck: 12 }, ability: { name: 'Укол', active: 'stun', power: 5, cd: 3, passive: 'lifesteal', passivePower: 1 } }
+  ] },
+  { re: /нуар|детектив|дождь|долг|1947/i, list: [
+    { name: 'Детектив', desc: 'Задаёт вопросы, на которые сам не хочет знать ответ', stats: { str: 12, dex: 12, int: 16, con: 12, cha: 12, luck: 10 }, ability: { name: 'Грязный приём', active: 'stun', power: 5, cd: 3, passive: 'crit', passivePower: 1 } },
+    { name: 'Бармен', desc: 'Слышал всё, что здесь сказали', stats: { str: 12, dex: 10, int: 12, con: 14, cha: 16, luck: 12 }, ability: { name: 'Доверие за стойкой', active: 'heal', power: 6, cd: 4, passive: 'gold', passivePower: 2 } },
+    { name: 'Карманник', desc: 'Профессионал в узких подворотнях', stats: { str: 8, dex: 16, int: 12, con: 10, cha: 14, luck: 14 }, ability: { name: 'Рука в пальто', active: 'dash', power: 5, cd: 3, passive: 'gold', passivePower: 1 } }
+  ] },
+  { re: /пустош|постапок|радиац|бензин/i, list: [
+    { name: 'Собиратель', desc: 'Видит ценность в ржавчине', stats: { str: 12, dex: 14, int: 12, con: 12, cha: 10, luck: 14 }, ability: { name: 'Чужой хлам', active: 'smite', power: 6, cd: 3, passive: 'gold', passivePower: 2 } },
+    { name: 'Механик', desc: 'Собирает машины из чужих надежд', stats: { str: 14, dex: 10, int: 14, con: 14, cha: 8, luck: 10 }, ability: { name: 'Сварка', active: 'heal', power: 6, cd: 4, passive: 'ac', passivePower: 2 } },
+    { name: 'Мутант', desc: 'Радиация дала больше, чем забрала', stats: { str: 16, dex: 10, int: 8, con: 16, cha: 8, luck: 12 }, ability: { name: 'Лишний сустав', active: 'stun', power: 6, cd: 4, passive: 'regen', passivePower: 2 } }
+  ] },
+  { re: /школ|физрук|1999/i, list: [
+    { name: 'Школьник', desc: 'Читал про это в энциклопедии', stats: { str: 8, dex: 14, int: 14, con: 10, cha: 12, luck: 16 }, ability: { name: 'Знание из библиотеки', active: 'stun', power: 5, cd: 3, passive: 'crit', passivePower: 1 } },
+    { name: 'Уборщица', desc: 'Знает каждый угол и каждую лазейку', stats: { str: 12, dex: 10, int: 12, con: 14, cha: 12, luck: 14 }, ability: { name: 'Мокрой тряпкой', active: 'smite', power: 6, cd: 2, passive: 'ac', passivePower: 1 } },
+    { name: 'Физрук', desc: 'Один свисток — и все бегут', stats: { str: 16, dex: 12, int: 8, con: 16, cha: 12, luck: 8 }, ability: { name: 'Свисток', active: 'stun', power: 4, cd: 3, passive: 'regen', passivePower: 1 } }
+  ] },
+  { re: /котельн|совет|смен|вахт/i, list: [
+    { name: 'Слесарь', desc: 'Всё держится на нём и на изоленте', stats: { str: 14, dex: 12, int: 12, con: 14, cha: 10, luck: 12 }, ability: { name: 'Гаечный ключ', active: 'smite', power: 7, cd: 3, passive: 'ac', passivePower: 1 } },
+    { name: 'Кочегар', desc: 'Топит так, что тени обходят стороной', stats: { str: 16, dex: 8, int: 10, con: 16, cha: 10, luck: 10 }, ability: { name: 'Жар', active: 'smite', power: 8, cd: 4, passive: 'regen', passivePower: 1 } },
+    { name: 'Вахтёр', desc: 'Не пускает, не спрашивая кто ты', stats: { str: 12, dex: 10, int: 12, con: 14, cha: 14, luck: 12 }, ability: { name: 'Вахтёрская', active: 'stun', power: 5, cd: 3, passive: 'gold', passivePower: 1 } }
+  ] }
+];
+
+/** Классы под мир; нет подходящего набора — стандартные. */
+function stubClassesFor(world) {
+  const w = String(world || '');
+  const pack = STUB_PACKS.find(pack => pack.re.test(w));
+  return pack ? pack.list : STUB_CLASSES;
+}
+
 
 const ACTIVE_LABELS = { heal: 'лечение', smite: 'кара', stun: 'оглушение', dash: 'рывок' };
 const PASSIVE_LABELS = { crit: 'крит', lifesteal: 'вампиризм', regen: 'регенерация', gold: 'жадность', ac: 'защита' };
@@ -255,7 +312,7 @@ function resumeSolo(saved) {
   refreshPanelsSolo();
   $('turn-banner').textContent = 'СОЛО · твой ход всегда';
   wasMyTurn = true;
-  logEvent('system', `Ты возвращаешься в темноту. ${state.floorName}, ход ${state.turn}. Подземелье ждало.`);
+  logEvent('system', `Ты возвращаешься в темноту. ${state.floorName}, ход ${state.turn}. Тьма ждала.`);
   if (state.merchant) logEvent('system', `⚖ ${state.merchant.name} всё ещё здесь — «торговец» покажет товар.`);
   $('input').disabled = false;
   $('input').focus();
@@ -394,6 +451,14 @@ function setBackstory(text) {
   updateBackstoryCount();
   try { localStorage.setItem('dnd_backstory', el.value); } catch { /*ignore*/ }
 }
+/** Показать поле предыстории — иначе генерация выглядит как «ничего не произошло». */
+function focusBackstory() {
+  const el = $('set-backstory');
+  if (!el) return;
+  el.classList.add('flash');
+  try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { /*ignore*/ }
+  setTimeout(() => el.classList.remove('flash'), 1400);
+}
 function updateBackstoryCount() {
   const el = $('set-backstory');
   const c = $('backstory-count');
@@ -404,9 +469,9 @@ function updateBackstoryCount() {
 function offlineBackstory(world, name, className) {
   const w = world.toLowerCase();
   const variants = [
-    `${name} не собирался становиться героем. ${className} из него вышел случайно: сначала он просто пытался выжить в мире, который называет себя «${world}», потом — просто не умирать. Долг перед человеком, чьё имя он до сих пор не может произнести вслух, привёл его к чёрному входу в подземелье. В кармане — чужая монета с пропиленным отверстием: то ли оберег, то ли расписка.`,
-    `Говорят, ${name} был ${className.toLowerCase()} до того, как всё пошло не так. Теперь он идёт вниз, потому что наверху его ждут либо кредиторы, либо палач — а внизу ждёт только темнота, и она хотя бы честна. С ним — обломок чужого клинка: он обещал вернуть его владельцу. Владелец обещания не дождался.`,
-    `${name} пришёл из мест, где ${w} ещё не добралось. Он был ${className.toLowerCase()} — пока однажды не нашёл на пороге корзину с чужой судьбой внутри. С тех пор он спускается в подземелья, потому что наверху слишком много людей, которые знают его в лицо. И слишком мало, кто знает, что он сделал.`
+    `${name} не собирался становиться героем. ${className} из него вышел случайно: сначала он просто пытался выжить в мире, который называет себя «${world}», потом — просто не умирать. Долг перед человеком, чьё имя он до сих пор не может произнести вслух, привёл его к чёрному ходу туда, где не задают вопросов. В кармане — чужая монета с пропиленным отверстием: то ли оберег, то ли расписка.`,
+    `Говорят, ${name} был ${className.toLowerCase()} до того, как всё пошло не так. Теперь он идёт вниз, потому что наверху его ждут либо кредиторы, либо те, кого он подвёл, — а внизу ждёт только темнота, и она хотя бы честна. С ним — обломок чужой вещи: он обещал вернуть его владельцу. Владелец обещания не дождался.`,
+    `${name} пришёл из мест, где ${w} ещё не добралось. Он был ${className.toLowerCase()} — пока однажды не нашёл на пороге корзину с чужой судьбой внутри. С тех пор он идёт вниз, потому что наверху слишком много людей, которые знают его в лицо. И слишком мало, кто знает, что он сделал.`
   ];
   let h = 0;
   for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -441,6 +506,7 @@ async function generateBackstory() {
   } finally {
     btn.disabled = false;
     btn.textContent = prev;
+    focusBackstory();
   }
 }
 
@@ -448,7 +514,7 @@ async function renderClassList() {
   const world = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
   const list = $('class-list');
   list.innerHTML = '<div class="class-loading">Придумываем классы…</div>';
-  let generated = STUB_CLASSES;
+  let generated = stubClassesFor(world);
   const c = currentClient();
   if (c) {
     try {
@@ -479,12 +545,24 @@ function addSetupNote(text) {
   n.style.display = 'block';
 }
 
+/** Предыстория обязательна: пустая — значит берём офлайн-заготовку под мир и имя. */
+function readBackstory() {
+  const typed = $('set-backstory').value.trim().slice(0, 2400);
+  if (typed) return typed;
+  const w = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
+  const n = $('set-name').value.trim() || 'Странник';
+  const cls = selectedClasses()[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
+  const text = offlineBackstory(w, n, cls.name);
+  setBackstory(text);
+  return text;
+}
+
 function readCommonConfig() {
   return {
     world: $('set-world').value.trim() || 'Классическое тёмное фэнтези',
     mode: $('set-mode').value,
     name: $('set-name').value.trim() || 'Странник',
-    backstory: $('set-backstory').value.trim().slice(0, 2400)
+    backstory: readBackstory()
   };
 }
 
@@ -1281,6 +1359,27 @@ function refreshThemeOptions() {
 function wire() {
   loadCfg();
   renderHof();
+  // жанры: один клик — мир, классы и предыстория под него
+  const presetRow = $('world-presets');
+  if (presetRow) {
+    presetRow.innerHTML = WORLD_PRESETS.map(p =>
+      '<button type="button" class="preset" data-world="' + p.world.split('"').join('&quot;') + '">' + p.name + '</button>'
+    ).join('');
+    presetRow.addEventListener('click', e => {
+      const btn = e.target.closest ? e.target.closest('.preset') : null;
+      if (!btn) return;
+      $('set-world').value = btn.dataset.world;
+      try { localStorage.setItem('dnd_world', btn.dataset.world); } catch { /*ignore*/ }
+      $('btn-classes')?.click();
+      presetRow.querySelectorAll('.preset').forEach(el => el.classList.toggle('on', el === btn));
+    });
+    const savedWorld = (() => { try { return localStorage.getItem('dnd_world') || ''; } catch { return ''; } })();
+    if (savedWorld && !$('set-world').value.trim()) $('set-world').value = savedWorld;
+    presetRow.querySelectorAll('.preset').forEach(el => {
+      el.classList.toggle('on', el.dataset.world === $('set-world').value);
+    });
+  }
+
   wireVis();
   wireNetSettings();
   bootCRT();

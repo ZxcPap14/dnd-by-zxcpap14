@@ -54,7 +54,7 @@ const QUESTS = [
   'Найти выход из этого цирка',
   'Разобраться, кто здесь главный',
   'Пережить собственные решения',
-  'Найти легендарный сэндвич 3-го этажа'
+  'Найти легендарный сэндвич'
 ];
 
 let snarkIdx = 0;
@@ -83,7 +83,43 @@ export function resetStub() {
  * Ответ заглушки на свободное действие. Контракт тот же, что у ИИ:
  * возвращает эффекты для applyDmEffects.
  */
+/** Как называть место в этом мире: «станция» вместо «подземелья». */
+function placeWord(state) {
+  const w = String(state?.worldDesc || '').toLowerCase();
+  if (/косм|орбит|станц|звезд|экипаж/.test(w)) return 'станция';
+  if (/пират|флот|остров|корабл/.test(w)) return 'корабль';
+  if (/кибер|неон|корп|токио|город|улиц/.test(w)) return 'город';
+  if (/школ|1999/.test(w)) return 'школа';
+  if (/котельн|завод|смен|вахт/.test(w)) return 'завод';
+  if (/пустош|постапок|радиац/.test(w)) return 'пустошь';
+  return 'подземелье';
+}
+
+/** Одна и та же шутка, но про место игрока. */
+function fitPlaces(effects, state) {
+  const p = placeWord(state);
+  const cap = p.charAt(0).toUpperCase() + p.slice(1);
+  const fix = (t) => typeof t === 'string'
+    ? t.replace(/Подземель/g, cap).replace(/подземель/g, p)
+    : t;
+  const walk = (value) => {
+    if (typeof value === 'string') return fix(value);
+    if (Array.isArray(value)) return value.map(walk);
+    if (value && typeof value === 'object') {
+      const out = {};
+      for (const k of Object.keys(value)) out[k] = walk(value[k]);
+      return out;
+    }
+    return value;
+  };
+  return walk(effects);
+}
+
 export function stubDmTurn(state, input) {
+  return fitPlaces(stubTurn(state, input), state);
+}
+
+function stubTurn(state, input) {
   const rng = state.rng;
   const roll = rng();
 
@@ -100,8 +136,8 @@ export function stubDmTurn(state, input) {
       worldBrief: [
         `— МЕСТО: ${world}.`,
         '— ВЛАСТЬ: дороги держат те, кто пережил прошлую зиму, и они не любят вопросов.',
-        '— ЧТО СЛУЧИЛОСЬ: полгода назад с нижних ярусов пошла молва — там кто-то поселился и требует дань.',
-        '— СТРАХ: местные не спускаются ниже первого этажа и боятся, что однажды он поднимется сам.'
+        '— ЧТО СЛУЧИЛОСЬ: полгода назад с нижних уровней пошла молва — там кто-то поселился и требует дань.',
+        '— СТРАХ: местные не спускаются ниже первого уровня и боятся, что однажды он поднимется сам.'
       ].join('\n'),
       narrative: coop
         ? `${names} очнулись в тёмном углу чужого мира. Где-то внизу что-то дышит и уже делит ваши жизни на планы. Постарайтесь не мешать друг другу. Сильно.`
@@ -109,7 +145,7 @@ export function stubDmTurn(state, input) {
       questAdd: [
         coop ? 'Понять, что за долг висит на каждом' : 'Понять, что за долг висит на тебе',
         'Узнать, кто собирает дань с местных',
-        'Дойти до дна подземелья'
+        'Дойти до самого дна'
       ],
       npcAdd: { name: 'Вельга', role: 'сборщица слухов у входа, знает всех' },
       suggestions: ['Осмотреться', 'Идти вглубь', 'Проверить инвентарь']

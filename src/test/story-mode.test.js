@@ -118,5 +118,5 @@ test('storyDigest содержит злодея и прогресс', () => {
   const d = storyDigest(s);
   assert.match(d, /АКТ 1\/3/);
   assert.match(d, new RegExp(storyVillain(s)));
-  assert.match(d, /этаж 1 из 6/);
+  assert.match(d, /Этаж 1 из 6/);
 });
