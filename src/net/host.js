@@ -21,7 +21,7 @@ const STALE_MS = 20000;
  * @param {number} [opts.graceMs] — сколько герой ждёт вернувшегося игрока
  * @param {number} [opts.staleMs] — через сколько молчания слот считается брошенным
  */
-export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs = RECONNECT_GRACE_MS, staleMs = STALE_MS }) {
+export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs = RECONNECT_GRACE_MS, staleMs = STALE_MS, getClasses = null }) {
   const players = new Map();  // clientId → {id, name, heroIdx}
   const absent = new Map();   // name → {name, heroIdx, timer, since}
   let game = null;
@@ -252,6 +252,19 @@ export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, 
         if (taken.has(name)) name = name.slice(0, 13) + Math.floor(Math.random() * 90 + 10);
         players.set(id, { id, name, heroIdx: null, lastSeen: Date.now() });
         net.sendTo(id, { t: 'welcome', ver: PROTOCOL_VER, playerId: id, name });
+        // мир и классы хоста: игрок играет по ним, а не по своим
+        if (getClasses) {
+          try {
+            const c = getClasses();
+            if (c && Array.isArray(c.classes) && c.classes.length) {
+              net.sendTo(id, {
+                t: 'classes', ver: PROTOCOL_VER,
+                world: String(c.world || '').slice(0, 400),
+                classes: c.classes.slice(0, 8)
+              });
+            }
+          } catch { /* классы не критичны для входа */ }
+        }
         broadcastLobby();
       } else if (msg.t === 'intent') {
         const p = players.get(id);

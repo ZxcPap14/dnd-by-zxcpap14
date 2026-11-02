@@ -34,19 +34,10 @@ import {
 
 const $ = (id) => document.getElementById(id);
 // shortcut: версия дублируется из package.json — обновлять вместе с ним
-const WORLD_PRESETS = [
-  { name: 'Киберпанк', title: 'Киберпанк-Токио 2099', world: 'Неон, корпорации, чипы. Ты — курьер-неудачник с чужим чипом в голове.' },
-  { name: 'Космос', title: 'Грузовой корабль «Атлас»', world: 'Орбита, воздух на исходе, экипаж врёт.' },
-  { name: 'Нуар', title: 'Нуар-город 1947', world: 'Дождь, долги, частный детектив с лицензией на чужое имя.' },
-  { name: 'Пустошь', title: 'Пустошь после бензина', world: 'Бензин дороже крови, радиация по расписанию.' },
-  { name: 'Фэнтези', title: 'Пограничная деревня', world: 'Лес, который двигается по ночам, и трактир с одним столом.' },
-  { name: 'Котельная', title: 'Котельная зимой', world: 'Советская смена, нечисть, журнал дежурств и вечное «не положено».' },
-  { name: 'Школа', title: 'Школьный подвал 1999', world: 'Классы, слухи, что-то за котлами.' },
-  { name: 'Пираты', title: 'Пиратский флот', world: 'Три корабля, одна карта, ни у кого нет полной.' }
-];
 const APP_VERSION = '0.2.0';
 // диагностика связи: что за канал, сколько ждали вход, что упало
 const diag = { channel: '', joinMs: 0, errors: [] };
+let hostClassesMode = false; // классы пришли от хоста — свой список не перегенерируем
 
 function renderDiag() {
   const el = $('net-diag');
@@ -298,7 +289,10 @@ async function resumeHostRun(saved) {
   window.__channels = () => (net.channels ? net.channels() : [net.transport]);
 
   sessionMode = 'host';
-  hostSession = createHostSession({ net, hostName, dm: makeDmResolver(), turnMs: 60000 });
+  hostSession = createHostSession({
+    net, hostName, dm: makeDmResolver(), turnMs: 60000,
+    getClasses: () => ({ world: saved.state.worldDesc, classes: selectedClasses() })
+  });
   wireHostSession();
 
   if (!hostSession.resumeGame(saved.state)) {
@@ -465,13 +459,14 @@ async function generateBackstory() {
   }
 }
 
-async function renderClassList() {
-  const world = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
+async function renderClassList(ai = true) {
+  if (hostClassesMode) return; // роли раздаёт хост
+  const world = worldText();
   const list = $('class-list');
   list.innerHTML = '<div class="class-loading">Придумываем классы…</div>';
   let generated = classesFromWorld(world);
   const c = currentClient();
-  if (c) {
+  if (c && ai) {
     try {
       const raw = await c.chat(classMessages(world), { maxTokens: 1500, jsonMode: true });
       const data = extractJson(raw);
@@ -483,15 +478,33 @@ async function renderClassList() {
   // свои классы идут первыми: игрок их сам собрал, он их и хочет видеть
   const custom = loadCustomClasses().map(x => ({ ...x, custom: true }));
   const classes = [...custom, ...generated];
+  renderClassCards(classes);
+}
+
+/** Карточки классов: один рендер для своих, сгенерированных и присланных хостом. */
+function renderClassCards(classes) {
+  const list = $('class-list');
   list.innerHTML = classes.map((cl, i) => `
     <label class="class-card">
       <input type="radio" name="class" value="${i}" ${i === 0 ? 'checked' : ''}>
       ${cl.custom ? '<span class="cc-badge">◆ СВОЙ</span>' : ''}
+      ${cl.host ? '<span class="cc-badge">◆ ХОСТ</span>' : ''}
       <span class="class-name">${esc(cl.name)}</span>
       <span class="class-desc">${esc(cl.desc || '')}</span>
       <span class="cc-ability">${esc(abilityLine(cl.ability))}</span>
     </label>`).join('');
   list.dataset.payload = JSON.stringify(classes);
+}
+
+/** Мир и классы пришли от хоста: он платит за ИИ и раздаёт роли. */
+function applyHostClasses(world, classes) {
+  if (!Array.isArray(classes) || !classes.length) return;
+  hostClassesMode = true;
+  const parts = String(world || '').split(': ');
+  $('set-world-title').value = (parts.shift() || '').slice(0, 120);
+  $('set-world').value = parts.join(': ').slice(0, 400);
+  renderClassCards(classes.map(c => ({ ...c, host: true })));
+  addSetupNote('Мир и классы пришли от хоста — он платит за ИИ и раздаёт роли. Свои классы в чужой комнате не нужны.');
 }
 
 function addSetupNote(text) {
@@ -803,7 +816,8 @@ async function startHostRoom() {
     net,
     hostName: name,
     dm: makeDmResolver(),
-    turnMs: 60000
+    turnMs: 60000,
+    getClasses: () => ({ world: worldText(), classes: selectedClasses() })
   });
   wireHostSession();
 
@@ -918,6 +932,7 @@ async function joinRoom() {
 function wireClientSession(sess, code, name, gen = reconnectGen) {
   const fresh = () => gen === reconnectGen;
   sess.onLobby(players => { if (fresh()) renderLobby(players); });
+  sess.onClasses(({ world, classes }) => { if (fresh()) applyHostClasses(world, classes); });
   sess.onEvents(evs => {
     if (!fresh() || !typer) return;
     evs.forEach(e => logEvent(e.kind, e.text));
@@ -1036,6 +1051,7 @@ function leaveReconnect() {
 }
 
 function backToSetup(note) {
+  hostClassesMode = false;
   sessionMode = 'solo';
   hostSession = null;
   clientSession = null;
@@ -1322,32 +1338,23 @@ function refreshThemeOptions() {
 function wire() {
   loadCfg();
   renderHof();
-  // жанры: один клик — мир, классы и предыстория под него
-  const presetRow = $('world-presets');
-  if (presetRow) {
-    const q = s => String(s).split('"').join('&quot;');
-    presetRow.innerHTML = WORLD_PRESETS.map(p =>
-      '<button type="button" class="preset" data-title="' + q(p.title) + '" data-world="' + q(p.world) + '">' + p.name + '</button>'
-    ).join('');
-    presetRow.addEventListener('click', e => {
-      const btn = e.target.closest ? e.target.closest('.preset') : null;
-      if (!btn) return;
-      $('set-world-title').value = btn.dataset.title;
-      $('set-world').value = btn.dataset.world;
+  // классы рождаются из названия мира сами: печатаешь — список обновляется.
+  // Без ключа ИИ: по буквам модели не зовём, кнопка «перегенерировать» — для этого.
+  const get = k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+  if (!$('set-world-title').value.trim()) $('set-world-title').value = get('dnd_world_title');
+  if (!$('set-world').value.trim()) $('set-world').value = get('dnd_world');
+  let reclassTimer = null;
+  const reclass = () => {
+    clearTimeout(reclassTimer);
+    reclassTimer = setTimeout(() => {
       try {
-        localStorage.setItem('dnd_world_title', btn.dataset.title);
-        localStorage.setItem('dnd_world', btn.dataset.world);
+        localStorage.setItem('dnd_world_title', $('set-world-title').value.trim());
+        localStorage.setItem('dnd_world', $('set-world').value.trim());
       } catch { /*ignore*/ }
-      $('btn-classes')?.click();
-      presetRow.querySelectorAll('.preset').forEach(el => el.classList.toggle('on', el === btn));
-    });
-    const get = k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
-    if (!$('set-world-title').value.trim()) $('set-world-title').value = get('dnd_world_title');
-    if (!$('set-world').value.trim()) $('set-world').value = get('dnd_world');
-    presetRow.querySelectorAll('.preset').forEach(el => {
-      el.classList.toggle('on', el.dataset.world === $('set-world').value);
-    });
-  }
+      renderClassList(false);
+    }, 500);
+  };
+  ['set-world-title', 'set-world'].forEach(id => $(id)?.addEventListener('input', reclass));
 
   wireVis();
   wireNetSettings();
@@ -1389,7 +1396,7 @@ function wire() {
     $('btn-start').textContent = mp === 'host' ? '▶ СОЗДАТЬ КОМНАТУ' : mp === 'join' ? '▶ ВОЙТИ В КОМНАТУ' : '▶ НАЧАТЬ ЗАБЕГ';
   });
 
-  $('btn-classes').addEventListener('click', renderClassList);
+  $('btn-classes').addEventListener('click', () => renderClassList(true));
 
   // свои классы: конструктор
   renderCustomClasses();

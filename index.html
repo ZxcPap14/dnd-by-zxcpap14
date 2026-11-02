@@ -427,13 +427,6 @@
   .help-title { display: flex; justify-content: space-between; align-items: center; gap: 20px; color: var(--bright); margin-bottom: 10px; }
   #help-body { margin: 0; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
   .daily { white-space: nowrap; font-size: 12px; }
-  .preset-row { display: flex; flex-wrap: wrap; gap: 6px; }
-  .preset {
-    font: inherit; font-size: 8px; padding: 6px 9px; cursor: pointer;
-    background: transparent; border: 1px solid var(--dim); color: var(--dim);
-  }
-  .preset:hover { color: var(--bright); border-color: var(--bright); }
-  .preset.on { color: var(--bright); border-color: var(--bright); }
   #set-backstory.flash { border-color: var(--bright); box-shadow: 0 0 0 2px rgba(255, 200, 80, .22); }
   #portrait-panel {
     flex: 0 0 auto; padding: 8px 10px;
@@ -693,10 +686,6 @@
     <div class="field">
       <label for="set-world">Описание мира</label>
       <input id="set-world" type="text" placeholder="неон, корпорации, ты — курьер-неудачник с чужим чипом" value="Неон, корпорации, чипы. Ты — курьер-неудачник с чужим чипом в голове.">
-    </div>
-    <div class="field" style="align-items:flex-start">
-      <label>Примеры</label>
-      <div id="world-presets" class="preset-row"></div>
     </div>
     <div class="field">
       <label for="set-mode">Режим</label>

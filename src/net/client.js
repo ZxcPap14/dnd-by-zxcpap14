@@ -17,7 +17,7 @@ export function createClientSession({ link, name, heartbeatMs = 8000, staleMs = 
   let lastInbound = Date.now();
   let hbTimer = null;
   const cbs = {
-    welcome: [], lobby: [], events: [], snapshot: [], start: [],
+    welcome: [], lobby: [], events: [], snapshot: [], start: [], classes: [],
     reject: [], kicked: [], close: []
   };
 
@@ -58,6 +58,9 @@ export function createClientSession({ link, name, heartbeatMs = 8000, staleMs = 
         break;
       case 'lobby':
         emit('lobby', msg.players);
+        break;
+      case 'classes':
+        emit('classes', { world: msg.world, classes: msg.classes || [] });
         break;
       case 'start':
         emit('start', { worldDesc: msg.worldDesc, mode: msg.mode });
@@ -100,6 +103,7 @@ export function createClientSession({ link, name, heartbeatMs = 8000, staleMs = 
     onEvents(fn) { cbs.events.push(fn); },
     onSnapshot(fn) { cbs.snapshot.push(fn); },
     onStart(fn) { cbs.start.push(fn); },
+    onClasses(fn) { cbs.classes.push(fn); },
     onReject(fn) { cbs.reject.push(fn); },
     onKicked(fn) { cbs.kicked.push(fn); },
     onClose(fn) { cbs.close.push(fn); }
