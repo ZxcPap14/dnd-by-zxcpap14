@@ -6,6 +6,7 @@ import { visibleMonsters, abilityCooldownLeft, renderInventory,
   describeSurroundings } from './views.js';
 export { visibleMonsters, engagedEnemies, abilityCooldownLeft, renderInventory,
   describeSurroundings, exploredRows, buildSnapshot } from './views.js';
+import { villainFromWorld } from './world.js';
 
 import { createRng, makeDice } from './rng.js';
 import { generateDungeon, randomFloor, computeFov, dist, TILE } from './map.js';
@@ -38,51 +39,9 @@ export function storyAct(depth) {
   return Math.min(STORY_ACTS, Math.ceil(depth / (STORY_FLOORS / STORY_ACTS)));
 }
 
-const OFFLINE_VILLAINS = [
-  { villain: 'Костяной Король', goal: 'собрать армию мёртвых и выйти на поверхность' },
-  { villain: 'Тот-Кто-Считает Часы', goal: 'остановить время для всего живого' },
-  { villain: 'Мясник Пустых Залов', goal: 'накормить подземелье героями' },
-  { villain: 'Хозяин Финальной Двери', goal: 'впустить в мир то, что за дверью' }
-];
-
-// Злодей по умолчанию — под мир, а не всегда «Костяной Король».
-const GENRE_VILLAINS = [
-  { re: /пират|флот|остров|корабл/i, list: [
-    { villain: 'Капитан без имени', goal: 'скупить все карты и оставить остальных без берега' },
-    { villain: 'Вдова с тремя флагами', goal: 'утопить тех, кто помнит её настоящее имя' }
-  ] },
-  { re: /кибер|неон|корп|токио/i, list: [
-    { villain: 'Госпожа Три-Ноль', goal: 'переписать все контракты на себя' },
-    { villain: 'Синдикат «Тихая комната»', goal: 'стереть из города всех, кто задаёт вопросы' }
-  ] },
-  { re: /косм|станц|орбит|звезд|экипаж/i, list: [
-    { villain: 'Голос в вентиляции', goal: 'разбудить то, что спит в трюме' },
-    { villain: 'Компания «Последний рейс»', goal: 'продать экипаж по частям' }
-  ] },
-  { re: /нуар|детектив|дождь|1947|город|улиц/i, list: [
-    { villain: 'Человек с чужим именем', goal: 'закрыть все долги — вместе с должниками' },
-    { villain: 'Комиссар, которого не было', goal: 'держать город в страхе, а правду — в сейфе' }
-  ] },
-  { re: /пустош|постапок|радиац|бензин/i, list: [
-    { villain: 'Владелец последней цистерны', goal: 'продавать воду по цене крови' },
-    { villain: 'Хор из-под песка', goal: 'собрать всех выживших в одном месте' }
-  ] },
-  { re: /школ|1999|физрук/i, list: [
-    { villain: 'Завуч с ключами от всех дверей', goal: 'закрыть школу навсегда вместе со всеми' },
-    { villain: 'Тот, кто звонит после уроков', goal: 'чтобы никто не дошёл до выпускного' }
-  ] },
-  { re: /котельн|завод|смен|вахт/i, list: [
-    { villain: 'Мастер ночной смены', goal: 'довести котёл до предела и уйти в отпуск' },
-    { villain: 'Начальник, который не уходит', goal: 'запереть смену до выполнения плана' }
-  ] }
-];
-
-/** Злодей под мир; нет подходящего набора — классические. */
+/** Злодей из слов мира — без жанровых наборов. */
 function offlineVillain(state) {
-  const w = String(state.worldDesc || '').toLowerCase();
-  const pack = GENRE_VILLAINS.find(p => p.re.test(w));
-  const pool = pack ? pack.list : OFFLINE_VILLAINS;
-  return pool[Math.floor(state.rng() * pool.length)];
+  return villainFromWorld(state.worldDesc, state.rng);
 }
 
 
@@ -615,8 +574,8 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
         if (act !== state.story.act) {
           state.story.act = act;
           const beats = {
-            2: `АКТ II: следы ${storyVillain(state)} становятся яснее. ${storyGoal(state)} — время поджимает.`,
-            3: `АКТ III: ты у дна. Дальше — логово ${storyVillain(state)}.`
+            2: `ГЛАВА II: следы ${storyVillain(state)} становятся яснее. ${storyGoal(state)} — время поджимает.`,
+            3: `ГЛАВА III: ты у дна. Дальше — логово ${storyVillain(state)}.`
           };
           push('victory', `⚜ ${beats[act] || 'Сюжет движется.'}`);
         }

@@ -116,7 +116,7 @@ test('stubDmTurn в сюжете: интро задаёт злодея, фина
 test('storyDigest содержит злодея и прогресс', () => {
   const s = mkStory();
   const d = storyDigest(s);
-  assert.match(d, /АКТ 1\/3/);
+  assert.match(d, /ГЛАВА 1\/3/);
   assert.match(d, new RegExp(storyVillain(s)));
   assert.match(d, /Этаж 1 из 6/);
 });

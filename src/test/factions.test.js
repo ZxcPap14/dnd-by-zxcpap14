@@ -22,7 +22,7 @@ test('buildContext: ДМ видит требование акта и репут�
   s.story.act = 1;
   addRep(s, 'Портовая стража', 2);
   const text = buildContext(s, 'осматриваюсь').find(m => m.role === 'user').content;
-  assert.match(text, /ЧТО НУЖНО ОТ АКТА: АКТ ЗАВЯЗКИ/);
+  assert.match(text, /ЧТО НУЖНО ОТ ГЛАВЫ: ГЛАВА ЗАВЯЗКИ/);
   assert.match(text, /РЕПУТАЦИЯ \(мир помнит\): Портовая стража \+2/);
 });
 

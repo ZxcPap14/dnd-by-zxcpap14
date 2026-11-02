@@ -13,6 +13,7 @@ const ORDER = [
   'src/engine/merchant.js',
   'src/engine/combat.js',
   'src/engine/parser.js',
+  'src/engine/world.js',
   'src/engine/story.js',
   'src/engine/monsters.js',
   'src/engine/game.js',

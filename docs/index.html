@@ -687,11 +687,15 @@
 
     <h2>МИР</h2>
     <div class="field">
+      <label for="set-world-title">Название мира</label>
+      <input id="set-world-title" type="text" placeholder="напр. Дождь над Порт-Альгеном" value="Киберпанк-Токио 2099">
+    </div>
+    <div class="field">
       <label for="set-world">Описание мира</label>
-      <input id="set-world" type="text" placeholder="Киберпанк-Токио 2099, ты — курьер-неудачник">
+      <input id="set-world" type="text" placeholder="неон, корпорации, ты — курьер-неудачник с чужим чипом" value="Неон, корпорации, чипы. Ты — курьер-неудачник с чужим чипом в голове.">
     </div>
     <div class="field" style="align-items:flex-start">
-      <label>Жанр</label>
+      <label>Примеры</label>
       <div id="world-presets" class="preset-row"></div>
     </div>
     <div class="field">
@@ -1909,6 +1913,93 @@ function parseCommand(text, abilityName = null) {
 }
 
 
+// world.js — мир задаётся названием и описанием, а не жанровым шаблоном.
+// Всё, что движок придумывает сам (классы, злодея), собирается из слов мира.
+
+const STOP = new Set((
+  'этот эта эти тот та те весь вся всё все свой своя свои своим своими ' +
+  'который которая которые чтобы когда где куда откуда потом очень ' +
+  'можно нужно нельзя есть был была было были будет будут ' +
+  'только тоже также ещё еще уже почти через после перед между ' +
+  'город мир место время день ночь люди человек герой ' +
+  'тебя тобой тебе меня мной себе себя один одна одно ' +
+  'много мало такое такой такая такие твой твоя твои ваш ваша ваши'
+).split(/\s+/));
+
+/**
+ * Значимые слова мира: сначала имена собственные, потом просто длинные.
+ * Дедуп по первым пяти буквам — «долги» и «долгами» дают одно слово.
+ */
+function worldWords(text, limit = 6) {
+  const raw = String(text || '').split(/[^0-9A-Za-zА-Яа-яЁё-]+/);
+  const proper = [], plain = [];
+  const seen = new Set();
+  raw.forEach((w, i) => {
+    const clean = w.replace(/-/g, '');
+    if (clean.length < 4) return;
+    const low = clean.toLowerCase();
+    if (STOP.has(low) || /^\d+$/.test(low)) return;
+    const stem = low.slice(0, 5);
+    if (seen.has(stem)) return;
+    seen.add(stem);
+    (i > 0 && /^[A-ZА-ЯЁ]/.test(w) ? proper : plain).push(low);
+  });
+  return [...proper, ...plain].slice(0, limit);
+}
+
+function cap(s) {
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+// Три роли, а не три жанра: кто бьёт, кто думает, кто говорит.
+const ROLES = [
+  {
+    line: 'бьёт первым и не извиняется',
+    stats: { str: 15, dex: 12, int: 9, con: 14, cha: 9, luck: 9 },
+    ability: { name: 'Удар без предупреждения', active: 'smite', power: 7, cd: 3, passive: 'crit', passivePower: 2 }
+  },
+  {
+    line: 'считает ходы на три вперёд',
+    stats: { str: 9, dex: 14, int: 15, con: 11, cha: 10, luck: 11 },
+    ability: { name: 'Холодный расчёт', active: 'dash', power: 4, cd: 3, passive: 'ac', passivePower: 2 }
+  },
+  {
+    line: 'говорит за всех и договаривается',
+    stats: { str: 10, dex: 11, int: 12, con: 11, cha: 16, luck: 10 },
+    ability: { name: 'Слово в нужный момент', active: 'heal', power: 6, cd: 4, passive: 'gold', passivePower: 2 }
+  }
+];
+
+const GENERIC = ['Боец', 'Хитрец', 'Говорун'];
+
+/** Классы из слов мира: имена берутся из названия и описания, а не из наборов. */
+function classesFromWorld(world) {
+  const words = worldWords(world, 3);
+  return ROLES.map((role, i) => ({
+    name: words[i] ? cap(words[i]) : GENERIC[i],
+    desc: cap(role.line) + '.',
+    stats: { ...role.stats },
+    ability: { ...role.ability }
+  }));
+}
+
+const SHAPES = [
+  w => `Тот, кто держит «${w}»`,
+  w => `Хозяйка «${w}»`,
+  w => `Первый из «${w}»`,
+  w => `Голос «${w}»`
+];
+
+/** Злодей из слов мира. */
+function villainFromWorld(world, rng = Math.random) {
+  const words = worldWords(world, 4).map(cap);
+  if (!words.length) return { villain: 'Тот-Кто-Считает-Часы', goal: 'остановить время для всего живого' };
+  const shape = SHAPES[Math.floor(rng() * SHAPES.length) % SHAPES.length];
+  const second = words[1] || words[0];
+  return { villain: shape(words[0]), goal: `подмять под себя всё, что связано с «${second}»` };
+}
+
+
 // story.js — журнал задач, память ИИ-ДМа, сюжетные строки и имена злодеев.
 // Всё это чистые функции над state: ни карты, ни боя они не касаются.
 
@@ -2071,13 +2162,13 @@ function storyGoal(state) {
 function storyDigest(state) {
   const s = state.story;
   if (!s) return '';
-  return `АКТ ${s.act}/${s.acts}, ${floorLabel(state.worldDesc, state.depth)} из ${s.floors}, злодей: ${storyVillain(state)} (${storyGoal(state)}), босс: ${s.bossSpawned ? 'УЖЕ ЖДЁТ' : 'впереди'}.`;
+  return `ГЛАВА ${s.act}/${s.acts}, ${floorLabel(state.worldDesc, state.depth)} из ${s.floors}, злодей: ${storyVillain(state)} (${storyGoal(state)}), босс: ${s.bossSpawned ? 'УЖЕ ЖДЁТ' : 'впереди'}.`;
 }
 
-// ---------- акты: что требуется от текущего отрезка истории ----------
+// ---------- главы: что требуется от текущего отрезка истории ----------
 
 /**
- * Один абзац о том, что должен делать акт. Без него ДМ держит ровный тон
+ * Один абзац о том, что должна делать глава. Без него ДМ держит ровный тон
  * весь забег: ни завязки, ни сгущения, ни финала.
  */
 function actBrief(state) {
@@ -2085,9 +2176,9 @@ function actBrief(state) {
   if (!st) return '';
   const third = Math.max(1, Math.ceil((st.acts || 3) / 3));
   const act = st.act || 1;
-  if (act <= third) return 'АКТ ЗАВЯЗКИ: показывай мир и людей, угроза только слухами и следами; мелкие беды — её тень. Не выводи злодея на сцену.';
-  if (act <= third * 2) return 'АКТ СГУЩЕНИЯ: угроза уже действует руками слуг, плата за промедление растёт; знакомые страдают первыми. Злодей — пока голос и почерк.';
-  return 'АКТ ФИНАЛА: тяни прямо к злодею, побочное отсекай; каждый ход должен приближать развязку.';
+  if (act <= third) return 'ГЛАВА ЗАВЯЗКИ: показывай мир и людей, угроза только слухами и следами; мелкие беды — её тень. Не выводи злодея на сцену.';
+  if (act <= third * 2) return 'ГЛАВА СГУЩЕНИЯ: угроза уже действует руками слуг, плата за промедление растёт; знакомые страдают первыми. Злодей — пока голос и почерк.';
+  return 'ГЛАВА ФИНАЛА: тяни прямо к злодею, побочное отсекай; каждый ход должен приближать развязку.';
 }
 
 // ---------- репутация: мир помнит, кто ты ----------
@@ -2274,51 +2365,9 @@ function storyAct(depth) {
   return Math.min(STORY_ACTS, Math.ceil(depth / (STORY_FLOORS / STORY_ACTS)));
 }
 
-const OFFLINE_VILLAINS = [
-  { villain: 'Костяной Король', goal: 'собрать армию мёртвых и выйти на поверхность' },
-  { villain: 'Тот-Кто-Считает Часы', goal: 'остановить время для всего живого' },
-  { villain: 'Мясник Пустых Залов', goal: 'накормить подземелье героями' },
-  { villain: 'Хозяин Финальной Двери', goal: 'впустить в мир то, что за дверью' }
-];
-
-// Злодей по умолчанию — под мир, а не всегда «Костяной Король».
-const GENRE_VILLAINS = [
-  { re: /пират|флот|остров|корабл/i, list: [
-    { villain: 'Капитан без имени', goal: 'скупить все карты и оставить остальных без берега' },
-    { villain: 'Вдова с тремя флагами', goal: 'утопить тех, кто помнит её настоящее имя' }
-  ] },
-  { re: /кибер|неон|корп|токио/i, list: [
-    { villain: 'Госпожа Три-Ноль', goal: 'переписать все контракты на себя' },
-    { villain: 'Синдикат «Тихая комната»', goal: 'стереть из города всех, кто задаёт вопросы' }
-  ] },
-  { re: /косм|станц|орбит|звезд|экипаж/i, list: [
-    { villain: 'Голос в вентиляции', goal: 'разбудить то, что спит в трюме' },
-    { villain: 'Компания «Последний рейс»', goal: 'продать экипаж по частям' }
-  ] },
-  { re: /нуар|детектив|дождь|1947|город|улиц/i, list: [
-    { villain: 'Человек с чужим именем', goal: 'закрыть все долги — вместе с должниками' },
-    { villain: 'Комиссар, которого не было', goal: 'держать город в страхе, а правду — в сейфе' }
-  ] },
-  { re: /пустош|постапок|радиац|бензин/i, list: [
-    { villain: 'Владелец последней цистерны', goal: 'продавать воду по цене крови' },
-    { villain: 'Хор из-под песка', goal: 'собрать всех выживших в одном месте' }
-  ] },
-  { re: /школ|1999|физрук/i, list: [
-    { villain: 'Завуч с ключами от всех дверей', goal: 'закрыть школу навсегда вместе со всеми' },
-    { villain: 'Тот, кто звонит после уроков', goal: 'чтобы никто не дошёл до выпускного' }
-  ] },
-  { re: /котельн|завод|смен|вахт/i, list: [
-    { villain: 'Мастер ночной смены', goal: 'довести котёл до предела и уйти в отпуск' },
-    { villain: 'Начальник, который не уходит', goal: 'запереть смену до выполнения плана' }
-  ] }
-];
-
-/** Злодей под мир; нет подходящего набора — классические. */
+/** Злодей из слов мира — без жанровых наборов. */
 function offlineVillain(state) {
-  const w = String(state.worldDesc || '').toLowerCase();
-  const pack = GENRE_VILLAINS.find(p => p.re.test(w));
-  const pool = pack ? pack.list : OFFLINE_VILLAINS;
-  return pool[Math.floor(state.rng() * pool.length)];
+  return villainFromWorld(state.worldDesc, state.rng);
 }
 
 
@@ -2851,8 +2900,8 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
         if (act !== state.story.act) {
           state.story.act = act;
           const beats = {
-            2: `АКТ II: следы ${storyVillain(state)} становятся яснее. ${storyGoal(state)} — время поджимает.`,
-            3: `АКТ III: ты у дна. Дальше — логово ${storyVillain(state)}.`
+            2: `ГЛАВА II: следы ${storyVillain(state)} становятся яснее. ${storyGoal(state)} — время поджимает.`,
+            3: `ГЛАВА III: ты у дна. Дальше — логово ${storyVillain(state)}.`
           };
           push('victory', `⚜ ${beats[act] || 'Сюжет движется.'}`);
         }
@@ -3833,7 +3882,7 @@ const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-�
 - В коопе трави по очереди: у каждого героя свой момент позора.
 
 ПРАВИЛА:
-- Пиши только по-русски. 2-3 предложения, до ~300 символов. Длиннее — только на смерти, боссе и финале акта.
+- Пиши только по-русски. 2-3 предложения, до ~300 символов. Длиннее — только на смерти, боссе и финале главы.
 - Без воды: каждое предложение несёт факт, действие или реплику. Не пересказывай уже описанное.
 - «НЕДАВНИЕ СОБЫТИЯ» — твоя память: продолжай начатое, не повторяй шутки и описания.
 - «КАНОН МИРА» — правда, которую ты написал во вступлении. Не переписывай, используй её имена. Новое имя — только если что-то меняет.
@@ -3842,7 +3891,7 @@ const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-�
 - ЗАКРЫВАЙ ЗАДАЧИ любым способом игрока: украл, договорился, обошёл — пиши questDone с формулировкой задачи.
 - НЕ ТРЕБУЙ задуманного решения: у задачи нет единственного пути; запертая дверь не обязана открываться ключом.
 - ВЫДУМАННЫЕ ПРЕДМЕТЫ: игрок назвал вещь, и это уместно — выдай через itemGain ровно под его именем, в пределах слабого предмета.
-- «СЮЖЕТ»: акт I — намёки на злодея и его план, II — нагнетание и выбор, III — финальная схватка. Одна линия, растущие ставки.
+- «СЮЖЕТ»: глава I — намёки на злодея и его план, глава II — нагнетание и выбор, глава III — финальная схватка. Одна линия, растущие ставки.
 - НЕ ПОВТОРЯЙ СЮЖЕТЫ: веди «форму» из блока; не строй интригу на долгах, монетах, жетонах, реестрах и «списанных людях»; злодей каждый забег новый — имя, мотив, угроза.
 - ЖАНР ЗАДАЁТ «МИР», А НЕ ИГРА: это не обязательно фэнтези и не обязательно подземелье. Места, вещи, враги, титулы, деньги — из этого мира (станции, улицы, корабли, школы, заводы). Если мир не про подземелье — не спускай героя в подземелье и не суй ему меч.
 - Свободные действия — твоя главная работа: залезть, притвориться, применить предмет не по назначению, договориться, обмануть, сбежать. Чаще давай шанс; неудачу превращай в смешную логичную развязку, а не в «не получилось». Сцена сменилась — опиши новое место так, чтобы было видно, где игрок.
@@ -3937,7 +3986,7 @@ function buildContext(state, playerInput, heroIdx = null) {
         (() => { const mem = memoryDigest(state, 12); return mem ? `НЕДАВНИЕ СОБЫТИЯ: ${mem}.` : ''; })(),
         (() => { const f = factsDigest(state); return f ? `ВАЖНОЕ (уже случилось, не забывать и не переигрывать): ${f}.` : ''; })(),
         (() => { const st = storyDigest(state); return st ? `СЮЖЕТ: ${st}` : ''; })(),
-        (() => { const a = actBrief(state); return a ? `ЧТО НУЖНО ОТ АКТА: ${a}` : ''; })(),
+        (() => { const a = actBrief(state); return a ? `ЧТО НУЖНО ОТ ГЛАВЫ: ${a}` : ''; })(),
         (() => { const r = repDigest(state); return r ? `РЕПУТАЦИЯ (мир помнит): ${r}. В плюсе — помогают и торгуют дешевле, в минусе — мстят и заламывают цену.` : ''; })(),
         state.story?.shape ? `ФОРМА ИСТОРИИ (веди её, не подменяй привычной): ${state.story.shape}.` : '',
         loadVillains().length ? `УЖЕ БЫЛИ ЗЛОДЕИ (не повторяй ни имя, ни мотив): ${loadVillains().join(', ')}.` : '',
@@ -3993,12 +4042,12 @@ function backstoryMessages(worldDesc, name, className, mode = 'story') {
   return [
     {
       role: 'system',
-      content: `Ты пишешь предысторию героя для мира «${worldDesc}». Держись именно этого мира: его эпохи, технологий, слов и законов. Не сваливайся в тёмное фэнтези, если мир другой — никаких трактиров, эля и арбалетов в киберпанке. Отвечай ТОЛЬКО JSON без markdown. Тон — мрачный, но с чёрной иронией. Без воды и пафоса.`
+      content: `Ты пишешь предысторию героя для мира «${worldDesc}». Держись именно этого мира: его эпохи, технологий, слов и законов. Не сваливайся в тёмное фэнтези, если мир другой — никаких трактиров, эля и арбалетов в киберпанке. Все реалии бери из описания: нет подземелья — герой идёт не в подземелье. Отвечай ТОЛЬКО JSON без markdown. Тон — мрачный, но с чёрной иронией. Без воды и пафоса.`
     },
     {
       role: 'user',
       content: `МИР: ${worldDesc}. Герой: ${name}, класс ${className}. Режим: ${mode}.
-Напиши предысторию на 90-140 слов, от третьего лица. Внутри должны быть: 1) откуда герой и чем жил до подземелья; 2) конкретная причина, по которой он здесь оказался (долг, вина, поиск, шантаж — выбери одно); 3) одна живая деталь-крючок (имя родственника/врага, вещь, шрам, обещание), за которую ДМ сможет тянуть сюжет. Без списков, без заголовков — связный текст.
+Напиши предысторию на 90-140 слов, от третьего лица. Внутри должны быть: 1) откуда герой и чем жил до начала забега; 2) конкретная причина, по которой он здесь оказался (долг, вина, поиск, шантаж — выбери одно); 3) одна живая деталь-крючок (имя родственника/врага, вещь, шрам, обещание), за которую ДМ сможет тянуть сюжет. Без списков, без заголовков — связный текст.
 JSON: {"backstory":"..."}`
     }
   ];
@@ -4009,10 +4058,10 @@ JSON: {"backstory":"..."}`
  */
 function classMessages(worldDesc) {
   return [
-    { role: 'system', content: 'Ты генератор классов для D&D-игры. Отвечай ТОЛЬКО JSON без markdown.' },
+    { role: 'system', content: 'Ты придумываешь классы под конкретный мир. Мир задан игроком — названием и описанием: бери слова, ремёсла, вещи и угрозы оттуда. Никаких жанровых шаблонов. Отвечай ТОЛЬКО JSON без markdown.' },
     {
       role: 'user',
-      content: `МИР: ${worldDesc}. Придумай 4 класса под этот мир.
+      content: `МИР (название и описание от игрока): ${worldDesc}. Придумай 4 класса, которые могли бы существовать именно здесь.
 Каждому дай ОДНУ активную способность (поле ability) и ОДНУ пассивку.
 Активные (active): "heal" — лечит на power HP; "smite" — карательный удар, +power урона по врагу; "stun" — оглушает врага на ход и бьёт на power/2; "dash" — рывок на 2 клетки, разрывает бой.
 Пассивки (passive): "crit" — расширяет крит-диапазон (passivePower 1..5, где 5 = крит с 16); "lifesteal" — вампиризм passivePower*5% урона; "regen" — +passivePower HP за ход; "gold" — +passivePower*25% золота; "ac" — +passivePower к защите (1..3).
@@ -6655,17 +6704,18 @@ function fitArt() {
 
 
 
+
 const $ = (id) => document.getElementById(id);
 // shortcut: версия дублируется из package.json — обновлять вместе с ним
 const WORLD_PRESETS = [
-  { name: 'Киберпанк', world: 'Киберпанк-Токио 2099: неон, корпорации, ты — курьер-неудачник с чужим чипом' },
-  { name: 'Космос', world: 'Грузовой корабль «Атлас» на орбите: воздух на исходе, экипаж врёт' },
-  { name: 'Нуар', world: 'Нуар-город 1947: дождь, долги, частный детектив с лицензией на чужое имя' },
-  { name: 'Пустошь', world: 'Постапокалипсис: пустошь, бензин дороже крови, радиация по расписанию' },
-  { name: 'Фэнтези', world: 'Тёмное фэнтези: пограничная деревня, лес, который двигается по ночам' },
-  { name: 'Котельная', world: 'Советская котельная зимой: нечисть, смены, журнал дежурств и вечное «не положено»' },
-  { name: 'Школа', world: 'Школьный подвал 1999: классы, слухи, что-то за котлами' },
-  { name: 'Пираты', world: 'Пиратский флот: три корабля, одна карта, ни у кого нет полной' }
+  { name: 'Киберпанк', title: 'Киберпанк-Токио 2099', world: 'Неон, корпорации, чипы. Ты — курьер-неудачник с чужим чипом в голове.' },
+  { name: 'Космос', title: 'Грузовой корабль «Атлас»', world: 'Орбита, воздух на исходе, экипаж врёт.' },
+  { name: 'Нуар', title: 'Нуар-город 1947', world: 'Дождь, долги, частный детектив с лицензией на чужое имя.' },
+  { name: 'Пустошь', title: 'Пустошь после бензина', world: 'Бензин дороже крови, радиация по расписанию.' },
+  { name: 'Фэнтези', title: 'Пограничная деревня', world: 'Лес, который двигается по ночам, и трактир с одним столом.' },
+  { name: 'Котельная', title: 'Котельная зимой', world: 'Советская смена, нечисть, журнал дежурств и вечное «не положено».' },
+  { name: 'Школа', title: 'Школьный подвал 1999', world: 'Классы, слухи, что-то за котлами.' },
+  { name: 'Пираты', title: 'Пиратский флот', world: 'Три корабля, одна карта, ни у кого нет полной.' }
 ];
 const APP_VERSION = '0.2.0';
 // диагностика связи: что за канал, сколько ждали вход, что упало
@@ -6766,52 +6816,6 @@ const STUB_CLASSES = [
 ];
 
 // Офлайн-классы под жанр: без ключа ИИ игрок всё равно видит свой мир, а не «Плута».
-const STUB_PACKS = [
-  { re: /пират|флот|остров/i, list: [
-    { name: 'Капитан', desc: 'Карта врёт, но он врёт лучше', stats: { str: 14, dex: 12, int: 12, con: 12, cha: 16, luck: 10 }, ability: { name: 'Абордаж', active: 'smite', power: 6, cd: 3, passive: 'gold', passivePower: 2 } },
-    { name: 'Боцман', desc: 'Держит команду и палубу в кулаке', stats: { str: 16, dex: 12, int: 8, con: 16, cha: 10, luck: 10 }, ability: { name: 'Кулак боцмана', active: 'stun', power: 5, cd: 3, passive: 'ac', passivePower: 2 } },
-    { name: 'Канонир', desc: 'Считает до трёх и стреляет', stats: { str: 12, dex: 16, int: 10, con: 12, cha: 10, luck: 14 }, ability: { name: 'Залп', active: 'smite', power: 8, cd: 4, passive: 'crit', passivePower: 2 } }
-  ] },
-  { re: /кибер|неон|корпорац|чип|токио/i, list: [
-    { name: 'Хакер', desc: 'Взламывает двери и чужие жизни', stats: { str: 8, dex: 12, int: 16, con: 10, cha: 12, luck: 12 }, ability: { name: 'Ледокол', active: 'stun', power: 6, cd: 4, passive: 'crit', passivePower: 2 } },
-    { name: 'Курьер', desc: 'Доставляет всё, кроме плохих новостей', stats: { str: 10, dex: 16, int: 12, con: 12, cha: 12, luck: 12 }, ability: { name: 'Срез дворами', active: 'dash', power: 5, cd: 2, passive: 'gold', passivePower: 2 } },
-    { name: 'Рипер', desc: 'Хирургия по контракту, без анестезии', stats: { str: 14, dex: 14, int: 10, con: 12, cha: 8, luck: 10 }, ability: { name: 'Разряд', active: 'smite', power: 7, cd: 3, passive: 'lifesteal', passivePower: 2 } }
-  ] },
-  { re: /косм|орбит|звезд|станц|экипаж|атлас/i, list: [
-    { name: 'Пилот', desc: 'Сажает что угодно, куда угодно', stats: { str: 10, dex: 16, int: 12, con: 12, cha: 12, luck: 12 }, ability: { name: 'Форсаж', active: 'dash', power: 6, cd: 3, passive: 'crit', passivePower: 1 } },
-    { name: 'Инженер', desc: 'Починит реактор и починит тебя', stats: { str: 12, dex: 10, int: 16, con: 12, cha: 8, luck: 12 }, ability: { name: 'Аварийный наддув', active: 'heal', power: 7, cd: 4, passive: 'regen', passivePower: 1 } },
-    { name: 'Ксенобиолог', desc: 'Знает, что тебя съест первым', stats: { str: 8, dex: 12, int: 16, con: 10, cha: 14, luck: 12 }, ability: { name: 'Укол', active: 'stun', power: 5, cd: 3, passive: 'lifesteal', passivePower: 1 } }
-  ] },
-  { re: /нуар|детектив|дождь|долг|1947/i, list: [
-    { name: 'Детектив', desc: 'Задаёт вопросы, на которые сам не хочет знать ответ', stats: { str: 12, dex: 12, int: 16, con: 12, cha: 12, luck: 10 }, ability: { name: 'Грязный приём', active: 'stun', power: 5, cd: 3, passive: 'crit', passivePower: 1 } },
-    { name: 'Бармен', desc: 'Слышал всё, что здесь сказали', stats: { str: 12, dex: 10, int: 12, con: 14, cha: 16, luck: 12 }, ability: { name: 'Доверие за стойкой', active: 'heal', power: 6, cd: 4, passive: 'gold', passivePower: 2 } },
-    { name: 'Карманник', desc: 'Профессионал в узких подворотнях', stats: { str: 8, dex: 16, int: 12, con: 10, cha: 14, luck: 14 }, ability: { name: 'Рука в пальто', active: 'dash', power: 5, cd: 3, passive: 'gold', passivePower: 1 } }
-  ] },
-  { re: /пустош|постапок|радиац|бензин/i, list: [
-    { name: 'Собиратель', desc: 'Видит ценность в ржавчине', stats: { str: 12, dex: 14, int: 12, con: 12, cha: 10, luck: 14 }, ability: { name: 'Чужой хлам', active: 'smite', power: 6, cd: 3, passive: 'gold', passivePower: 2 } },
-    { name: 'Механик', desc: 'Собирает машины из чужих надежд', stats: { str: 14, dex: 10, int: 14, con: 14, cha: 8, luck: 10 }, ability: { name: 'Сварка', active: 'heal', power: 6, cd: 4, passive: 'ac', passivePower: 2 } },
-    { name: 'Мутант', desc: 'Радиация дала больше, чем забрала', stats: { str: 16, dex: 10, int: 8, con: 16, cha: 8, luck: 12 }, ability: { name: 'Лишний сустав', active: 'stun', power: 6, cd: 4, passive: 'regen', passivePower: 2 } }
-  ] },
-  { re: /школ|физрук|1999/i, list: [
-    { name: 'Школьник', desc: 'Читал про это в энциклопедии', stats: { str: 8, dex: 14, int: 14, con: 10, cha: 12, luck: 16 }, ability: { name: 'Знание из библиотеки', active: 'stun', power: 5, cd: 3, passive: 'crit', passivePower: 1 } },
-    { name: 'Уборщица', desc: 'Знает каждый угол и каждую лазейку', stats: { str: 12, dex: 10, int: 12, con: 14, cha: 12, luck: 14 }, ability: { name: 'Мокрой тряпкой', active: 'smite', power: 6, cd: 2, passive: 'ac', passivePower: 1 } },
-    { name: 'Физрук', desc: 'Один свисток — и все бегут', stats: { str: 16, dex: 12, int: 8, con: 16, cha: 12, luck: 8 }, ability: { name: 'Свисток', active: 'stun', power: 4, cd: 3, passive: 'regen', passivePower: 1 } }
-  ] },
-  { re: /котельн|совет|смен|вахт/i, list: [
-    { name: 'Слесарь', desc: 'Всё держится на нём и на изоленте', stats: { str: 14, dex: 12, int: 12, con: 14, cha: 10, luck: 12 }, ability: { name: 'Гаечный ключ', active: 'smite', power: 7, cd: 3, passive: 'ac', passivePower: 1 } },
-    { name: 'Кочегар', desc: 'Топит так, что тени обходят стороной', stats: { str: 16, dex: 8, int: 10, con: 16, cha: 10, luck: 10 }, ability: { name: 'Жар', active: 'smite', power: 8, cd: 4, passive: 'regen', passivePower: 1 } },
-    { name: 'Вахтёр', desc: 'Не пускает, не спрашивая кто ты', stats: { str: 12, dex: 10, int: 12, con: 14, cha: 14, luck: 12 }, ability: { name: 'Вахтёрская', active: 'stun', power: 5, cd: 3, passive: 'gold', passivePower: 1 } }
-  ] }
-];
-
-/** Классы под мир; нет подходящего набора — стандартные. */
-function stubClassesFor(world) {
-  const w = String(world || '');
-  const pack = STUB_PACKS.find(pack => pack.re.test(w));
-  return pack ? pack.list : STUB_CLASSES;
-}
-
-
 const ACTIVE_LABELS = { heal: 'лечение', smite: 'кара', stun: 'оглушение', dash: 'рывок' };
 const PASSIVE_LABELS = { crit: 'крит', lifesteal: 'вампиризм', regen: 'регенерация', gold: 'жадность', ac: 'защита' };
 
@@ -7103,7 +7107,7 @@ function offlineBackstory(world, name, className) {
 }
 
 async function generateBackstory() {
-  const world = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
+  const world = worldText();
   const name = $('set-name').value.trim() || 'Странник';
   const mode = $('set-mode').value;
   const cls = selectedClasses()[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
@@ -7138,7 +7142,7 @@ async function renderClassList() {
   const world = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
   const list = $('class-list');
   list.innerHTML = '<div class="class-loading">Придумываем классы…</div>';
-  let generated = stubClassesFor(world);
+  let generated = classesFromWorld(world);
   const c = currentClient();
   if (c) {
     try {
@@ -7181,9 +7185,17 @@ function readBackstory() {
   return text;
 }
 
+/** Мир = название + описание. Пустое поле не мешает: берём то, что есть. */
+function worldText() {
+  const title = ($('set-world-title') || {}).value ? $('set-world-title').value.trim() : '';
+  const desc = $('set-world').value.trim();
+  if (title && desc) return title + ': ' + desc;
+  return title || desc || 'Классическое тёмное фэнтези';
+}
+
 function readCommonConfig() {
   return {
-    world: $('set-world').value.trim() || 'Классическое тёмное фэнтези',
+    world: worldText(),
     mode: $('set-mode').value,
     name: $('set-name').value.trim() || 'Странник',
     backstory: readBackstory()
@@ -7270,7 +7282,7 @@ function refreshPanelsSolo() {
   refreshInventory();
   refreshShop();
   $('floor-label').textContent = state.floorName
-    + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
+    + (state.story && !state.over ? ` · ⚜ ГЛАВА ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
 }
 
 /**
@@ -7728,7 +7740,7 @@ function applySnapshot(snap) {
   refreshShop();
   renderCombat($('combat-panel'), snap.combat || []);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
-    + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
+    + (snap.story && !snap.over ? ` · ⚜ ГЛАВА ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
   const hero = snap.heroes[snap.you];
   if (!hero) return; // битый снапшот не должен ронять UI
   const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
@@ -7986,19 +7998,25 @@ function wire() {
   // жанры: один клик — мир, классы и предыстория под него
   const presetRow = $('world-presets');
   if (presetRow) {
+    const q = s => String(s).split('"').join('&quot;');
     presetRow.innerHTML = WORLD_PRESETS.map(p =>
-      '<button type="button" class="preset" data-world="' + p.world.split('"').join('&quot;') + '">' + p.name + '</button>'
+      '<button type="button" class="preset" data-title="' + q(p.title) + '" data-world="' + q(p.world) + '">' + p.name + '</button>'
     ).join('');
     presetRow.addEventListener('click', e => {
       const btn = e.target.closest ? e.target.closest('.preset') : null;
       if (!btn) return;
+      $('set-world-title').value = btn.dataset.title;
       $('set-world').value = btn.dataset.world;
-      try { localStorage.setItem('dnd_world', btn.dataset.world); } catch { /*ignore*/ }
+      try {
+        localStorage.setItem('dnd_world_title', btn.dataset.title);
+        localStorage.setItem('dnd_world', btn.dataset.world);
+      } catch { /*ignore*/ }
       $('btn-classes')?.click();
       presetRow.querySelectorAll('.preset').forEach(el => el.classList.toggle('on', el === btn));
     });
-    const savedWorld = (() => { try { return localStorage.getItem('dnd_world') || ''; } catch { return ''; } })();
-    if (savedWorld && !$('set-world').value.trim()) $('set-world').value = savedWorld;
+    const get = k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+    if (!$('set-world-title').value.trim()) $('set-world-title').value = get('dnd_world_title');
+    if (!$('set-world').value.trim()) $('set-world').value = get('dnd_world');
     presetRow.querySelectorAll('.preset').forEach(el => {
       el.classList.toggle('on', el.dataset.world === $('set-world').value);
     });

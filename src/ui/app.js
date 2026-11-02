@@ -4,6 +4,7 @@ import { esc, loadHof, saveHofEntry, hofStats, loadCustomClasses, saveCustomClas
 import { paintPortrait, fitArt } from './portrait.js';
 import { dailySeed } from '../engine/rng.js';
 import { newGame, parseCommand, applyIntent, applyDmEffects, engagedEnemies, rollPowerCheck } from '../engine/game.js';
+import { classesFromWorld } from '../engine/world.js';
 import { createClient, extractJson } from '../ai/client.js';
 import { buildContext, introMessages, classMessages, backstoryMessages } from '../ai/dm.js';
 import { sanitizeAbility } from '../engine/player.js';
@@ -34,14 +35,14 @@ import {
 const $ = (id) => document.getElementById(id);
 // shortcut: версия дублируется из package.json — обновлять вместе с ним
 const WORLD_PRESETS = [
-  { name: 'Киберпанк', world: 'Киберпанк-Токио 2099: неон, корпорации, ты — курьер-неудачник с чужим чипом' },
-  { name: 'Космос', world: 'Грузовой корабль «Атлас» на орбите: воздух на исходе, экипаж врёт' },
-  { name: 'Нуар', world: 'Нуар-город 1947: дождь, долги, частный детектив с лицензией на чужое имя' },
-  { name: 'Пустошь', world: 'Постапокалипсис: пустошь, бензин дороже крови, радиация по расписанию' },
-  { name: 'Фэнтези', world: 'Тёмное фэнтези: пограничная деревня, лес, который двигается по ночам' },
-  { name: 'Котельная', world: 'Советская котельная зимой: нечисть, смены, журнал дежурств и вечное «не положено»' },
-  { name: 'Школа', world: 'Школьный подвал 1999: классы, слухи, что-то за котлами' },
-  { name: 'Пираты', world: 'Пиратский флот: три корабля, одна карта, ни у кого нет полной' }
+  { name: 'Киберпанк', title: 'Киберпанк-Токио 2099', world: 'Неон, корпорации, чипы. Ты — курьер-неудачник с чужим чипом в голове.' },
+  { name: 'Космос', title: 'Грузовой корабль «Атлас»', world: 'Орбита, воздух на исходе, экипаж врёт.' },
+  { name: 'Нуар', title: 'Нуар-город 1947', world: 'Дождь, долги, частный детектив с лицензией на чужое имя.' },
+  { name: 'Пустошь', title: 'Пустошь после бензина', world: 'Бензин дороже крови, радиация по расписанию.' },
+  { name: 'Фэнтези', title: 'Пограничная деревня', world: 'Лес, который двигается по ночам, и трактир с одним столом.' },
+  { name: 'Котельная', title: 'Котельная зимой', world: 'Советская смена, нечисть, журнал дежурств и вечное «не положено».' },
+  { name: 'Школа', title: 'Школьный подвал 1999', world: 'Классы, слухи, что-то за котлами.' },
+  { name: 'Пираты', title: 'Пиратский флот', world: 'Три корабля, одна карта, ни у кого нет полной.' }
 ];
 const APP_VERSION = '0.2.0';
 // диагностика связи: что за канал, сколько ждали вход, что упало
@@ -142,52 +143,6 @@ const STUB_CLASSES = [
 ];
 
 // Офлайн-классы под жанр: без ключа ИИ игрок всё равно видит свой мир, а не «Плута».
-const STUB_PACKS = [
-  { re: /пират|флот|остров/i, list: [
-    { name: 'Капитан', desc: 'Карта врёт, но он врёт лучше', stats: { str: 14, dex: 12, int: 12, con: 12, cha: 16, luck: 10 }, ability: { name: 'Абордаж', active: 'smite', power: 6, cd: 3, passive: 'gold', passivePower: 2 } },
-    { name: 'Боцман', desc: 'Держит команду и палубу в кулаке', stats: { str: 16, dex: 12, int: 8, con: 16, cha: 10, luck: 10 }, ability: { name: 'Кулак боцмана', active: 'stun', power: 5, cd: 3, passive: 'ac', passivePower: 2 } },
-    { name: 'Канонир', desc: 'Считает до трёх и стреляет', stats: { str: 12, dex: 16, int: 10, con: 12, cha: 10, luck: 14 }, ability: { name: 'Залп', active: 'smite', power: 8, cd: 4, passive: 'crit', passivePower: 2 } }
-  ] },
-  { re: /кибер|неон|корпорац|чип|токио/i, list: [
-    { name: 'Хакер', desc: 'Взламывает двери и чужие жизни', stats: { str: 8, dex: 12, int: 16, con: 10, cha: 12, luck: 12 }, ability: { name: 'Ледокол', active: 'stun', power: 6, cd: 4, passive: 'crit', passivePower: 2 } },
-    { name: 'Курьер', desc: 'Доставляет всё, кроме плохих новостей', stats: { str: 10, dex: 16, int: 12, con: 12, cha: 12, luck: 12 }, ability: { name: 'Срез дворами', active: 'dash', power: 5, cd: 2, passive: 'gold', passivePower: 2 } },
-    { name: 'Рипер', desc: 'Хирургия по контракту, без анестезии', stats: { str: 14, dex: 14, int: 10, con: 12, cha: 8, luck: 10 }, ability: { name: 'Разряд', active: 'smite', power: 7, cd: 3, passive: 'lifesteal', passivePower: 2 } }
-  ] },
-  { re: /косм|орбит|звезд|станц|экипаж|атлас/i, list: [
-    { name: 'Пилот', desc: 'Сажает что угодно, куда угодно', stats: { str: 10, dex: 16, int: 12, con: 12, cha: 12, luck: 12 }, ability: { name: 'Форсаж', active: 'dash', power: 6, cd: 3, passive: 'crit', passivePower: 1 } },
-    { name: 'Инженер', desc: 'Починит реактор и починит тебя', stats: { str: 12, dex: 10, int: 16, con: 12, cha: 8, luck: 12 }, ability: { name: 'Аварийный наддув', active: 'heal', power: 7, cd: 4, passive: 'regen', passivePower: 1 } },
-    { name: 'Ксенобиолог', desc: 'Знает, что тебя съест первым', stats: { str: 8, dex: 12, int: 16, con: 10, cha: 14, luck: 12 }, ability: { name: 'Укол', active: 'stun', power: 5, cd: 3, passive: 'lifesteal', passivePower: 1 } }
-  ] },
-  { re: /нуар|детектив|дождь|долг|1947/i, list: [
-    { name: 'Детектив', desc: 'Задаёт вопросы, на которые сам не хочет знать ответ', stats: { str: 12, dex: 12, int: 16, con: 12, cha: 12, luck: 10 }, ability: { name: 'Грязный приём', active: 'stun', power: 5, cd: 3, passive: 'crit', passivePower: 1 } },
-    { name: 'Бармен', desc: 'Слышал всё, что здесь сказали', stats: { str: 12, dex: 10, int: 12, con: 14, cha: 16, luck: 12 }, ability: { name: 'Доверие за стойкой', active: 'heal', power: 6, cd: 4, passive: 'gold', passivePower: 2 } },
-    { name: 'Карманник', desc: 'Профессионал в узких подворотнях', stats: { str: 8, dex: 16, int: 12, con: 10, cha: 14, luck: 14 }, ability: { name: 'Рука в пальто', active: 'dash', power: 5, cd: 3, passive: 'gold', passivePower: 1 } }
-  ] },
-  { re: /пустош|постапок|радиац|бензин/i, list: [
-    { name: 'Собиратель', desc: 'Видит ценность в ржавчине', stats: { str: 12, dex: 14, int: 12, con: 12, cha: 10, luck: 14 }, ability: { name: 'Чужой хлам', active: 'smite', power: 6, cd: 3, passive: 'gold', passivePower: 2 } },
-    { name: 'Механик', desc: 'Собирает машины из чужих надежд', stats: { str: 14, dex: 10, int: 14, con: 14, cha: 8, luck: 10 }, ability: { name: 'Сварка', active: 'heal', power: 6, cd: 4, passive: 'ac', passivePower: 2 } },
-    { name: 'Мутант', desc: 'Радиация дала больше, чем забрала', stats: { str: 16, dex: 10, int: 8, con: 16, cha: 8, luck: 12 }, ability: { name: 'Лишний сустав', active: 'stun', power: 6, cd: 4, passive: 'regen', passivePower: 2 } }
-  ] },
-  { re: /школ|физрук|1999/i, list: [
-    { name: 'Школьник', desc: 'Читал про это в энциклопедии', stats: { str: 8, dex: 14, int: 14, con: 10, cha: 12, luck: 16 }, ability: { name: 'Знание из библиотеки', active: 'stun', power: 5, cd: 3, passive: 'crit', passivePower: 1 } },
-    { name: 'Уборщица', desc: 'Знает каждый угол и каждую лазейку', stats: { str: 12, dex: 10, int: 12, con: 14, cha: 12, luck: 14 }, ability: { name: 'Мокрой тряпкой', active: 'smite', power: 6, cd: 2, passive: 'ac', passivePower: 1 } },
-    { name: 'Физрук', desc: 'Один свисток — и все бегут', stats: { str: 16, dex: 12, int: 8, con: 16, cha: 12, luck: 8 }, ability: { name: 'Свисток', active: 'stun', power: 4, cd: 3, passive: 'regen', passivePower: 1 } }
-  ] },
-  { re: /котельн|совет|смен|вахт/i, list: [
-    { name: 'Слесарь', desc: 'Всё держится на нём и на изоленте', stats: { str: 14, dex: 12, int: 12, con: 14, cha: 10, luck: 12 }, ability: { name: 'Гаечный ключ', active: 'smite', power: 7, cd: 3, passive: 'ac', passivePower: 1 } },
-    { name: 'Кочегар', desc: 'Топит так, что тени обходят стороной', stats: { str: 16, dex: 8, int: 10, con: 16, cha: 10, luck: 10 }, ability: { name: 'Жар', active: 'smite', power: 8, cd: 4, passive: 'regen', passivePower: 1 } },
-    { name: 'Вахтёр', desc: 'Не пускает, не спрашивая кто ты', stats: { str: 12, dex: 10, int: 12, con: 14, cha: 14, luck: 12 }, ability: { name: 'Вахтёрская', active: 'stun', power: 5, cd: 3, passive: 'gold', passivePower: 1 } }
-  ] }
-];
-
-/** Классы под мир; нет подходящего набора — стандартные. */
-function stubClassesFor(world) {
-  const w = String(world || '');
-  const pack = STUB_PACKS.find(pack => pack.re.test(w));
-  return pack ? pack.list : STUB_CLASSES;
-}
-
-
 const ACTIVE_LABELS = { heal: 'лечение', smite: 'кара', stun: 'оглушение', dash: 'рывок' };
 const PASSIVE_LABELS = { crit: 'крит', lifesteal: 'вампиризм', regen: 'регенерация', gold: 'жадность', ac: 'защита' };
 
@@ -479,7 +434,7 @@ function offlineBackstory(world, name, className) {
 }
 
 async function generateBackstory() {
-  const world = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
+  const world = worldText();
   const name = $('set-name').value.trim() || 'Странник';
   const mode = $('set-mode').value;
   const cls = selectedClasses()[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
@@ -514,7 +469,7 @@ async function renderClassList() {
   const world = $('set-world').value.trim() || 'Классическое тёмное фэнтези';
   const list = $('class-list');
   list.innerHTML = '<div class="class-loading">Придумываем классы…</div>';
-  let generated = stubClassesFor(world);
+  let generated = classesFromWorld(world);
   const c = currentClient();
   if (c) {
     try {
@@ -557,9 +512,17 @@ function readBackstory() {
   return text;
 }
 
+/** Мир = название + описание. Пустое поле не мешает: берём то, что есть. */
+function worldText() {
+  const title = ($('set-world-title') || {}).value ? $('set-world-title').value.trim() : '';
+  const desc = $('set-world').value.trim();
+  if (title && desc) return title + ': ' + desc;
+  return title || desc || 'Классическое тёмное фэнтези';
+}
+
 function readCommonConfig() {
   return {
-    world: $('set-world').value.trim() || 'Классическое тёмное фэнтези',
+    world: worldText(),
     mode: $('set-mode').value,
     name: $('set-name').value.trim() || 'Странник',
     backstory: readBackstory()
@@ -646,7 +609,7 @@ function refreshPanelsSolo() {
   refreshInventory();
   refreshShop();
   $('floor-label').textContent = state.floorName
-    + (state.story && !state.over ? ` · ⚜ АКТ ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
+    + (state.story && !state.over ? ` · ⚜ ГЛАВА ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
 }
 
 /**
@@ -1104,7 +1067,7 @@ function applySnapshot(snap) {
   refreshShop();
   renderCombat($('combat-panel'), snap.combat || []);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
-    + (snap.story && !snap.over ? ` · ⚜ АКТ ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
+    + (snap.story && !snap.over ? ` · ⚜ ГЛАВА ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
   const hero = snap.heroes[snap.you];
   if (!hero) return; // битый снапшот не должен ронять UI
   const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
@@ -1362,19 +1325,25 @@ function wire() {
   // жанры: один клик — мир, классы и предыстория под него
   const presetRow = $('world-presets');
   if (presetRow) {
+    const q = s => String(s).split('"').join('&quot;');
     presetRow.innerHTML = WORLD_PRESETS.map(p =>
-      '<button type="button" class="preset" data-world="' + p.world.split('"').join('&quot;') + '">' + p.name + '</button>'
+      '<button type="button" class="preset" data-title="' + q(p.title) + '" data-world="' + q(p.world) + '">' + p.name + '</button>'
     ).join('');
     presetRow.addEventListener('click', e => {
       const btn = e.target.closest ? e.target.closest('.preset') : null;
       if (!btn) return;
+      $('set-world-title').value = btn.dataset.title;
       $('set-world').value = btn.dataset.world;
-      try { localStorage.setItem('dnd_world', btn.dataset.world); } catch { /*ignore*/ }
+      try {
+        localStorage.setItem('dnd_world_title', btn.dataset.title);
+        localStorage.setItem('dnd_world', btn.dataset.world);
+      } catch { /*ignore*/ }
       $('btn-classes')?.click();
       presetRow.querySelectorAll('.preset').forEach(el => el.classList.toggle('on', el === btn));
     });
-    const savedWorld = (() => { try { return localStorage.getItem('dnd_world') || ''; } catch { return ''; } })();
-    if (savedWorld && !$('set-world').value.trim()) $('set-world').value = savedWorld;
+    const get = k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+    if (!$('set-world-title').value.trim()) $('set-world-title').value = get('dnd_world_title');
+    if (!$('set-world').value.trim()) $('set-world').value = get('dnd_world');
     presetRow.querySelectorAll('.preset').forEach(el => {
       el.classList.toggle('on', el.dataset.world === $('set-world').value);
     });
