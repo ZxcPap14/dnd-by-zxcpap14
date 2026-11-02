@@ -24,3 +24,11 @@ export function saveHofEntry(entry) {
 export function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+
+/** Код комнаты из ссылки-приглашения (?join=ABCD) или null, если ссылка битая. */
+export function parseInvite(search) {
+  try {
+    const code = new URLSearchParams(search || '').get('join');
+    return code && /^[a-z0-9]{4}$/i.test(code) ? code.toUpperCase() : null;
+  } catch { return null; }
+}

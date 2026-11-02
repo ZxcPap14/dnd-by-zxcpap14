@@ -1,6 +1,6 @@
 // app.js — склейка всего: экраны, игровой цикл, ввод, кооп (хост/клиент), смерть, зал славы, экспорт.
 
-import { esc, loadHof, saveHofEntry, loadCustomClasses, saveCustomClasses } from './store.js';
+import { esc, loadHof, saveHofEntry, loadCustomClasses, saveCustomClasses, parseInvite } from './store.js';
 import { paintPortrait, fitArt } from './portrait.js';
 import { newGame, parseCommand, applyIntent, applyDmEffects, engagedEnemies, rollPowerCheck } from '../engine/game.js';
 import { createClient, extractJson } from '../ai/client.js';
@@ -31,6 +31,86 @@ import {
 } from './theme.js';
 
 const $ = (id) => document.getElementById(id);
+// shortcut: версия дублируется из package.json — обновлять вместе с ним
+const APP_VERSION = '0.2.0';
+// диагностика связи: что за канал, сколько ждали вход, что упало
+const diag = { channel: '', joinMs: 0, errors: [] };
+
+function renderDiag() {
+  const el = $('net-diag');
+  if (!el) return;
+  const parts = [];
+  if (diag.channel) parts.push('канал: ' + diag.channel);
+  if (diag.joinMs) parts.push('вход: ' + (diag.joinMs / 1000).toFixed(1) + ' с');
+  if (diag.errors.length) parts.push('ошибок: ' + diag.errors.length);
+  el.textContent = parts.join(' · ');
+}
+
+function diagReport() {
+  return [
+    'dnd by ZxcPap14 v' + APP_VERSION,
+    'режим: ' + (typeof sessionMode === 'string' ? sessionMode : '-'),
+    'комната: ' + (typeof roomCode === 'string' && roomCode ? roomCode : '-'),
+    'канал: ' + (diag.channel || '-'),
+    'транспорт: ' + (window.__transport || '-'),
+    'вход: ' + (diag.joinMs ? diag.joinMs + ' мс' : '-'),
+    'экран: ' + window.innerWidth + '×' + window.innerHeight,
+    'браузер: ' + navigator.userAgent,
+    'ошибки: ' + (diag.errors.length ? diag.errors.join(' | ') : 'нет')
+  ].join('\n');
+}
+
+function flashCopy(btn, ok = true) {
+  const old = btn.textContent;
+  btn.textContent = ok ? 'скопировано ✓' : 'не вышло — выдели вручную';
+  setTimeout(() => { btn.textContent = old; }, 1800);
+}
+
+function copyText(text, btn) {
+  if (!navigator.clipboard) { flashCopy(btn, false); return; }
+  navigator.clipboard.writeText(text).then(() => flashCopy(btn), () => flashCopy(btn, false));
+}
+
+const HELP_TEXT = [
+  'Пиши свободным текстом: что понял движок — сделает сразу, остальное уходит ДМу.',
+  '',
+  'ДВИЖЕНИЕ',
+  '  иду на север / север / n   шаг (юг, восток, запад и их сокращения)',
+  '  осмотреться                кто рядом и что на полу',
+  '  карта                      общая карта этажа',
+  '  задачи                     журнал задач',
+  '  вниз                       спуск по лестнице',
+  '',
+  'БОЙ',
+  '  атакую гоблина             удар по цели рядом с тобой',
+  '  убегаю                     отступить (может не получиться)',
+  '  <имя способности>          умение класса, перезаряжается N ходов',
+  '',
+  'ВЕЩИ',
+  '  беру меч                   поднять с пола',
+  '  надеваю броню / снимаю     надеть или снять вещь',
+  '  выпить зелье               применить предмет',
+  '  рюкзак                     что несёшь',
+  '',
+  'ТОРГОВЕЦ',
+  '  торговец                   подойти к прилавку',
+  '  купить зелье               сделка',
+  '  продать меч                тоже, только наоборот',
+  '',
+  'ПАРТИЯ И ПРОКЛЯТИЯ',
+  '  кричу «стой»               реплика в чат, ход НЕ тратит',
+  '  снять проклятие            избавиться от проклятия',
+  '',
+  'ОСТАЛЬНОЕ',
+  '  Любая другая фраза — свободное действие: «обыскиваю труп», «зову стражу»,',
+  '  «залезаю на стену». ДМ решает по обстановке и бросает d20, если рискованно.',
+  '',
+  'Смерть окончательная: герой уходит в зал славы, забег начинается заново.'
+].join('\n');
+
+function inviteUrl(code) {
+  return location.origin + location.pathname + '?join=' + code;
+}
 
 const STUB_CLASSES = [
   {
@@ -654,17 +734,24 @@ async function startHostRoom() {
   $('lobby-list').innerHTML = '<div class="class-loading">Создаём комнату…</div>';
   $('btn-start').disabled = true;
 
+  const t0 = Date.now();
   let net;
   try {
     net = await createHybridHostNet(roomCode);
   } catch (e) {
     $('btn-start').disabled = false;
     $('lobby-panel').style.display = 'none';
+    $('invite-row').style.display = 'none';
     addSetupNote(`Не удалось создать комнату: ${e.message}`);
     return;
   }
   window.__transport = net.transport;
   window.__channels = () => (net.channels ? net.channels() : [net.transport]);
+  diag.channel = 'хост · ' + (net.transport || '?');
+  diag.joinMs = Date.now() - t0;
+  renderDiag();
+  $('invite-link').value = inviteUrl(roomCode);
+  $('invite-row').style.display = 'block';
 
   sessionMode = 'host';
   hostSession = createHostSession({
@@ -754,9 +841,10 @@ async function joinRoom() {
   $('lobby-list').innerHTML = '<div class="class-loading">Подключаемся…</div>';
   $('btn-start').disabled = true;
 
+  const t0 = Date.now();
   let link;
   try {
-    link = await createHybridClientLink(code, note => addSetupNote(note));
+    link = await createHybridClientLink(code, note => { diag.channel = note; renderDiag(); addSetupNote(note); });
   } catch (e) {
     $('btn-start').disabled = false;
     $('lobby-panel').style.display = 'none';
@@ -764,6 +852,10 @@ async function joinRoom() {
     return;
   }
   window.__transport = link.transport;
+  diag.joinMs = Date.now() - t0;
+  if (!diag.channel) diag.channel = 'клиент · ' + (link.transport || '?');
+  renderDiag();
+  $('invite-row').style.display = 'none';
 
   sessionMode = 'client';
   lastJoin = { code, name, heroIdx: null };
@@ -1270,6 +1362,36 @@ function wire() {
     else startSolo();
   });
   $('btn-launch').addEventListener('click', hostLaunch);
+
+  // справка: команды и правила, не выходя из игры
+  $('help-body').textContent = HELP_TEXT;
+  const helpToggle = open => { $('help-panel').hidden = !open; };
+  $('btn-help').addEventListener('click', () => helpToggle(true));
+  $('btn-help-close').addEventListener('click', () => helpToggle(false));
+  $('help-panel').addEventListener('click', e => { if (e.target.id === 'help-panel') helpToggle(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') helpToggle(false); });
+
+  $('btn-invite-copy').addEventListener('click', () => copyText($('invite-link').value, $('btn-invite-copy')));
+  $('btn-diag').addEventListener('click', () => copyText(diagReport(), $('btn-diag')));
+
+  // сбой в браузере попадает в отчёт о связи — иначе его нечем показать
+  const logError = text => {
+    diag.errors.push(String(text || 'ошибка').slice(0, 140));
+    if (diag.errors.length > 10) diag.errors.shift();
+    renderDiag();
+  };
+  window.addEventListener('error', e => logError(e.message));
+  window.addEventListener('unhandledrejection', e => logError('promise: ' + ((e.reason && e.reason.message) || e.reason)));
+
+  // приглашение: друг открыл ?join=ABCD — сразу подключаемся к комнате
+  const invited = parseInvite(location.search);
+  if (invited) {
+    $('set-room').value = invited;
+    $('set-mp').value = 'join';
+    $('set-mp').dispatchEvent(new Event('change'));
+    addSetupNote('Приглашение в комнату ' + invited + ' — подключаемся…');
+    setTimeout(() => joinRoom(), 400);
+  }
   $('btn-export').addEventListener('click', exportChronicle);
   $('btn-chronicle').addEventListener('click', exportChronicle);
   $('btn-continue').addEventListener('click', continueRun);
