@@ -90,13 +90,13 @@ function tryParseJson(s) {
   }
 
   // 2) спасение обрезанного: сканируем и закрываем незакрытые строку/скобки
-  let depth = 0, inStr = false, esc = false, lastComplete = -1;
+  let depth = 0, inStr = false, esc = false;
   for (let i = 0; i < body.length; i++) {
     const ch = body[i];
     if (esc) { esc = false; continue; }
     if (inStr) {
       if (ch === '\\') esc = true;
-      else if (ch === '"') { inStr = false; lastComplete = i; }
+      else if (ch === '"') { inStr = false; }
       continue;
     }
     if (ch === '"') inStr = true;
@@ -104,7 +104,6 @@ function tryParseJson(s) {
     else if (ch === '}') {
       depth--;
       if (depth === 0) { try { return JSON.parse(body.slice(0, i + 1)); } catch { break; } }
-      lastComplete = i;
     }
   }
   let out = body;

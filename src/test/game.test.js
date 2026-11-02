@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame, parseCommand, applyIntent, applyDmEffects, visibleMonsters, engagedEnemies, buildSnapshot, monsterTurns, DIRS } from '../engine/game.js';
+import { newGame, parseCommand, applyIntent, applyDmEffects, engagedEnemies, buildSnapshot, DIRS } from '../engine/game.js';
 import { attackRoll } from '../engine/combat.js';
 import { sanitizeAbility, abilityGoldMult, abilityLifesteal, abilityCritRange } from '../engine/player.js';
 import { TILE } from '../engine/map.js';
@@ -269,7 +269,7 @@ test('боевое окно: пусто до драки, появляется п
   s.fov.add(`${s.pos.x + 1},${s.pos.y}`);
   assert.deepEqual(engagedEnemies(s), [], 'до первой атаки окна нет');
   applyIntent(s, { intent: 'attack', raw: 'атакую скелета' });
-  let engaged = engagedEnemies(s);
+  const engaged = engagedEnemies(s);
   assert.equal(engaged.length, 1);
   assert.equal(engaged[0].name, 'скелет');
   assert.equal(engaged[0].maxHp, 20);

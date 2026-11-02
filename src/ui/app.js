@@ -11,11 +11,11 @@ import { makeRoomCode } from '../net/loopback.js';
 import { createHybridHostNet, createHybridClientLink } from '../net/hybrid.js';
 import { loadCustomTurn, saveCustomTurn } from '../net/turnconfig.js';
 import { loadRelayUrl, saveRelayUrl, relayUrlOverride, DEFAULT_RELAY_URL } from '../net/relay.js';
-import { PROTOCOL_VER } from '../net/protocol.js';
+
 import { saveRun, loadRun, loadRunRaw, clearRun, runSummary } from '../engine/save.js';
 import {
   createTyper, renderStats, renderQuests, renderInventoryPanel, renderShop,
-  renderStatsSnap, renderCombat, renderMiniMap, renderMiniMapSnap, GLYPH_SETS, MAX_LOG_LINES
+  renderStatsSnap, renderCombat, GLYPH_SETS, MAX_LOG_LINES
 } from './terminal.js';
 import {
   initAudio, rollSound, hitSound, lootSound, levelUpSound,
@@ -66,7 +66,7 @@ let client = null;          // AI-клиент (хост/соло)
 let state = null;           // соло-состояние
 let typer = null;
 let chronicle = [];
-let inputHistory = [];
+const inputHistory = [];
 let historyIdx = -1;
 let wasMyTurn = false;      // для звукового сигнала хода в коопе
 

@@ -88,7 +88,7 @@ export function dist(ax, ay, bx, by) {
 
 /** Прямая видимость по Брезенхэму (стены блокируют, но сама стена видна). */
 export function hasLineOfSight(dungeon, x0, y0, x1, y1) {
-  let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
   const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
   let err = dx - dy, x = x0, y = y0;
   while (!(x === x1 && y === y1)) {

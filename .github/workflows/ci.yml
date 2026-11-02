@@ -20,6 +20,9 @@ jobs:
         run: npm ci
 
       - name: Тесты движка
+      - name: Линтер
+        run: npm run lint
+
         run: npm test
 
       # сборка падает, если в бандле коллизия имён или остался import/export

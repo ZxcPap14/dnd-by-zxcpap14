@@ -6,11 +6,13 @@
   "scripts": {
     "test": "node --test \"src/test/*.test.js\"",
     "build": "node build.mjs",
-    "check": "npm test && npm run build",
+    "check": "npm run lint && npm test && npm run build",
     "serve": "node serve.mjs",
-    "relay": "node server/relay-server.mjs"
+    "relay": "node server/relay-server.mjs",
+    "lint": "eslint ."
   },
   "devDependencies": {
+    "eslint": "^10.14.0",
     "wrangler": "^4.156.0",
     "ws": "8.18.0"
   },

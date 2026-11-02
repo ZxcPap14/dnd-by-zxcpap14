@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, applyIntent, parseCommand } from '../engine/game.js';
-import { openMerchant, shopText, buyFromMerchant, sellToMerchant, closeMerchant } from '../engine/merchant.js';
+import { openMerchant, shopText, buyFromMerchant, closeMerchant } from '../engine/merchant.js';
 
 const HERO = { name: 'Дима', className: 'Воин', stats: { str: 16, dex: 12, int: 8, con: 14, cha: 10, luck: 12 } };
 

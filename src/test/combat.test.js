@@ -4,7 +4,7 @@ import { createRng, makeDice } from '../engine/rng.js';
 import {
   rollInitiative, attackRoll, damageRoll, monsterAttack, rollDrop, BASIC_DROP_TABLE
 } from '../engine/combat.js';
-import { createPlayer, makeItem } from '../engine/player.js';
+import { makeItem } from '../engine/player.js';
 
 const stats = { str: 14, dex: 12, int: 10, con: 12, cha: 10, luck: 10 };
 const sword = makeItem({ name: 'Меч', type: 'weapon', dmg: 3, bonus: 1 });

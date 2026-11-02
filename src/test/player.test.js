@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createPlayer, gainXp, xpForNextLevel, addItem, removeItem, findItem,
-  equipItem, playerAc, playerWeapon, makeItem, mod
+  equipItem, playerAc, playerWeapon, makeItem
 } from '../engine/player.js';
 
 test('createPlayer: HP зависит от выносливости', () => {

@@ -658,7 +658,8 @@
       <pre class="avatar" id="name-avatar" style="font-size:8px"> </pre>
     </div>
 
-          <label>АВАТАРКА</label>
+    <div class="field">
+      <label>АВАТАРКА</label>
       <div id="avatar-grid" class="avatar-grid"></div>
     </div>
     <div class="bs-meta">
@@ -1072,7 +1073,7 @@ function dist(ax, ay, bx, by) {
 
 /** Прямая видимость по Брезенхэму (стены блокируют, но сама стена видна). */
 function hasLineOfSight(dungeon, x0, y0, x1, y1) {
-  let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
   const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
   let err = dx - dy, x = x0, y = y0;
   while (!(x === x1 && y === y1)) {
@@ -3521,13 +3522,13 @@ function tryParseJson(s) {
   }
 
   // 2) спасение обрезанного: сканируем и закрываем незакрытые строку/скобки
-  let depth = 0, inStr = false, esc = false, lastComplete = -1;
+  let depth = 0, inStr = false, esc = false;
   for (let i = 0; i < body.length; i++) {
     const ch = body[i];
     if (esc) { esc = false; continue; }
     if (inStr) {
       if (ch === '\\') esc = true;
-      else if (ch === '"') { inStr = false; lastComplete = i; }
+      else if (ch === '"') { inStr = false; }
       continue;
     }
     if (ch === '"') inStr = true;
@@ -3535,7 +3536,6 @@ function tryParseJson(s) {
     else if (ch === '}') {
       depth--;
       if (depth === 0) { try { return JSON.parse(body.slice(0, i + 1)); } catch { break; } }
-      lastComplete = i;
     }
   }
   let out = body;
@@ -4217,7 +4217,7 @@ function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, graceMs
       notify([{ kind: 'system', text: 'Сейчас не твой ход — дождись очереди. (Но реплики в чат — «кричу …» — работают всегда.)' }]);
       return;
     }
-    let events = applyIntent(game, intent, heroIdx);
+    const events = applyIntent(game, intent, heroIdx);
     // свободный текст → ДМ (в т.ч. перехваченные тупики движка — стена/нет предмета)
     for (const e of events) {
       if (e.kind === 'dm' && e.text.startsWith('__FREE__')) {
@@ -6273,7 +6273,7 @@ let client = null;          // AI-клиент (хост/соло)
 let state = null;           // соло-состояние
 let typer = null;
 let chronicle = [];
-let inputHistory = [];
+const inputHistory = [];
 let historyIdx = -1;
 let wasMyTurn = false;      // для звукового сигнала хода в коопе
 

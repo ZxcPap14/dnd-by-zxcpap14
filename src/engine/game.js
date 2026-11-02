@@ -2,7 +2,7 @@
 // v0.5: мультигеройность — heroes[], очерёдность ходов, смерть партии.
 // Принцип «ИИ предлагает — код решает»: любые изменения состояния проходят отсюда.
 
-import { createRng, makeDice, mod } from './rng.js';
+import { createRng, makeDice } from './rng.js';
 import { generateDungeon, randomFloor, computeFov, dist, TILE } from './map.js';
 import {
   createPlayer, gainXp, addItem, removeItem, findItem, equipItem,
@@ -15,7 +15,7 @@ import {
 import { DIRS, W, parseCommand } from './parser.js';
 import { openMerchant, buyFromMerchant, sellToMerchant, closeMerchant, shopText, removeCurse } from './merchant.js';
 import {
-  maybeCurse, isCursed, isUnknown, revealCurse, curseMods, curseById, stuckItem, itemNameWithCurse
+  maybeCurse, isUnknown, revealCurse, curseMods, curseById, stuckItem, itemNameWithCurse
 } from './curses.js';
 
 // ре-экспорт: снаружи (host.js, тесты) парсер по-прежнему берут из game.js

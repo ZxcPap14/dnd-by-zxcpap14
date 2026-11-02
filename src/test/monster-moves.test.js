@@ -1,7 +1,7 @@
 // monster-moves.test.js — монстры преследуют, не проходят сквозь стены, бьют в упор.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame, applyIntent, parseCommand, monsterTurns, resolveCombatRound } from '../engine/game.js';
+import { newGame, applyIntent, parseCommand, monsterTurns } from '../engine/game.js';
 import { TILE } from '../engine/map.js';
 
 const STATS = { str: 12, dex: 14, int: 10, con: 12, cha: 12, luck: 10 };

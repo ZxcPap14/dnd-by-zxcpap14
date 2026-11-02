@@ -15,7 +15,7 @@ const MIME = {
 };
 
 createServer((req, res) => {
-  let path = req.url === '/' ? '/index.html' : req.url.split('?')[0];
+  const path = req.url === '/' ? '/index.html' : req.url.split('?')[0];
   const file = join(root, path);
   if (!existsSync(file)) {
     res.writeHead(404); res.end('404'); return;

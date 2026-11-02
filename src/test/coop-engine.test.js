@@ -88,7 +88,7 @@ test('descend требует всю партию на лестнице', () => {
   assert.ok(ev0.some(e => e.text.includes('Партия не собрана')));
   // теперь все на лестнице
   s.heroes.forEach(h => { h.pos = { ...s.dungeon.stairs }; });
-  const ev1 = applyIntent(s, { intent: 'descend' }, s.activeIdx);
+  applyIntent(s, { intent: 'descend' }, s.activeIdx);
   assert.equal(s.depth, depth0 + 1);
   assert.equal(s.heroes[0].pos.x === s.heroes[1].pos.x, false, 'после спуска герои не слипаются');
 });

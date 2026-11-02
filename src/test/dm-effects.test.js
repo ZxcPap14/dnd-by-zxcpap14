@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame, applyDmEffects, visibleMonsters } from '../engine/game.js';
+import { newGame, applyDmEffects } from '../engine/game.js';
 
 function freshGame(seed = 5) {
   return newGame({ seed, worldDesc: 'Киберпанк-Токио', className: 'Хакер', name: 'Нео' });

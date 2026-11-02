@@ -177,7 +177,7 @@ export function createHostSession({ net, hostName, dm = null, turnMs = TURN_MS, 
       notify([{ kind: 'system', text: 'Сейчас не твой ход — дождись очереди. (Но реплики в чат — «кричу …» — работают всегда.)' }]);
       return;
     }
-    let events = applyIntent(game, intent, heroIdx);
+    const events = applyIntent(game, intent, heroIdx);
     // свободный текст → ДМ (в т.ч. перехваченные тупики движка — стена/нет предмета)
     for (const e of events) {
       if (e.kind === 'dm' && e.text.startsWith('__FREE__')) {

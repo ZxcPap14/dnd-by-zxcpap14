@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createLoopbackNet, makeRoomCode } from '../net/loopback.js';
 import { createHostSession } from '../net/host.js';
 import { createClientSession } from '../net/client.js';
-import { PROTOCOL_VER } from '../net/protocol.js';
+
 import { describePeerError } from '../net/peer.js';
 import { firstSuccess, createHybridClientLink } from '../net/hybrid.js';
 
