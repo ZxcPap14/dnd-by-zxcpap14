@@ -1,5 +1,6 @@
 // app.js — склейка всего: экраны, игровой цикл, ввод, кооп (хост/клиент), смерть, зал славы, экспорт.
 
+import { esc, loadHof, saveHofEntry, loadCustomClasses, saveCustomClasses } from './store.js';
 import { newGame, parseCommand, applyIntent, applyDmEffects, engagedEnemies, rollPowerCheck } from '../engine/game.js';
 import { createClient, extractJson } from '../ai/client.js';
 import { buildContext, introMessages, classMessages, backstoryMessages } from '../ai/dm.js';
@@ -105,14 +106,6 @@ function saveCfg() {
   localStorage.setItem('dnd_cfg', JSON.stringify(cfg));
 }
 
-function loadHof() {
-  try { return JSON.parse(localStorage.getItem('dnd_hof') || '[]'); } catch { return []; }
-}
-function saveHofEntry(entry) {
-  const hof = loadHof();
-  hof.unshift(entry);
-  localStorage.setItem('dnd_hof', JSON.stringify(hof.slice(0, 20)));
-}
 function renderHof() {
   const hof = loadHof();
   $('hof-list').innerHTML = hof.length
@@ -123,9 +116,6 @@ function renderHof() {
   if (typeof refreshThemeOptions === 'function') refreshThemeOptions();
 }
 
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-}
 
 // ---------- сохранение / продолжение забега ----------
 
@@ -251,17 +241,7 @@ function currentClient() {
   return null;
 }
 
-// ---------- свои классы (localStorage) ----------
-
-function loadCustomClasses() {
-  try {
-    const raw = JSON.parse(localStorage.getItem('dnd_custom_classes') || '[]');
-    return Array.isArray(raw) ? raw.filter(c => c && c.name) : [];
-  } catch { return []; }
-}
-function saveCustomClasses(list) {
-  localStorage.setItem('dnd_custom_classes', JSON.stringify(list.slice(0, 12)));
-}
+// ---------- свои классы ----------
 
 function renderCustomClasses() {
   const box = $('custom-class-list');

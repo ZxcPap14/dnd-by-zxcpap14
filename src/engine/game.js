@@ -300,7 +300,7 @@ export function visibleMonsters(state, heroIdx = state.activeIdx) {
 }
 
 /** Пометить: этот герой сейчас дерётся с этим монстром (для боевого окна UI). */
-function markCombat(state, hero, monster) {
+export function markCombat(state, hero, monster) {
   if (!hero || !monster?.id) return;
   if (!hero.combat) hero.combat = {};
   hero.combat[monster.id] = state.turn;
@@ -904,135 +904,9 @@ export function describeSurroundings(state, heroIdx = state.activeIdx) {
   return parts.join('');
 }
 
-/** Ключ задачи для сравнения: без кавычек, лишних пробелов, регистра и точки. */
-function questKey(text) {
-  return String(text || '')
-    .replace(/\s+/g, ' ')
-    .replace(/[«»"'.,!?:;()]/g, '')
-    .trim()
-    .toLowerCase();
-}
-
-const QUEST_NOISE = new Set(['что', 'чтобы', 'этот', 'этом', 'этой', 'какой', 'когда', 'надо', 'нужно', 'найти', 'найди', 'затем']);
-
-function questWords(text) {
-  return questKey(text).split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2 && !QUEST_NOISE.has(w));
-}
-
-/** Слова считаются теми же при совпадении первых 3 букв: «дань» ≈ «данщик», «кузнеца» ≈ «кузнец». */
-function sameWord(a, b) {
-  // shortcut: 3 буквы дают редкие ложные склейки («соль»/«солнце») — ок для
-  // журнала из 3-6 строк; если задач станет много, поднять до 4 и словарь стемов.
-  return a === b || (a.length >= 4 && b.length >= 4 && a.slice(0, 3) === b.slice(0, 3));
-}
-
-/** Добавить задачу в журнал. Возвращает текст, если добавлена, иначе null (дубль). */
-/** Как называть уровни в этом мире: «этаж» в киберпанк-городе звучит как подземелье. */
-const VILLAINS_KEY = 'dnd-villains-v1';
-let villainMemory = [];
-
-/** Имена прошлых злодеев: модель любит выдавать один и тот же мотив, игрок это видит. */
-export function loadVillains() {
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem(VILLAINS_KEY);
-      return raw ? JSON.parse(raw).slice(-10) : [];
-    }
-  } catch { /* испорченное хранилище — не повод падать */ }
-  return villainMemory.slice(-10);
-}
-
-export function rememberVillain(name) {
-  const s = String(name || '').trim().slice(0, 60);
-  if (!s) return;
-  const list = loadVillains().filter(n => n.toLowerCase() !== s.toLowerCase());
-  list.push(s);
-  const keep = list.slice(-10);
-  villainMemory = keep;
-  try {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(VILLAINS_KEY, JSON.stringify(keep));
-  } catch { /* нет места в хранилище — переживём */ }
-}
-
-export function floorLabel(worldDesc, depth) {
-  const w = String(worldDesc || '').toLowerCase();
-  const word = /кибер|неон|город|косм|звезд|корабл|станц/.test(w) ? 'Сектор' : 'Этаж';
-  return `${word} ${depth}`;
-}
-
-export function addQuest(state, text) {
-  const clean = String(text || '').replace(/\s+/g, ' ').trim();
-  if (!clean) return null;
-  const key = questKey(clean);
-  if (state.quests.some(q => questKey(q) === key)) return null;
-  state.quests.push(clean);
-  // штамп «когда задача последний раз двигалась» — для авто-снятия зависших
-  if (!state.questAges) state.questAges = {};
-  state.questAges[clean] = state.turn;
-  return clean;
-}
-
-/**
- * Закрыть задачу по формулировке ДМа — не дословной: «кузнец Гарм спасён»
- * закрывает «Найти кузнеца Гарма». Возвращает текст закрытой задачи или null.
- */
-export function completeQuest(state, text) {
-  const want = questWords(text);
-  if (!want.length) return null;
-  let best = null;
-  let bestScore = 0;
-  for (const q of state.quests) {
-    const words = questWords(q);
-    if (!words.length) continue;
-    const hit = words.filter(w => want.some(x => sameWord(w, x))).length;
-    // Сравниваем с более коротким списком: игрок может закрыть задачу одной
-    // точной фразой («данщик известен»), а не пересказом всей формулировки.
-    const score = hit / Math.min(words.length, want.length);
-    // 2/3 слов задачи уже достаточно: ДМ пересказывает итог своими словами
-    if (score >= 0.5 && score > bestScore) { best = q; bestScore = score; }
-  }
-  if (!best) return null;
-  state.quests = state.quests.filter(q => q !== best);
-  if (state.questAges) delete state.questAges[best];
-  return best;
-}
-
-// ---------- память ДМа ----------
-
-const MEMORY_CAP = 30;      // сколько последних событий помнит ДМ
-const MEMORY_LINE_MAX = 160; // обрезка строки события
-
-/**
- * Запомнить события для ИИ-ДМа. Служебные эхо (__FREE__) не запоминаются.
- */
-export function rememberEvents(state, events) {
-  if (!state.memory) state.memory = [];
-  for (const e of events) {
-    if (!e || typeof e.text !== 'string') continue;
-    if (e.text.startsWith('__FREE__')) continue;
-    if (e.kind === 'suggest') continue; // UI-подсказки — не память ДМа
-    const line = `${e.kind}: ${e.text}`.slice(0, MEMORY_LINE_MAX);
-    state.memory.push(line);
-  }
-  if (state.memory.length > MEMORY_CAP) state.memory.splice(0, state.memory.length - MEMORY_CAP);
-}
-
-/** Строка «НЕДАВНИЕ СОБЫТИЯ» для контекста ИИ. */
-export function memoryDigest(state, n = 12) {
-  if (!state.memory?.length) return '';
-  return state.memory.slice(-n).join(' | ');
-}
-
-// ---------- сюжет: злодей, босс, победа ----------
-
-/** Имя злодея (от ИИ или офлайн-шаблон). */
-export function storyVillain(state) {
-  return state.story?.villain || state.story?.fallbackVillain?.villain || 'Владыка Бездны';
-}
-
-export function storyGoal(state) {
-  return state.story?.villainGoal || state.story?.fallbackVillain?.goal || 'уничтожить всё живое';
-}
+// Задачи, память ДМа и сюжетные строки живут в story.js; реэкспорт оставлен,
+// чтобы остальной код и тесты продолжали импортировать их из game.js.
+import { addQuest, completeQuest, rememberEvents, storyVillain, storyGoal, floorLabel, rememberVillain, questWords } from './story.js';
 
 /** Спавн финального босса на последнем этаже сюжетного забега. */
 function spawnStoryBoss(state, events) {
@@ -1063,130 +937,11 @@ function grantVictory(state, hero, push) {
   state.epitaph = `${hero.name} победил ${storyVillain(state)} и спас мир. На глубине ${state.depth}.`;
   push('victory', `⚜ ${storyVillain(state)} повержен! ${hero.name} — легенда. ПОБЕДА!`);
 }
+export { loadVillains, rememberVillain, floorLabel, addQuest, completeQuest, rememberEvents, memoryDigest, storyVillain, storyGoal, storyDigest } from './story.js';
 
-/** Сюжетная строка для контекста ИИ. */
-export function storyDigest(state) {
-  const s = state.story;
-  if (!s) return '';
-  return `АКТ ${s.act}/${s.acts}, этаж ${state.depth} из ${s.floors}, злодей: ${storyVillain(state)} (${storyGoal(state)}), босс: ${s.bossSpawned ? 'УЖЕ ЖДЁТ' : 'впереди'}.`;
-}
+import { monsterTurns } from './monsters.js';
+export { monsterTurns } from './monsters.js';
 
-// ---------- жизнь монстров: преследование и атака ----------
-
-function walkable(state, x, y) {
-  if (x < 0 || y < 0 || x >= state.dungeon.w || y >= state.dungeon.h) return false;
-  return state.dungeon.grid[y][x] !== TILE.WALL;
-}
-
-function occupied(state, x, y) {
-  if (state.monsters.some(m => m.hp > 0 && m.x === x && m.y === y)) return true;
-  if (state.heroes.some(h => h.alive && h.pos.x === x && h.pos.y === y)) return true;
-  return false;
-}
-
-function stepToward(state, m, target) {
-  let best = null;
-  let bestD = dist(m.x, m.y, target.x, target.y);
-  for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
-    const nx = m.x + dx, ny = m.y + dy;
-    if (!walkable(state, nx, ny) || occupied(state, nx, ny)) continue;
-    const d = dist(nx, ny, target.x, target.y);
-    if (d < bestD) { bestD = d; best = { x: nx, y: ny }; }
-  }
-  return best;
-}
-
-function randomStep(state, m) {
-  const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-  for (let i = dirs.length - 1; i > 0; i--) {
-    const j = Math.floor(state.rng() * (i + 1));
-    [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
-  }
-  for (const [dx, dy] of dirs) {
-    const nx = m.x + dx, ny = m.y + dy;
-    if (walkable(state, nx, ny) && !occupied(state, nx, ny)) return { x: nx, y: ny };
-  }
-  return null;
-}
-
-/** Атака монстра по герою вплотную. Возвращает события. */
-function monsterStrikeAdjacent(state, m, push) {
-  const events = [];
-  const candidates = state.heroes
-    .filter(h => h.alive && dist(h.pos.x, h.pos.y, m.x, m.y) <= 1)
-    .sort((a, b) => dist(a.pos.x, a.pos.y, m.x, m.y) - dist(b.pos.x, b.pos.y, m.x, m.y));
-  const target = candidates[0];
-  if (!target) return events;
-  markCombat(state, target, m); // враг напал — появляется в боевом окне жертвы
-  const atk = monsterAttack(state.dice, m, playerAc(target));
-  if (!atk.hit) {
-    push('combat', `${m.name} настигает ${target.name}, но бьёт мимо.`);
-    return events;
-  }
-  target.hp -= atk.dmg;
-  state.deathCause = `убит ${m.name}`;
-  push('combat', `${m.name} ${atk.crit ? 'КРИТУЕТ' : 'нападает'} по ${target.name}: -${atk.dmg} HP (осталось ${Math.max(0, target.hp)}).`);
-  return events;
-}
-
-/**
- * Ходы монстров после действия героя: видят героя — преследуют и бьют в упор,
- * не видят — иногда бродят. Монстр, уже подравшийся в этом ходу, ход не тратит.
- */
-export function monsterTurns(state) {
-  const events = [];
-  const push = (kind, text) => events.push(ev(kind, text));
-  if (state.over) return events;
-  const living = state.heroes.filter(h => h.alive);
-  if (!living.length) return events;
-
-  for (const m of state.monsters) {
-    if (m.hp <= 0 || m.lastActedTurn === state.turn) continue;
-    // оглушён способностью класса — пропускает ход
-    if (m.stun > 0) {
-      m.stun--;
-      push('system', `${m.name} оглушён и пропускает ход, обиженно покачиваясь.`);
-      continue;
-    }
-
-    // цель: ближайший живой герой, который видит монстра (= взаимная видимость)
-    let target = null, bestD = Infinity;
-    for (const h of living) {
-      if (!h.fov.has(`${m.x},${m.y}`)) continue;
-      const d = dist(h.pos.x, h.pos.y, m.x, m.y);
-      if (d < bestD) { bestD = d; target = h; }
-    }
-
-    if (target && bestD <= 1) {
-      m.lastActedTurn = state.turn;
-      events.push(...monsterStrikeAdjacent(state, m, push));
-      continue;
-    }
-
-    if (target) {
-      if (!m.aware) {
-        m.aware = true;
-        push('dm', `Из тьмы за тобой крадётся ${m.name}. Похоже, ты ему понравился.`);
-      }
-      const step = stepToward(state, m, target.pos);
-      if (step) { m.x = step.x; m.y = step.y; m.lastActedTurn = state.turn; }
-      continue;
-    }
-
-    // никого не видит — иногда бродит
-    if (state.rng() < 0.25) {
-      const step = randomStep(state, m);
-      if (step) { m.x = step.x; m.y = step.y; m.lastActedTurn = state.turn; }
-    }
-  }
-  return events;
-}
-
-/**
- * Общая карта партии в компактном виде: по строке на ряд.
- * '#' стена, '.' пол, '>' лестница, ' ' — ещё не видели.
- * Одинакова для всех героев, поэтому мини-карта у всех игроков совпадает.
- */
 export function exploredRows(state) {
   const rows = [];
   const seen = state.explored || new Set();

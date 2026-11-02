@@ -13,6 +13,8 @@ const ORDER = [
   'src/engine/merchant.js',
   'src/engine/combat.js',
   'src/engine/parser.js',
+  'src/engine/story.js',
+  'src/engine/monsters.js',
   'src/engine/game.js',
   'src/engine/save.js',
   'src/ai/client.js',
@@ -30,6 +32,7 @@ const ORDER = [
   'src/ui/sound.js',
   'src/ui/avatar.js',
   'src/ui/theme.js',
+  'src/ui/store.js',
   'src/ui/terminal.js',
   'src/ui/app.js'
 ];
@@ -65,7 +68,7 @@ code = code.replace(/^import\s+['"][^'"]*['"];?\s*$/gm, '');
 code = code.replace(/^export\s+(?=(async\s+)?(function|const|let|var|class))/gm, '');
 
 // 3) export { a, b }; — bare re-export → вырезать целиком
-code = code.replace(/^export\s*\{[^}]*\};?\s*$/gm, '');
+code = code.replace(/^export\s*\{[^}]*\}(?:\s*from\s*['"][^'"]*['"])?;?\s*$/gm, '');
 
 // 4) проверка на остатки модульного синтаксиса
 const leftovers = code.match(/^\s*(import|export)\b.*$/gm);
