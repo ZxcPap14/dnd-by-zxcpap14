@@ -16,6 +16,7 @@ const ORDER = [
   'src/engine/story.js',
   'src/engine/monsters.js',
   'src/engine/game.js',
+  'src/engine/views.js',
   'src/engine/save.js',
   'src/ai/client.js',
   'src/ai/dm.js',
@@ -34,6 +35,7 @@ const ORDER = [
   'src/ui/theme.js',
   'src/ui/store.js',
   'src/ui/terminal.js',
+  'src/ui/portrait.js',
   'src/ui/app.js'
 ];
 

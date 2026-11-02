@@ -1,6 +1,7 @@
 // app.js — склейка всего: экраны, игровой цикл, ввод, кооп (хост/клиент), смерть, зал славы, экспорт.
 
 import { esc, loadHof, saveHofEntry, loadCustomClasses, saveCustomClasses } from './store.js';
+import { paintPortrait, fitArt } from './portrait.js';
 import { newGame, parseCommand, applyIntent, applyDmEffects, engagedEnemies, rollPowerCheck } from '../engine/game.js';
 import { createClient, extractJson } from '../ai/client.js';
 import { buildContext, introMessages, classMessages, backstoryMessages } from '../ai/dm.js';
@@ -474,19 +475,6 @@ function startSolo() {
   $('input').focus();
 }
 
-function paintPortrait(name) {
-  const el = $('hero-portrait');
-  if (!el) return;
-  const art = heroAvatar(String(name || 'Безымянный'));
-  el.textContent = art;
-  // Рисуем крупно (18px) и ужимаем блок через zoom: при мелком кегле браузер
-  // рвёт строки в полосы, а так глиф остаётся целым и плотность видна.
-  el.style.fontSize = '18px';
-  el.style.zoom = '1';
-  const panel = el.parentElement;
-  const w = (panel ? panel.clientWidth : 560) - 20;
-  if (w > 40) el.style.zoom = Math.min(1, w / (el.scrollWidth || 1)).toFixed(3);
-}
 
 function refreshPanelsSolo() {
   renderStats($('stats'), state);  paintPortrait((state.heroes[state.activeIdx] || state.player || {}).name);
@@ -503,23 +491,7 @@ function refreshPanelsSolo() {
  * Автоподгонка ASCII-арта: измеряем реальную ширину содержимого при базовом
  * размере и масштабируем шрифт так, чтобы арт занимал всю ширину, но влезал.
  */
-function fitPre(el, availPx, minPx, maxPx) {
-  if (!el) return;
-  const prev = parseFloat(getComputedStyle(el).fontSize) || 10;
-  el.style.display = 'inline-block'; // shrink-to-fit → честная ширина контента
-  const w = el.getBoundingClientRect().width;
-  el.style.display = '';
-  if (!w) return;
-  el.style.fontSize = Math.max(minPx, Math.min(maxPx, prev * (availPx / w))) + 'px';
-}
 
-function fitArt() {
-  const box = document.querySelector('.setup-box');
-  if (!box) return;
-  const avail = box.clientWidth - 56;
-  fitPre($('logo'), avail, 6, 20);
-  fitPre($('logo-sub'), avail, 3, 8);
-}
 
 /** Классификация события для расширенной палитры хроники. */
 function classify(kind, text) {
