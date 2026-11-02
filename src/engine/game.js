@@ -52,6 +52,7 @@ export const STORY_SHAPES = [
   'голод: злодей забрал воду, урожай или воздух, и все торгуются за глоток',
   'побег: злодей держит всех внутри, а выйти можно только его путём'
 ];
+const STALE_QUESTS = 8; // столько ходов без упоминания — задача снимается сама
 export const MAX_QUESTS = 5; // больше в журнале не удержится — игрок перестаёт их читать
 
 let monSeq = 0;
@@ -139,7 +140,7 @@ export function newGame(opts) {
     epitaph: null,
     turn: 0,
     quests: [],
-    floorName: `Этаж 1`,
+    floorName: floorLabel(opts.worldDesc, 1),
     heroes: [],
     activeIdx: 0,
     monsters: [],
@@ -566,7 +567,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
         h.pos = spot;
         revealFov(state, h);
       });
-      state.floorName = `Этаж ${state.depth}`;
+      state.floorName = floorLabel(state.worldDesc, state.depth);
       populateFloor(state);
       // торговец ждёт на новом этаже: золото снова есть куда потратить
       state.merchant = openMerchant(state);
@@ -926,12 +927,48 @@ function sameWord(a, b) {
 }
 
 /** Добавить задачу в журнал. Возвращает текст, если добавлена, иначе null (дубль). */
+/** Как называть уровни в этом мире: «этаж» в киберпанк-городе звучит как подземелье. */
+const VILLAINS_KEY = 'dnd-villains-v1';
+let villainMemory = [];
+
+/** Имена прошлых злодеев: модель любит выдавать один и тот же мотив, игрок это видит. */
+export function loadVillains() {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(VILLAINS_KEY);
+      return raw ? JSON.parse(raw).slice(-10) : [];
+    }
+  } catch { /* испорченное хранилище — не повод падать */ }
+  return villainMemory.slice(-10);
+}
+
+export function rememberVillain(name) {
+  const s = String(name || '').trim().slice(0, 60);
+  if (!s) return;
+  const list = loadVillains().filter(n => n.toLowerCase() !== s.toLowerCase());
+  list.push(s);
+  const keep = list.slice(-10);
+  villainMemory = keep;
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(VILLAINS_KEY, JSON.stringify(keep));
+  } catch { /* нет места в хранилище — переживём */ }
+}
+
+export function floorLabel(worldDesc, depth) {
+  const w = String(worldDesc || '').toLowerCase();
+  const word = /кибер|неон|город|косм|звезд|корабл|станц/.test(w) ? 'Сектор' : 'Этаж';
+  return `${word} ${depth}`;
+}
+
 export function addQuest(state, text) {
   const clean = String(text || '').replace(/\s+/g, ' ').trim();
   if (!clean) return null;
   const key = questKey(clean);
   if (state.quests.some(q => questKey(q) === key)) return null;
   state.quests.push(clean);
+  // штамп «когда задача последний раз двигалась» — для авто-снятия зависших
+  if (!state.questAges) state.questAges = {};
+  state.questAges[clean] = state.turn;
   return clean;
 }
 
@@ -956,12 +993,13 @@ export function completeQuest(state, text) {
   }
   if (!best) return null;
   state.quests = state.quests.filter(q => q !== best);
+  if (state.questAges) delete state.questAges[best];
   return best;
 }
 
 // ---------- память ДМа ----------
 
-const MEMORY_CAP = 14;      // сколько последних событий помнит ДМ
+const MEMORY_CAP = 30;      // сколько последних событий помнит ДМ
 const MEMORY_LINE_MAX = 160; // обрезка строки события
 
 /**
@@ -1285,7 +1323,6 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
       addItem(hero, item);
       push('loot', `${hero.name} получает: ${item.name}${item.qty > 1 ? ` x${item.qty}` : ''}.`);
     }
-    gainXp(hero, 5, state.rng);
   }
 
   if (effects.goldGain) {
@@ -1347,13 +1384,20 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
     const name = String(npc?.name || '').slice(0, 40).trim();
     if (name && !state.cast.some(c => c.name.toLowerCase() === name.toLowerCase())) {
       state.cast.push({ name, role: String(npc.role || '').slice(0, 60).trim() });
-      if (state.cast.length > 8) state.cast.shift();
+      // Вытесняем не самого старого, а того, кого давно не вспоминали:
+      // иначе через десяток ходов все лица исчезают и нить рвётся.
+      if (state.cast.length > 12) {
+        const mentioned = c => (state.memory || []).some(line => line.includes(c.name));
+        const idx = state.cast.findIndex(c => !mentioned(c));
+        state.cast.splice(idx >= 0 ? idx : 0, 1);
+      }
     }
   }
 
   // сюжет: ИИ задаёт злодея и его цель (обычно в интро)
   if (state.story && !state.story.villain && effects.villain) {
     state.story.villain = String(effects.villain).slice(0, 60);
+    rememberVillain(state.story.villain);
     state.story.villainGoal = String(effects.villainGoal || '').slice(0, 120);
     push('victory', `⚜ ЛЕГЕНДА: ${state.story.villain} — ${state.story.villainGoal || 'твоя главная угроза'}.`);
   }
@@ -1380,6 +1424,20 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
     } else if (heroIdx === state.activeIdx) {
       // умер именно тот, чей ход, — очередь иначе застрянет на мёртвом навсегда
       advanceTurn(state);
+    }
+  }
+  // Зависшие задачи: если 8 ходов о задаче ни слова, она снимается сама —
+  // иначе журнал забивается мусором, который модель никогда не закроет.
+  if (state.questAges && state.quests.length) {
+    const said = (state.memory || []).filter(l => !/^quest:/.test(l)).join(' ').toLowerCase();
+    for (const q of [...state.quests]) {
+      const words = questWords(q).filter(w => w.length > 3);
+      if (words.some(w => said.includes(w))) { state.questAges[q] = state.turn; continue; }
+      if (state.turn - (state.questAges[q] ?? state.turn) >= STALE_QUESTS) {
+        state.quests = state.quests.filter(x => x !== q);
+        delete state.questAges[q];
+        push('quest', `— снято: ${q}`);
+      }
     }
   }
   rememberEvents(state, events);

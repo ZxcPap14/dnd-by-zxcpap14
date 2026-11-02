@@ -1,7 +1,7 @@
 // visual.test.js — тесты визуального слоя: аватары и наборы символов карты.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nameHash, asciiAvatar } from '../ui/avatar.js';
+import { nameHash, asciiAvatar, AVATARS, avatarArt, loadPickedAvatar, savePickedAvatar, heroAvatar } from '../ui/avatar.js';
 import { GLYPH_SETS } from '../ui/terminal.js';
 
 test('nameHash: детерминизм и чувствительность к регистру/пробелам', () => {
@@ -53,4 +53,28 @@ test('GLYPH_SETS: три набора с одинаковой схемой кл�
   assert.equal(GLYPH_SETS.classic.wall, '#');
   assert.equal(GLYPH_SETS.blocky.wall, '▓');
   assert.notEqual(GLYPH_SETS.pseudo.wall, '#');
+});
+
+
+test('галерея аватарок: 20 штук, ровные 6x12, id уникальны', () => {
+  assert.ok(AVATARS.length >= 20, 'штук ' + AVATARS.length);
+  const ids = new Set(AVATARS.map(a => a.id));
+  assert.equal(ids.size, AVATARS.length);
+  for (const a of AVATARS) {
+    assert.equal(a.art.length, 6, a.id);
+    for (const line of a.art) assert.equal(line.length, 12, a.id);
+    assert.ok(a.name && a.name.length > 2, a.id);
+  }
+});
+
+test('выбранная аватарка сохраняется и подменяет портрет из ника', () => {
+  assert.equal(loadPickedAvatar(), '');
+  assert.equal(heroAvatar('Дима'), asciiAvatar('Дима'));
+  savePickedAvatar('mage');
+  assert.equal(loadPickedAvatar(), 'mage');
+  assert.equal(heroAvatar('Дима'), avatarArt('mage'));
+  assert.ok(avatarArt('knight').includes('\n'));
+  savePickedAvatar('нет-такой');
+  assert.equal(loadPickedAvatar(), '');
+  assert.equal(heroAvatar('Дима'), asciiAvatar('Дима'));
 });

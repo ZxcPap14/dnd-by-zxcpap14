@@ -92,29 +92,49 @@ export async function createHybridHostNet(code) {
  */
 export async function createHybridClientLink(code, onNote = null) {
   const errors = [];
+  const note = t => { if (onNote) onNote(t); };
+
+  // Оба канала стартуют сразу: раньше Trystero ждал 8 секунд, и вход всегда
+  // занимал ~9 с, даже когда релей отвечал за 300 мс.
+  const viaTrystero = createTrysteroClientLink(code, { hostWaitMs: 8000 })
+    .then(link => ({ link, label: 'P2P (Trystero)' }))
+    .catch(e => { errors.push('trystero: ' + e.message); throw e; });
+
+  const viaRelay = createRelayClientLink(code)
+    .then(link => ({ link, label: 'релей' + (link.relay ? ' (' + link.relay + ')' : '') }))
+    .catch(e => { errors.push('relay: ' + e.message); throw e; });
+
   try {
-    const link = await createTrysteroClientLink(code, { hostWaitMs: 8000 });
-    if (onNote) onNote('канал: P2P (Trystero)');
-    return link;
-  } catch (e) {
-    errors.push('trystero: ' + e.message);
-    // NAT не пробился — релей как раз для этого случая. PeerJS не поможет:
-    // у него те же ICE-серверы, а его облако сейчас отдаёт 403.
-    if (onNote) onNote(e.natFail ? 'P2P не пробился — иду через релей…' : 'релеи не ответили — пробую релей…');
+    const win = await firstLink([viaTrystero, viaRelay]);
+    note('канал: ' + win.label);
+    return win.link;
+  } catch {
+    // оба канала не поднялись — последний шанс PeerJS
   }
-  try {
-    const link = await createRelayClientLink(code);
-    if (onNote) onNote('канал: релей' + (link.relay ? ' (' + link.relay + ')' : ''));
-    return link;
-  } catch (e) {
-    errors.push('relay: ' + e.message);
-  }
+
   try {
     const link = await createPeerClientLink(code);
-    if (onNote) onNote('канал: PeerJS');
+    note('канал: PeerJS');
     return link;
   } catch (e) {
     errors.push('peerjs: ' + e.message);
   }
   throw new Error(errors.join(' · '));
+}
+
+/** Первый успешный канал; проигравший закрывается, чтобы не висел сокет. */
+function firstLink(promises) {
+  return new Promise((resolve, reject) => {
+    let done = false, failed = 0;
+    promises.forEach(p => {
+      p.then(win => {
+        if (done) { try { if (win.link && win.link.close) win.link.close(); } catch { /* ignore */ } return; }
+        done = true;
+        resolve(win);
+      }, e => {
+        if (done) return;
+        if (++failed === promises.length) { done = true; reject(e); }
+      });
+    });
+  });
 }

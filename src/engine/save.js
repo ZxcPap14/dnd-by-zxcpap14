@@ -44,6 +44,7 @@ export function serializeRun(state, meta = {}) {
       deathCause: state.deathCause || null,
       turn: state.turn,
       quests: arr(state.quests).slice(),
+      questAges: { ...(state.questAges || {}) },
       floorName: state.floorName,
       activeIdx: state.activeIdx | 0,
       memory: arr(state.memory).slice(),
@@ -84,6 +85,7 @@ export function deserializeRun(data) {
     rng: createRng(data.seed || 1),
     dice: null,
     quests: arr(b.quests).slice(),
+    questAges: { ...(b.questAges || {}) },
     memory: arr(b.memory).slice()
   };
   if (data.rng != null && typeof state.rng.setState === 'function') state.rng.setState(data.rng);

@@ -27,10 +27,10 @@ test('эхо __FREE__ не попадает в память, но наррати
   assert.ok(s.memory.some(l => l.includes('посмеялся')), 'нарратив ДМа в памяти');
 });
 
-test('память кольцевая: не растёт бесконечно (кап 14)', () => {
+test('память кольцевая: не растёт бесконечно (кап 30)', () => {
   const s = mk();
-  for (let i = 0; i < 30; i++) applyIntent(s, parseCommand('постоять'));
-  assert.ok(s.memory.length <= 14, `длина ${s.memory.length}`);
+  for (let i = 0; i < 60; i++) applyIntent(s, parseCommand('постоять'));
+  assert.ok(s.memory.length <= 30, `длина ${s.memory.length}`);
   // старое вытеснилось: последнее событие — свежее
   assert.match(s.memory[s.memory.length - 1], /^(system|idle):/);
 });

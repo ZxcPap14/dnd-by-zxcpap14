@@ -21,7 +21,7 @@ import {
   initAudio, rollSound, hitSound, lootSound, levelUpSound,
   deathSound, blip, turnSound, coffeeSound
 } from './sound.js';
-import { asciiAvatar } from './avatar.js';
+import { asciiAvatar, heroAvatar, AVATARS, loadPickedAvatar, savePickedAvatar } from './avatar.js';
 import {
   loadVis, saveVis, applyVis, deathCount, THEMES, TERMINATOR_AFTER,
   shakeScreen, redFlash, showDiceRoll, deathGlitch, bootCRT,
@@ -494,9 +494,22 @@ function startSolo() {
   $('input').focus();
 }
 
+function paintPortrait(name) {
+  const el = $('hero-portrait');
+  if (!el) return;
+  const art = heroAvatar(String(name || 'Безымянный'));
+  el.textContent = art;
+  // Рисуем крупно (18px) и ужимаем блок через zoom: при мелком кегле браузер
+  // рвёт строки в полосы, а так глиф остаётся целым и плотность видна.
+  el.style.fontSize = '18px';
+  el.style.zoom = '1';
+  const panel = el.parentElement;
+  const w = (panel ? panel.clientWidth : 560) - 20;
+  if (w > 40) el.style.zoom = Math.min(1, w / (el.scrollWidth || 1)).toFixed(3);
+}
+
 function refreshPanelsSolo() {
-  renderStats($('stats'), state);
-  renderMiniMap($('map-mini'), state, vis.glyphs);
+  renderStats($('stats'), state);  paintPortrait((state.heroes[state.activeIdx] || state.player || {}).name);
   renderQuests($('quest-list'), state);
   renderCombat($('combat-panel'), engagedEnemies(state, state.activeIdx));
   refreshAbilityBtn();
@@ -958,8 +971,7 @@ function backToSetup(note) {
 
 function applySnapshot(snap) {
   mySnapshot = snap;
-  renderStatsSnap($('stats'), snap);
-  renderMiniMapSnap($('map-mini'), snap, vis.glyphs);
+  renderStatsSnap($('stats'), snap);  paintPortrait((snap.heroes[snap.you] || {}).name);
   renderQuests($('quest-list'), snap);
   refreshAbilityBtn();
   refreshInventory();
@@ -1142,10 +1154,7 @@ function wireVis() {
     };
     saveVis(vis);
     applyVis(vis);
-    // глифы карты меняются на месте: перерисовываем мини-карту, не дожидаясь хода
-    if (sessionMode === 'solo' && state) renderMiniMap($('map-mini'), state, vis.glyphs);
-    else if (mySnapshot) renderMiniMapSnap($('map-mini'), mySnapshot, vis.glyphs);
-  };
+    // глифы карты меняются на месте: перерисовываем мини-карту, не дожидаясь хода  };
   ['vis-theme', 'vis-glyphs', 'vis-flicker', 'vis-vol', 'vis-mute'].forEach(id =>
     $(id).addEventListener('change', update)
   );
@@ -1225,10 +1234,29 @@ function wire() {
   bootCRT();
   startMatrix();
 
-  // живой предпросмотр аватара из ника
-  const updateAvatar = () => { $('name-avatar').textContent = asciiAvatar($('set-name').value.trim() || 'Безымянный'); };
+  // аватарки: своя выбранная, иначе портрет из ника
+  const updateAvatar = () => {
+    const nm = $('set-name').value.trim() || 'Безымянный';
+    $('name-avatar').textContent = heroAvatar(nm);
+    paintPortrait(nm);
+  };
   $('set-name').addEventListener('input', updateAvatar);
   updateAvatar();
+
+  const grid = $('avatar-grid');
+  if (grid) {
+    grid.innerHTML = AVATARS.map(a =>
+      '<button type="button" class="avatar-pick' + (a.id === loadPickedAvatar() ? ' on' : '') +
+      '" data-id="' + a.id + '" title="' + a.name + '"><pre>' + a.art.join('\n') + '</pre></button>'
+    ).join('');
+    grid.addEventListener('click', e => {
+      const btn = e.target.closest ? e.target.closest('.avatar-pick') : null;
+      if (!btn) return;
+      savePickedAvatar(btn.dataset.id);
+      grid.querySelectorAll('.avatar-pick').forEach(el => el.classList.toggle('on', el === btn));
+      updateAvatar();
+    });
+  }
 
   // автоподгонка арта: при загрузке, ресайзе и после загрузки пиксельного шрифта
   fitArt();

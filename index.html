@@ -227,7 +227,7 @@
   .hof-name { color: var(--bright); }
   .hof-meta { color: var(--dim); }
   .hof-epitaph { color: var(--red); opacity: 0.85; }
-  .hof-empty, .quest-empty { color: var(--dim); font-style: italic; }
+  .hof-empty, .quest-empty { color: var(--dim); font-style: italic; white-space: pre-wrap; }
 
   /* аватары */
   .avatar {
@@ -299,7 +299,8 @@
   }
   .panel-title {
     font-family: var(--font-pixel);
-    font-size: 8px; color: var(--dim); letter-spacing: 2px; margin-bottom: 8px;
+    font-size: 8px; color: var(--dim); letter-spacing: 2px; margin-bottom: 6px;
+    line-height: 1;
   }
 
   .m-wall { color: var(--wall); text-shadow: none; }
@@ -391,12 +392,24 @@
   .m-ally { color: var(--loot); text-shadow: 0 0 6px var(--loot); font-weight: bold; }
 
   /* ---------- мини-карта: одна на всю партию ---------- */
-  #map-panel { flex: 0 0 auto; padding: 8px 10px; }
-  #map-mini {
-    margin: 0; font-family: var(--font-mono); font-size: 11px; line-height: 1.02;
-    letter-spacing: 0; white-space: pre; overflow: hidden;
+  .avatar-grid {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-top: 4px;
   }
-  #map-legend { color: var(--dim); font-size: 13px; margin-top: 5px; letter-spacing: 1px; }
+  .avatar-pick {
+    background: transparent; border: 1px solid var(--dim); color: var(--dim);
+    padding: 2px; cursor: pointer; font: inherit; line-height: 1;
+  }
+  .avatar-pick pre { margin: 0; font-size: 6px; line-height: 1; }
+  .avatar-pick:hover { color: var(--bright); }
+  .avatar-pick.on { border-color: var(--bright); color: var(--bright); }
+  #portrait-panel {
+    flex: 0 0 auto; padding: 8px 10px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  #hero-portrait {
+    margin: 0; font-family: var(--font-mono); font-size: 9px; line-height: 1.02;
+    letter-spacing: 0; white-space: pre; overflow: hidden; color: var(--bright);
+  }
 
   /* проклятые вещи: красный ярлык и «?» вместо свойств */
   .inv-row-cursed .inv-name { color: var(--red); }
@@ -408,14 +421,22 @@
   .hp { color: var(--bright); }
   .stats-line { justify-content: center; color: var(--dim); font-size: 16px; margin-top: 4px; }
 
-  #quests { flex-shrink: 0; max-height: 160px; overflow-y: auto; font-size: 17px; white-space: pre-wrap; }
+  #quests { flex-shrink: 0; max-height: 34vh; overflow-y: auto; font-size: 17px; }
   .quest { padding: 2px 0; }
   #quests .quest-empty + .quest-empty { display: none; }
+/* Канон мира свёрнут: раскрытый он занимал всю панель и задачи не были видны. */
+.world-brief summary {
+  font-size: 13px; color: var(--dim); letter-spacing: 1px;
+  cursor: pointer; user-select: none; list-style: none; padding: 2px 0;
+}
+.world-brief summary::-webkit-details-marker { display: none; }
+.world-brief summary::before { content: '▸ '; }
+.world-brief[open] summary::before { content: '▾ '; }
 
   #log {
     flex: 1;
     font-size: 19px;
-    line-height: 1.35;
+    line-height: 1.5;
     min-height: 0;
     cursor: pointer;
   }
@@ -637,6 +658,13 @@
       <pre class="avatar" id="name-avatar" style="font-size:8px"> </pre>
     </div>
 
+          <label>АВАТАРКА</label>
+      <div id="avatar-grid" class="avatar-grid"></div>
+    </div>
+    <div class="bs-meta">
+      <span class="hint" id="avatar-note">Выбери портрет. Если ничего не выбрано — рисуется из ника.</span>
+    </div>
+
     <div id="lobby-panel" style="display:none; border:1px dashed var(--dim); padding:12px; margin:10px 0">
       <div class="field" style="justify-content:center">
         <span class="stat-label">КОД КОМНАТЫ:</span>
@@ -811,11 +839,10 @@
   <div class="game-grid">
     <div class="col">
       <div class="panel" id="stats"></div>
-      <div class="panel" id="map-panel">
-        <div class="panel-title">КАРТА · ОБЩАЯ</div>
-        <pre id="map-mini"></pre>
-        <div id="map-legend">@ ты · # союзник · &gt; вниз</div>
-      </div>
+      <div class="panel" id="portrait-panel">
+      <div class="panel-title">ПОРТРЕТ</div>
+      <pre id="hero-portrait"></pre>
+    </div>
       <div class="panel" id="inv-panel">
         <div class="panel-title">РЮКЗАК</div>
         <div id="inv-list"></div>

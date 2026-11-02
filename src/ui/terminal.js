@@ -5,7 +5,7 @@ import { TILE } from '../engine/map.js';
 import { playerAc } from '../engine/player.js';
 import { itemNameWithCurse, isCursed } from '../engine/curses.js';
 import { HERO_GLYPHS, exploredRows } from '../engine/game.js';
-import { asciiAvatar } from './avatar.js';
+import { heroAvatar } from './avatar.js';
 
 /** Сколько строк хроники держим в DOM: дальше старые уходят, чтобы сессия не пухла. */
 export const MAX_LOG_LINES = 500;
@@ -146,10 +146,10 @@ export function renderStats(el, state) {
     : '';
   el.innerHTML = `
     <div class="stat-row stat-hero">
-      <pre class="avatar avatar-sm">${asciiAvatar(p.name)}</pre>
+      <pre class="avatar avatar-sm">${heroAvatar(p.name)}</pre>
       <span class="stat-label">${escHtml(p.name)}</span><span>${escHtml(p.className)} · ур.${p.level}</span>
     </div>
-    <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${hpBar(p)} ${p.hp}/${p.maxHp}</span></div>
+    <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${p.hp}/${p.maxHp} ${hpBar(p)}</span></div>
     <div class="stat-row"><span class="stat-label">AC / XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(itemNameWithCurse(p.equipment.weapon) || 'кулаки')}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(itemNameWithCurse(p.equipment.armor) || 'нет')}</span></div>
@@ -220,14 +220,22 @@ export function renderShop(panelEl, listEl, merchant) {
 }
 
 export function renderQuests(el, state) {
-  // Канон мира первой строкой: игрок должен видеть, где он, а не только «что делать».
+  // Канон мира — свёрнутой строкой: развёрнутый он съедал всю панель, и задач не было видно.
   const brief = state.worldBrief
-    ? `<div class="quest quest-empty">${escHtml(state.worldBrief)}</div>`
+    ? `<details class="world-brief"${briefOpen ? ' open' : ''}><summary>мир · канон</summary><div class="quest quest-empty">${escHtml(state.worldBrief)}</div></details>`
     : '';
   el.innerHTML = brief + (state.quests.length
     ? state.quests.map(q => `<div class="quest">◆ ${escHtml(q)}</div>`).join('')
     : '<div class="quest quest-empty">Журнал пуст — судьба ещё не наградила тебя поручениями</div>');
 }
+
+// Панель перерисовывается на каждое событие, без флага канон схлопывался бы сам.
+let briefOpen = false;
+if (typeof document !== 'undefined') document.addEventListener('toggle', e => {
+  if (e.target instanceof HTMLDetailsElement && e.target.classList.contains('world-brief')) {
+    briefOpen = e.target.open;
+  }
+}, true);
 
 // ---------- рендеры из сетевого снапшота (кооп) ----------
 
@@ -265,10 +273,10 @@ export function renderStatsSnap(el, snap) {
   }).join('');
   el.innerHTML = `
     <div class="stat-row stat-hero">
-      <pre class="avatar avatar-sm">${asciiAvatar((snap.heroes[snap.you] || {}).name || '')}</pre>
+      <pre class="avatar avatar-sm">${heroAvatar((snap.heroes[snap.you] || {}).name || '')}</pre>
       <span class="stat-label">Уровень ${s.level}</span><span>XP ${s.xp}/${s.xpNext} · золото ${s.gold}</span>
     </div>
-    <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${bar} ${s.hp}/${s.maxHp}</span></div>
+    <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${s.hp}/${s.maxHp} ${bar}</span></div>
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(itemNameWithCurse(s.equipment.weapon) || 'кулаки')}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(itemNameWithCurse(s.equipment.armor) || 'нет')} (AC ${s.ac})</span></div>
     ${s.ability ? `<div class="stat-row"><span class="stat-label">Способность</span><span>${escHtml(s.ability.name)}${s.ability.active ? (s.abilityCd > 0 ? ` · КД ${s.abilityCd}` : ' · <span style="color:var(--loot)">ГОТОВО</span>') : ''}</span></div>` : ''}
@@ -319,12 +327,15 @@ function paintMini(pre, rows, heroes, glyphSetName) {
     const key = `${Math.floor(hh.pos.x / MINI_SCALE)},${Math.floor(hh.pos.y / MINI_SCALE)}`;
     marks.set(key, hh.self ? '@' : (hh.glyph || '#'));
   }
-  const parts = [];
+  // Пустые ряды и колонки обрезаем: на старте карта — один «@» в поле пробелов,
+  // и панель выглядела пустым прямоугольником на треть экрана.
+  const grid = [];
   for (let my = 0; my < MH; my++) {
+    const row = [];
     for (let mx = 0; mx < MW; mx++) {
       const mark = marks.get(`${mx},${my}`);
       if (mark) {
-        parts.push(`<span class="${mark === '@' ? 'm-pl' : 'm-ally'}">${escGlyph(mark)}</span>`);
+        row.push(`<span class="${mark === '@' ? 'm-pl' : 'm-ally'}">${escGlyph(mark)}</span>`);
         continue;
       }
       let ch = ' ';
@@ -336,14 +347,21 @@ function paintMini(pre, rows, heroes, glyphSetName) {
           else if (ch === ' ' && c === '#') ch = '#';
         }
       }
-      if (ch === '#') parts.push(`<span class="m-wall">${g.wall}</span>`);
-      else if (ch === '.') parts.push(`<span class="m-floor">${g.floor}</span>`);
-      else if (ch === '>') parts.push(`<span class="m-stair">${escGlyph(g.stair)}</span>`);
-      else parts.push(' ');
+      if (ch === '#') row.push(`<span class="m-wall">${g.wall}</span>`);
+      else if (ch === '.') row.push(`<span class="m-floor">${g.floor}</span>`);
+      else if (ch === '>') row.push(`<span class="m-stair">${escGlyph(g.stair)}</span>`);
+      else row.push(' ');
     }
-    parts.push('\n');
+    grid.push(row);
   }
-  pre.innerHTML = parts.join('');
+  const used = grid.filter(r => r.some(c => c !== ' '));
+  if (!used.length) { pre.innerHTML = ''; return; }
+  pre.innerHTML = used.map(r => {
+    let a = 0, b = r.length - 1;
+    while (a < r.length && r[a] === ' ') a++;
+    while (b >= 0 && r[b] === ' ') b--;
+    return r.slice(a, b + 1).join('');
+  }).join('\n');
 }
 
 /**

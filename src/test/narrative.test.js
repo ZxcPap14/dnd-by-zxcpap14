@@ -2,10 +2,7 @@
 // закрытие задач своими словами, выдуманные игроком предметы.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  newGame, applyDmEffects, addQuest, completeQuest, buildSnapshot, rollPowerCheck, STORY_SHAPES, MAX_QUESTS,
-  applyIntent, parseCommand, clipNarrative
-} from '../engine/game.js';
+import { newGame, applyDmEffects, addQuest, completeQuest, buildSnapshot, rollPowerCheck, STORY_SHAPES, MAX_QUESTS, applyIntent, parseCommand, clipNarrative, floorLabel, loadVillains, rememberVillain } from '../engine/game.js';
 import { buildContext, introMessages } from '../ai/dm.js';
 import { stubDmTurn, resetStub } from '../ai/stub.js';
 import { serializeRun, deserializeRun } from '../engine/save.js';
@@ -168,4 +165,42 @@ test('повествование: длинный ответ ДМа режетс�
   assert.ok(cut.length <= 451, `длина ${cut.length}`);
   assert.match(cut, /\.$|…$/);
   assert.equal(clipNarrative('Коротко и по делу.'), 'Коротко и по делу.');
+});
+
+test('знакомые: каст не больше 12 и не выкидывает тех, о ком помнят', () => {
+  const s = mk();
+  // Вельгу упоминаем в нарративе — она в памяти, значит «живая»
+  applyDmEffects(s, { npcAdd: { name: 'Вельга', role: 'сборщица слухов' }, narrative: 'Вельга стоит у входа.' }, 0);
+  for (let i = 0; i < 14; i++) applyDmEffects(s, { npcAdd: { name: 'Прохожий' + i } }, 0);
+  assert.ok(s.cast.length <= 12, `длина ${s.cast.length}`);
+  assert.ok(s.cast.some(c => c.name === 'Вельга'), 'Вельга осталась в касте');
+  assert.ok(!s.cast.some(c => c.name === 'Прохожий0'), 'забытый вытеснен');
+});
+
+test('зависшая задача снимается сама, упомянутая — нет', () => {
+  const s = mk();
+  addQuest(s, 'Узнать, кто собирает дань с местных');
+  addQuest(s, 'Дойти до дна подземелья');
+  for (let i = 0; i < 9; i++) {
+    applyIntent(s, parseCommand('постоять'));
+    applyDmEffects(s, {});
+    if (i === 4) applyDmEffects(s, { narrative: 'Дно подземелья совсем близко.' });
+  }
+  assert.deepEqual(s.quests, ['Дойти до дна подземелья']);
+});
+
+test('названия уровней под сеттинг', () => {
+  assert.equal(floorLabel('Киберпанк 2077', 3), 'Сектор 3');
+  assert.equal(floorLabel('Классическое тёмное фэнтези', 3), 'Этаж 3');
+  assert.equal(newGame({ seed: 3, worldDesc: 'Киберпанк 2077' }).floorName, 'Сектор 1');
+});
+
+test('имена прошлых злодеев не повторяются', () => {
+  const s = mk();
+  rememberVillain('Архивариус Ноль');
+  assert.ok(loadVillains().includes('Архивариус Ноль'));
+  const ctx = buildContext(s, 'осмотреться', 0).map(m => m.content).join('\n');
+  assert.match(ctx, /УЖЕ БЫЛИ ЗЛОДЕИ[^\n]*Архивариус Ноль/);
+  const intro = introMessages(s).map(m => m.content).join('\n');
+  assert.match(intro, /Злодеи прошлых забегов/);
 });
