@@ -737,6 +737,7 @@ export function applyIntent(state, intent, heroIdx = state.activeIdx) {
   if (hero.hp <= 0 && hero.alive && !state.story?.won) {
     hero.alive = false;
     hero.epitaph = state.deathCause || 'умер при невыясненных обстоятельствах';
+    addFact(state, `${hero.name} погиб на этаже ${state.depth}`);
     push('death', `☠ ${hero.name} мёртв. Эпитафия: ${hero.epitaph}`);
     if (state.heroes.every(h => !h.alive)) {
       state.over = true;
@@ -872,7 +873,7 @@ export function resolveCombatRound(state, hero, monster, dice, opts = {}) {
 
 // Задачи, память ДМа и сюжетные строки живут в story.js; реэкспорт оставлен,
 // чтобы остальной код и тесты продолжали импортировать их из game.js.
-import { addQuest, completeQuest, rememberEvents, storyVillain, storyGoal, floorLabel, rememberVillain, questWords } from './story.js';
+import { addQuest, completeQuest, rememberEvents, storyVillain, storyGoal, floorLabel, rememberVillain, questWords, addFact } from './story.js';
 
 /** Спавн финального босса на последнем этаже сюжетного забега. */
 function spawnStoryBoss(state, events) {
@@ -903,7 +904,7 @@ function grantVictory(state, hero, push) {
   state.epitaph = `${hero.name} победил ${storyVillain(state)} и спас мир. На глубине ${state.depth}.`;
   push('victory', `⚜ ${storyVillain(state)} повержен! ${hero.name} — легенда. ПОБЕДА!`);
 }
-export { loadVillains, rememberVillain, floorLabel, addQuest, completeQuest, rememberEvents, memoryDigest, storyVillain, storyGoal, storyDigest } from './story.js';
+export { loadVillains, rememberVillain, floorLabel, addQuest, completeQuest, rememberEvents, memoryDigest, storyVillain, storyGoal, storyDigest, addFact, factsDigest } from './story.js';
 
 import { monsterTurns } from './monsters.js';
 export { monsterTurns } from './monsters.js';
@@ -1064,6 +1065,7 @@ export function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
   if (hero.hp <= 0 && hero.alive && !state.story?.won) {
     hero.alive = false;
     hero.epitaph = state.deathCause || 'кончилось плохо';
+    addFact(state, `${hero.name} погиб на этаже ${state.depth}`);
     push('death', `☠ ${hero.name} мёртв. Эпитафия: ${hero.epitaph}`);
     if (state.heroes.every(h => !h.alive)) {
       state.over = true;

@@ -58,6 +58,17 @@ export function makeDice(rng) {
 }
 
 /** Модификатор характеристики в стиле D&D: (stat-10)/2, округление вниз. */
+/**
+ * Сид забега дня: у всех одна дата — одно подземелье. Дата локальная,
+ * поэтому у игрока в другом часовом поясе карта может не совпасть.
+ */
+export function dailySeed(date = new Date()) {
+  const key = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h >>> 0;
+}
+
 export function mod(stat) {
   return Math.floor((stat - 10) / 2);
 }

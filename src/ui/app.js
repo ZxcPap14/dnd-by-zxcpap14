@@ -2,6 +2,7 @@
 
 import { esc, loadHof, saveHofEntry, loadCustomClasses, saveCustomClasses, parseInvite } from './store.js';
 import { paintPortrait, fitArt } from './portrait.js';
+import { dailySeed } from '../engine/rng.js';
 import { newGame, parseCommand, applyIntent, applyDmEffects, engagedEnemies, rollPowerCheck } from '../engine/game.js';
 import { createClient, extractJson } from '../ai/client.js';
 import { buildContext, introMessages, classMessages, backstoryMessages } from '../ai/dm.js';
@@ -522,16 +523,18 @@ function startSolo() {
   const classes = selectedClasses();
   const cls = classes[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
 
+  // забег дня: одна карта на всех, у кого та же дата
+  const daily = !!$('set-daily')?.checked;
   clearRun();                       // новый забег вытесняет старый сейв
   refreshContinue();
   resetStub();
   sessionMode = 'solo';
   state = newGame({
-    seed: (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
+    seed: daily ? dailySeed() : (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
     mode, worldDesc: world, backstory,
     players: [{ name, className: cls.name, stats: cls.stats, ability: cls.ability }]
   });
-  chronicle = [`МИР: ${world}`, `РЕЖИМ: ${mode === 'sandbox' ? 'песочница' : 'сюжет'}`, `ГЕРОЙ: ${name}, ${cls.name}`];
+  chronicle = [`МИР: ${world}`, ...(daily ? ['ЗАБЕГ ДНЯ: карта одна на всех, кто играет сегодня'] : []), `РЕЖИМ: ${mode === 'sandbox' ? 'песочница' : 'сюжет'}`, `ГЕРОЙ: ${name}, ${cls.name}`];
   if (cls.ability) chronicle.push(`СПОСОБНОСТЬ: ${abilityLine(cls.ability)}`);
   if (backstory) chronicle.push(`ПРЕДЫСТОРИЯ: ${backstory}`);
   typer = createTyper($('log'));

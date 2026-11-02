@@ -407,6 +407,7 @@
   .help-box { border: 1px solid var(--bright); background: #0a0a0a; padding: 18px 22px; max-width: 780px; max-height: 84vh; overflow: auto; }
   .help-title { display: flex; justify-content: space-between; align-items: center; gap: 20px; color: var(--bright); margin-bottom: 10px; }
   #help-body { margin: 0; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+  .daily { white-space: nowrap; font-size: 12px; }
   #portrait-panel {
     flex: 0 0 auto; padding: 8px 10px;
     display: flex; flex-direction: column; align-items: center;
@@ -649,6 +650,10 @@
         <option value="host">Кооп: создать комнату (2–4)</option>
         <option value="join">Кооп: войти по коду</option>
       </select>
+    </div>
+    <div class="field">
+      <label for="set-daily">Забег дня</label>
+      <label class="hint daily" style="margin-left:0"><input id="set-daily" type="checkbox"> одна карта на всех</label>
     </div>
     <div class="field" id="join-row" style="display:none">
       <label for="set-room">Код комнаты</label>

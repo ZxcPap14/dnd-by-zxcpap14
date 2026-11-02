@@ -2,7 +2,7 @@
 // Характер по спецификации: юмор и троллинг + беспощадность. Русский язык.
 
 import { playerAc } from '../engine/player.js';
-import { memoryDigest, storyDigest, loadVillains } from '../engine/game.js';
+import { memoryDigest, storyDigest, loadVillains, factsDigest } from '../engine/game.js';
 
 export const SYSTEM_PROMPT = `Ты — Данж-мастер текстовой ASCII-игры «dnd by ZxcPap14».
 
@@ -114,6 +114,7 @@ export function buildContext(state, playerInput, heroIdx = null) {
           : '',
         state.quests.length ? `КВЕСТЫ: ${state.quests.join('; ')}.` : '',
         (() => { const mem = memoryDigest(state, 12); return mem ? `НЕДАВНИЕ СОБЫТИЯ: ${mem}.` : ''; })(),
+        (() => { const f = factsDigest(state); return f ? `ВАЖНОЕ (уже случилось, не забывать и не переигрывать): ${f}.` : ''; })(),
         (() => { const st = storyDigest(state); return st ? `СЮЖЕТ: ${st}` : ''; })(),
         state.story?.shape ? `ФОРМА ИСТОРИИ (веди её, не подменяй привычной): ${state.story.shape}.` : '',
         loadVillains().length ? `УЖЕ БЫЛИ ЗЛОДЕИ (не повторяй ни имя, ни мотив): ${loadVillains().join(', ')}.` : '',

@@ -32,6 +32,24 @@ const BAD_IDEA = [
   'Это сработает. Наверное. Где-нибудь. Но не сегодня и не здесь.'
 ];
 
+// Описания встреч и находок: одна и та же строка каждый раз — видно, что ДМ не думает.
+const ACT3_LINES = [
+  'Стены дрожат от чужой воли. Дно уже близко, и оно знает, что ты идёшь. Оно радуется. Плохой знак.',
+  'Воздух густеет: до дна рукой подать, и там уже перестали притворяться, что тебя не ждут.',
+  'Каждый шаг теперь слышно дважды — второй раз чуть ближе, чем ты.'
+];
+
+const MEET_LINES = [
+  "От тьмы отделяется нечто недоброе. Похоже, тишина тебе не понравилась.",
+  'Кто-то выходит из-за угла с таким видом, будто это его подземелье.',
+  'Шорох за спиной обретает руки, зубы и вполне конкретные планы на тебя.'
+];
+
+const LOOT_LINES = [
+  'Ты нащупываешь в темноте что-то полезное. Подземелье сегодня щедрое. Подозрительно.',
+  'Под ногой хрустит не кость, а чей-то запас. Кто-то здесь жил. Больше не живёт.',
+  'В щели между камнями лежит добыча — пыльная, но рабочая.'
+];
 const QUESTS = [
   'Найти выход из этого цирка',
   'Разобраться, кто здесь главный',
@@ -43,7 +61,19 @@ let snarkIdx = 0;
 let questGiven = false;
 let villainGiven = false;
 
+// Один и тот же пул не должен выдать ту же строку два хода подряд.
+const lastPick = new Map();
+
+function pick(list, rng) {
+  const last = lastPick.get(list);
+  const opts = list.length > 1 ? list.filter(x => x !== last) : list;
+  const v = opts[Math.floor(rng() * opts.length)];
+  lastPick.set(list, v);
+  return v;
+}
+
 export function resetStub() {
+  lastPick.clear();
   snarkIdx = 0;
   questGiven = false;
   villainGiven = false;
@@ -88,7 +118,7 @@ export function stubDmTurn(state, input) {
   // сюжет: в финальном акте нагнетаем
   if (state.story && state.story.act >= state.story.acts) {
     return {
-      narrative: 'Стены дрожат от чужой воли. Дно уже близко, и оно знает, что ты идёшь. Оно радуется. Плохой знак.',
+      narrative: pick(ACT3_LINES, rng),
       suggestions: ['Идти навстречу судьбе', 'Потянуть время', 'Дрожать']
     };
   }
@@ -96,7 +126,7 @@ export function stubDmTurn(state, input) {
   // редкая встреча
   if (roll < 0.15 && !state.over) {
     return {
-      narrative: `От тьмы отделяется ${'нечто недоброе'}. Похоже, тишина тебе не понравилась.`,
+      narrative: pick(MEET_LINES, rng),
       enemySpawn: { name: 'неудобный знакомый', hp: 4 + state.depth, toHit: 2, dmg: 1, xp: 25 + state.depth * 5 },
       suggestions: ['Атаковать первым', 'Отступить в тень', 'Попробовать договориться']
     };
@@ -104,7 +134,7 @@ export function stubDmTurn(state, input) {
   // редкий лут (описание предмета, а не готовый объект: id выдаст applyDmEffects)
   if (roll < 0.25 && !state.over) {
     return {
-      narrative: 'Ты нащупываешь в темноте что-то полезное. Подземелье сегодня щедрое. Подозрительно.',
+      narrative: pick(LOOT_LINES, rng),
       itemGain: { name: 'Зелье лечения', type: 'potion', heal: 8, qty: 1 },
       suggestions: ['Подобрать и выпить', 'Понюхать зелье', 'Идти дальше']
     };
@@ -124,13 +154,13 @@ export function stubDmTurn(state, input) {
   const cursedItem = ['weapon', 'armor'].map(s => hero?.equipment?.[s]).find(it => it && it.cursed);
   if (cursedItem && roll < 0.45) {
     return {
-      narrative: CURSE_TAUNTS[Math.floor(rng() * CURSE_TAUNTS.length)],
+      narrative: pick(CURSE_TAUNTS, rng),
       suggestions: ['Потерпеть', 'Спросить торговца о проклятии', 'Делать вид, что так и надо']
     };
   }
   // ирония над сомнительной идеей
   if (/(украсть|обман|подкуп|взорвать|прыг|крич|сплюнуть|потрогать всё)/.test(input.toLowerCase())) {
-    return { narrative: BAD_IDEA[Math.floor(rng() * BAD_IDEA.length)], suggestions: ['Осмотреться получше', 'Отступить в тень', 'Всё-таки сделать это'] };
+    return { narrative: pick(BAD_IDEA, rng), suggestions: ['Осмотреться получше', 'Отступить в тень', 'Всё-таки сделать это'] };
   }
   return { narrative: SNARK[snarkIdx++ % SNARK.length], suggestions: ['Осмотреться', 'Идти дальше', 'Проверить инвентарь'] };
 }

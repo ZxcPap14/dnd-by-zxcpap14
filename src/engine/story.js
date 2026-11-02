@@ -91,6 +91,7 @@ export function completeQuest(state, text) {
   if (!best) return null;
   state.quests = state.quests.filter(q => q !== best);
   if (state.questAges) delete state.questAges[best];
+  addFact(state, `закрыто: ${best}`);
   return best;
 }
 
@@ -118,6 +119,30 @@ export function rememberEvents(state, events) {
 export function memoryDigest(state, n = 12) {
   if (!state.memory?.length) return '';
   return state.memory.slice(-n).join(' | ');
+}
+
+// ---------- долгая память: факты ----------
+
+const FACT_CAP = 14;
+
+/**
+ * То, что не должно выветриваться: сделанное и случившееся. Последние 12
+ * событий вымываются за десяток ходов, а «кузнеца вытащили» — часть истории.
+ */
+export function addFact(state, text) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!clean) return null;
+  if (!state.facts) state.facts = [];
+  const key = clean.toLowerCase();
+  if (state.facts.some(f => f.toLowerCase() === key)) return null;
+  state.facts.push(clean);
+  if (state.facts.length > FACT_CAP) state.facts.splice(0, state.facts.length - FACT_CAP);
+  return clean;
+}
+
+/** Строка «ВАЖНОЕ» для контекста ИИ. */
+export function factsDigest(state) {
+  return (state.facts || []).join('; ');
 }
 
 // ---------- сюжет: злодей, босс, победа ----------

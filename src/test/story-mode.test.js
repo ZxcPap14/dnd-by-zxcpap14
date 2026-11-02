@@ -110,7 +110,7 @@ test('stubDmTurn в сюжете: интро задаёт злодея, фина
   // смена акта до финального
   s.story.act = s.story.acts;
   const fin = stubDmTurn(s, 'что происходит?');
-  assert.match(fin.narrative, /дно|знает|радуется/i, 'финальное нагнетание');
+  assert.match(fin.narrative, /дно|густеет|ближе/i, 'финальное нагнетание');
 });
 
 test('storyDigest содержит злодея и прогресс', () => {

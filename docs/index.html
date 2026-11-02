@@ -407,6 +407,7 @@
   .help-box { border: 1px solid var(--bright); background: #0a0a0a; padding: 18px 22px; max-width: 780px; max-height: 84vh; overflow: auto; }
   .help-title { display: flex; justify-content: space-between; align-items: center; gap: 20px; color: var(--bright); margin-bottom: 10px; }
   #help-body { margin: 0; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+  .daily { white-space: nowrap; font-size: 12px; }
   #portrait-panel {
     flex: 0 0 auto; padding: 8px 10px;
     display: flex; flex-direction: column; align-items: center;
@@ -649,6 +650,10 @@
         <option value="host">Кооп: создать комнату (2–4)</option>
         <option value="join">Кооп: войти по коду</option>
       </select>
+    </div>
+    <div class="field">
+      <label for="set-daily">Забег дня</label>
+      <label class="hint daily" style="margin-left:0"><input id="set-daily" type="checkbox"> одна карта на всех</label>
     </div>
     <div class="field" id="join-row" style="display:none">
       <label for="set-room">Код комнаты</label>
@@ -989,6 +994,17 @@ function makeDice(rng) {
 }
 
 /** Модификатор характеристики в стиле D&D: (stat-10)/2, округление вниз. */
+/**
+ * Сид забега дня: у всех одна дата — одно подземелье. Дата локальная,
+ * поэтому у игрока в другом часовом поясе карта может не совпасть.
+ */
+function dailySeed(date = new Date()) {
+  const key = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h >>> 0;
+}
+
 function mod(stat) {
   return Math.floor((stat - 10) / 2);
 }
@@ -1926,6 +1942,7 @@ function completeQuest(state, text) {
   if (!best) return null;
   state.quests = state.quests.filter(q => q !== best);
   if (state.questAges) delete state.questAges[best];
+  addFact(state, `закрыто: ${best}`);
   return best;
 }
 
@@ -1953,6 +1970,30 @@ function rememberEvents(state, events) {
 function memoryDigest(state, n = 12) {
   if (!state.memory?.length) return '';
   return state.memory.slice(-n).join(' | ');
+}
+
+// ---------- долгая память: факты ----------
+
+const FACT_CAP = 14;
+
+/**
+ * То, что не должно выветриваться: сделанное и случившееся. Последние 12
+ * событий вымываются за десяток ходов, а «кузнеца вытащили» — часть истории.
+ */
+function addFact(state, text) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!clean) return null;
+  if (!state.facts) state.facts = [];
+  const key = clean.toLowerCase();
+  if (state.facts.some(f => f.toLowerCase() === key)) return null;
+  state.facts.push(clean);
+  if (state.facts.length > FACT_CAP) state.facts.splice(0, state.facts.length - FACT_CAP);
+  return clean;
+}
+
+/** Строка «ВАЖНОЕ» для контекста ИИ. */
+function factsDigest(state) {
+  return (state.facts || []).join('; ');
 }
 
 // ---------- сюжет: злодей, босс, победа ----------
@@ -2818,6 +2859,7 @@ function applyIntent(state, intent, heroIdx = state.activeIdx) {
   if (hero.hp <= 0 && hero.alive && !state.story?.won) {
     hero.alive = false;
     hero.epitaph = state.deathCause || 'умер при невыясненных обстоятельствах';
+    addFact(state, `${hero.name} погиб на этаже ${state.depth}`);
     push('death', `☠ ${hero.name} мёртв. Эпитафия: ${hero.epitaph}`);
     if (state.heroes.every(h => !h.alive)) {
       state.over = true;
@@ -3141,6 +3183,7 @@ function applyDmEffects(state, effects, heroIdx = state.activeIdx) {
   if (hero.hp <= 0 && hero.alive && !state.story?.won) {
     hero.alive = false;
     hero.epitaph = state.deathCause || 'кончилось плохо';
+    addFact(state, `${hero.name} погиб на этаже ${state.depth}`);
     push('death', `☠ ${hero.name} мёртв. Эпитафия: ${hero.epitaph}`);
     if (state.heroes.every(h => !h.alive)) {
       state.over = true;
@@ -3720,6 +3763,7 @@ function buildContext(state, playerInput, heroIdx = null) {
           : '',
         state.quests.length ? `КВЕСТЫ: ${state.quests.join('; ')}.` : '',
         (() => { const mem = memoryDigest(state, 12); return mem ? `НЕДАВНИЕ СОБЫТИЯ: ${mem}.` : ''; })(),
+        (() => { const f = factsDigest(state); return f ? `ВАЖНОЕ (уже случилось, не забывать и не переигрывать): ${f}.` : ''; })(),
         (() => { const st = storyDigest(state); return st ? `СЮЖЕТ: ${st}` : ''; })(),
         state.story?.shape ? `ФОРМА ИСТОРИИ (веди её, не подменяй привычной): ${state.story.shape}.` : '',
         loadVillains().length ? `УЖЕ БЫЛИ ЗЛОДЕИ (не повторяй ни имя, ни мотив): ${loadVillains().join(', ')}.` : '',
@@ -3839,6 +3883,24 @@ const BAD_IDEA = [
   'Это сработает. Наверное. Где-нибудь. Но не сегодня и не здесь.'
 ];
 
+// Описания встреч и находок: одна и та же строка каждый раз — видно, что ДМ не думает.
+const ACT3_LINES = [
+  'Стены дрожат от чужой воли. Дно уже близко, и оно знает, что ты идёшь. Оно радуется. Плохой знак.',
+  'Воздух густеет: до дна рукой подать, и там уже перестали притворяться, что тебя не ждут.',
+  'Каждый шаг теперь слышно дважды — второй раз чуть ближе, чем ты.'
+];
+
+const MEET_LINES = [
+  "От тьмы отделяется нечто недоброе. Похоже, тишина тебе не понравилась.",
+  'Кто-то выходит из-за угла с таким видом, будто это его подземелье.',
+  'Шорох за спиной обретает руки, зубы и вполне конкретные планы на тебя.'
+];
+
+const LOOT_LINES = [
+  'Ты нащупываешь в темноте что-то полезное. Подземелье сегодня щедрое. Подозрительно.',
+  'Под ногой хрустит не кость, а чей-то запас. Кто-то здесь жил. Больше не живёт.',
+  'В щели между камнями лежит добыча — пыльная, но рабочая.'
+];
 const QUESTS = [
   'Найти выход из этого цирка',
   'Разобраться, кто здесь главный',
@@ -3850,7 +3912,19 @@ let snarkIdx = 0;
 let questGiven = false;
 let villainGiven = false;
 
+// Один и тот же пул не должен выдать ту же строку два хода подряд.
+const lastPick = new Map();
+
+function pick(list, rng) {
+  const last = lastPick.get(list);
+  const opts = list.length > 1 ? list.filter(x => x !== last) : list;
+  const v = opts[Math.floor(rng() * opts.length)];
+  lastPick.set(list, v);
+  return v;
+}
+
 function resetStub() {
+  lastPick.clear();
   snarkIdx = 0;
   questGiven = false;
   villainGiven = false;
@@ -3895,7 +3969,7 @@ function stubDmTurn(state, input) {
   // сюжет: в финальном акте нагнетаем
   if (state.story && state.story.act >= state.story.acts) {
     return {
-      narrative: 'Стены дрожат от чужой воли. Дно уже близко, и оно знает, что ты идёшь. Оно радуется. Плохой знак.',
+      narrative: pick(ACT3_LINES, rng),
       suggestions: ['Идти навстречу судьбе', 'Потянуть время', 'Дрожать']
     };
   }
@@ -3903,7 +3977,7 @@ function stubDmTurn(state, input) {
   // редкая встреча
   if (roll < 0.15 && !state.over) {
     return {
-      narrative: `От тьмы отделяется ${'нечто недоброе'}. Похоже, тишина тебе не понравилась.`,
+      narrative: pick(MEET_LINES, rng),
       enemySpawn: { name: 'неудобный знакомый', hp: 4 + state.depth, toHit: 2, dmg: 1, xp: 25 + state.depth * 5 },
       suggestions: ['Атаковать первым', 'Отступить в тень', 'Попробовать договориться']
     };
@@ -3911,7 +3985,7 @@ function stubDmTurn(state, input) {
   // редкий лут (описание предмета, а не готовый объект: id выдаст applyDmEffects)
   if (roll < 0.25 && !state.over) {
     return {
-      narrative: 'Ты нащупываешь в темноте что-то полезное. Подземелье сегодня щедрое. Подозрительно.',
+      narrative: pick(LOOT_LINES, rng),
       itemGain: { name: 'Зелье лечения', type: 'potion', heal: 8, qty: 1 },
       suggestions: ['Подобрать и выпить', 'Понюхать зелье', 'Идти дальше']
     };
@@ -3931,13 +4005,13 @@ function stubDmTurn(state, input) {
   const cursedItem = ['weapon', 'armor'].map(s => hero?.equipment?.[s]).find(it => it && it.cursed);
   if (cursedItem && roll < 0.45) {
     return {
-      narrative: CURSE_TAUNTS[Math.floor(rng() * CURSE_TAUNTS.length)],
+      narrative: pick(CURSE_TAUNTS, rng),
       suggestions: ['Потерпеть', 'Спросить торговца о проклятии', 'Делать вид, что так и надо']
     };
   }
   // ирония над сомнительной идеей
   if (/(украсть|обман|подкуп|взорвать|прыг|крич|сплюнуть|потрогать всё)/.test(input.toLowerCase())) {
-    return { narrative: BAD_IDEA[Math.floor(rng() * BAD_IDEA.length)], suggestions: ['Осмотреться получше', 'Отступить в тень', 'Всё-таки сделать это'] };
+    return { narrative: pick(BAD_IDEA, rng), suggestions: ['Осмотреться получше', 'Отступить в тень', 'Всё-таки сделать это'] };
   }
   return { narrative: SNARK[snarkIdx++ % SNARK.length], suggestions: ['Осмотреться', 'Идти дальше', 'Проверить инвентарь'] };
 }
@@ -6359,6 +6433,7 @@ function fitArt() {
 
 
 
+
 const $ = (id) => document.getElementById(id);
 // shortcut: версия дублируется из package.json — обновлять вместе с ним
 const APP_VERSION = '0.2.0';
@@ -6851,16 +6926,18 @@ function startSolo() {
   const classes = selectedClasses();
   const cls = classes[Number(document.querySelector('input[name="class"]:checked')?.value || 0)] || STUB_CLASSES[0];
 
+  // забег дня: одна карта на всех, у кого та же дата
+  const daily = !!$('set-daily')?.checked;
   clearRun();                       // новый забег вытесняет старый сейв
   refreshContinue();
   resetStub();
   sessionMode = 'solo';
   state = newGame({
-    seed: (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
+    seed: daily ? dailySeed() : (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0,
     mode, worldDesc: world, backstory,
     players: [{ name, className: cls.name, stats: cls.stats, ability: cls.ability }]
   });
-  chronicle = [`МИР: ${world}`, `РЕЖИМ: ${mode === 'sandbox' ? 'песочница' : 'сюжет'}`, `ГЕРОЙ: ${name}, ${cls.name}`];
+  chronicle = [`МИР: ${world}`, ...(daily ? ['ЗАБЕГ ДНЯ: карта одна на всех, кто играет сегодня'] : []), `РЕЖИМ: ${mode === 'sandbox' ? 'песочница' : 'сюжет'}`, `ГЕРОЙ: ${name}, ${cls.name}`];
   if (cls.ability) chronicle.push(`СПОСОБНОСТЬ: ${abilityLine(cls.ability)}`);
   if (backstory) chronicle.push(`ПРЕДЫСТОРИЯ: ${backstory}`);
   typer = createTyper($('log'));
