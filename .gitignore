@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.ui-audit/
 *.log
 .DS_Store
 .wrangler/

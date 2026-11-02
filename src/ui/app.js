@@ -503,6 +503,8 @@ function applyHostClasses(world, classes) {
   const parts = String(world || '').split(': ');
   $('set-world-title').value = (parts.shift() || '').slice(0, 120);
   $('set-world').value = parts.join(': ').slice(0, 400);
+  applyTheme('custom', false);
+  $('set-theme').disabled = true;
   renderClassCards(classes.map(c => ({ ...c, host: true })));
   addSetupNote('Мир и классы пришли от хоста — он платит за ИИ и раздаёт роли. Свои классы в чужой комнате не нужны.');
 }
@@ -523,6 +525,32 @@ function readBackstory() {
   const text = offlineBackstory(w, n, cls.name);
   setBackstory(text);
   return text;
+}
+
+/** Темы мира: игрок выбирает жанр, название и описание подставляются готовые. */
+const WORLD_PRESETS = [
+  ['cyber', 'Киберпанк', 'Киберпанк-Токио 2099', 'Неон, корпорации, чипы. Ты — курьер-неудачник с чужим чипом в голове.'],
+  ['fantasy', 'Тёмное фэнтези', 'Пепельная Марка', 'Гниющие леса, культы, наёмники без имени. Мечи тупятся о кости.'],
+  ['space', 'Космос', 'Станция Криптон-7', 'Ржавая станция на краю системы, воздух по талонам, дроны следят за всеми.'],
+  ['horror', 'Хоррор', 'Дом на Гнилой набережной', 'Затопленный подвал, шёпот за стеной, соседи, которых никто не помнит.'],
+  ['postap', 'Постапокалипсис', 'Соляная Пустошь', 'Ржавчина, бензин, банды на трассах. Вода дороже золота.'],
+  ['noir', 'Нуар', 'Город под дождём, 1947', 'Долги, сигаретный дым, частный детектив, который знает слишком много.'],
+  ['slav', 'Славянская нечисть', 'Забытая волость', 'Туман, обряды, леший в соседнем лесу и староста, который врёт.'],
+  ['custom', 'Своя тема', '', '']
+];
+
+function applyTheme(id, save = true) {
+  const theme = WORLD_PRESETS.find(t => t[0] === id) || WORLD_PRESETS[0];
+  $('set-theme').value = theme[0];
+  $('world-custom').style.display = theme[0] === 'custom' ? '' : 'none';
+  if (theme[0] !== 'custom') {
+    $('set-world-title').value = theme[2];
+    $('set-world').value = theme[3];
+  }
+  if (save) {
+    try { localStorage.setItem('dnd_theme', theme[0]); } catch { /*ignore*/ }
+    renderClassList(false);
+  }
 }
 
 /** Мир = название + описание. Пустое поле не мешает: берём то, что есть. */
@@ -622,7 +650,7 @@ function refreshPanelsSolo() {
   refreshInventory();
   refreshShop();
   $('floor-label').textContent = state.floorName
-    + (state.story && !state.over ? ` · ⚜ ГЛАВА ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
+    + (state.story && !state.over ? ` · ГЛАВА ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
 }
 
 /**
@@ -1083,7 +1111,7 @@ function applySnapshot(snap) {
   refreshShop();
   renderCombat($('combat-panel'), snap.combat || []);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
-    + (snap.story && !snap.over ? ` · ⚜ ГЛАВА ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
+    + (snap.story && !snap.over ? ` · ГЛАВА ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
   const hero = snap.heroes[snap.you];
   if (!hero) return; // битый снапшот не должен ронять UI
   const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
@@ -1343,6 +1371,11 @@ function wire() {
   const get = k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
   if (!$('set-world-title').value.trim()) $('set-world-title').value = get('dnd_world_title');
   if (!$('set-world').value.trim()) $('set-world').value = get('dnd_world');
+  const themeSel = $('set-theme');
+  themeSel.innerHTML = WORLD_PRESETS.map(t => `<option value="${t[0]}">${t[1]}</option>`).join('');
+  // сохранённая своя тема важнее дефолтной: иначе затрём мир, который игрок писал руками
+  applyTheme(get('dnd_theme') || (get('dnd_world') ? 'custom' : 'cyber'), false);
+  themeSel.addEventListener('change', () => applyTheme(themeSel.value));
   let reclassTimer = null;
   const reclass = () => {
     clearTimeout(reclassTimer);

@@ -132,6 +132,10 @@ function escHtml(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+// те же подписи, что в конструкторе класса, — иначе STR рядом с СИЛ
+const STAT_ABBR = { str: 'СИЛ', dex: 'ЛОВ', int: 'ИНТ', con: 'ВЫН', cha: 'ХАР', luck: 'УДА' };
+const statChip = (k, v) => `<span class="stat-chip">${STAT_ABBR[k] || k.toUpperCase()}<b>${v}</b></span>`;
+
 /** Полоска HP из блоков. */
 export function hpBar(player, width = 10) {
   const filled = Math.round((Math.max(0, player.hp) / player.maxHp) * width);
@@ -150,11 +154,11 @@ export function renderStats(el, state) {
       <span class="stat-label">${escHtml(p.name)}</span><span>${escHtml(p.className)} · ур.${p.level}</span>
     </div>
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${p.hp}/${p.maxHp} ${hpBar(p)}</span></div>
-    <div class="stat-row"><span class="stat-label">AC / XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
+    <div class="stat-row"><span class="stat-label">AC · XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(itemNameWithCurse(p.equipment.weapon) || 'кулаки')}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(itemNameWithCurse(p.equipment.armor) || 'нет')}</span></div>
     ${abilityRow}
-    <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => `<span class="stat-chip">${k.toUpperCase()}<b>${v}</b></span>`).join('')}</div>
+    <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => statChip(k, v)).join('')}</div>
   `;
 }
 
@@ -280,7 +284,7 @@ export function renderStatsSnap(el, snap) {
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(itemNameWithCurse(s.equipment.weapon) || 'кулаки')}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(itemNameWithCurse(s.equipment.armor) || 'нет')} (AC ${s.ac})</span></div>
     ${s.ability ? `<div class="stat-row"><span class="stat-label">Способность</span><span>${escHtml(s.ability.name)}${s.ability.active ? (s.abilityCd > 0 ? ` · КД ${s.abilityCd}` : ' · <span style="color:var(--loot)">ГОТОВО</span>') : ''}</span></div>` : ''}
-    <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `<span class="stat-chip">${k.toUpperCase()}<b>${v}</b></span>`).join('')}</div>
+    <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => statChip(k, v)).join('')}</div>
     ${party}
   `;
 }

@@ -125,14 +125,22 @@
   /* ---------- setup ---------- */
   #screen-setup { align-items: center; justify-content: center; }
   .setup-box {
-    width: min(680px, 94vw);
-    max-height: 92vh;
+    width: min(1100px, 96vw);
+    max-height: 94vh;
     overflow-y: auto;
+    overflow-x: hidden;
     border: 1px solid var(--dim);
     padding: 24px;
     background: var(--panel);
     box-shadow: 0 0 40px var(--glow);
   }
+  .setup-header { text-align: center; }
+  .setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; align-items: start; }
+  .setup-col { display: flex; flex-direction: column; min-width: 0; }
+  .setup-full { grid-column: 1 / -1; }
+  .setup-netai { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; align-items: start; }
+  .setup-net, .setup-ai { min-width: 0; }
+  .setup-bottom { display: flex; flex-direction: column; }
   #logo, #logo-sub {
     font-family: var(--font-pixel);
     line-height: 1.4;
@@ -175,7 +183,15 @@
     padding: 5px 8px;
     outline: none;
   }
-  .field input[type="checkbox"] { flex: 0; width: 18px; height: 18px; accent-color: var(--main); }
+  .field input[type="checkbox"] {
+    flex: 0; width: 18px; height: 18px; appearance: none; margin: 0;
+    border: 1px solid var(--dim); background: #000; position: relative; cursor: pointer;
+  }
+  .field input[type="checkbox"]:checked { border-color: var(--main); }
+  .field input[type="checkbox"]:checked::after {
+    content: '×'; position: absolute; inset: -3px 0 0; text-align: center;
+    font-size: 18px; line-height: 18px; color: var(--main);
+  }
   .field input[type="range"] { accent-color: var(--main); padding: 0; }
   .field input:focus { border-color: var(--bright); }
   .field input[type="password"] { letter-spacing: 2px; }
@@ -234,7 +250,7 @@
     text-shadow: 0 0 6px var(--glow);
   }
   button:hover { background: var(--tint); border-color: var(--bright); }
-  .btn-row { display: flex; gap: 10px; margin-top: 16px; justify-content: center; }
+  .btn-row { display: flex; gap: 10px; margin-top: 16px; justify-content: center; flex-wrap: wrap; }
   .btn-primary { border-width: 2px; padding: 11px 26px; color: var(--bright); }
   #setup-note { display: none; margin-top: 10px; font-size: 17px; color: var(--red); text-align: center; }
   #hof-list { font-size: 17px; margin-top: 6px; }
@@ -299,7 +315,7 @@
     font-size: 17px;
   }
   .inv-row:last-child { border-bottom: none; }
-  .inv-name { color: var(--main); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .inv-name { color: var(--main); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .inv-meta { color: var(--dim); font-size: 15px; flex-shrink: 0; }
   .inv-btn {
     flex-shrink: 0; font-size: 8px; padding: 3px 8px;
@@ -464,12 +480,13 @@
   #log {
     flex: 1;
     overflow-x: hidden;
+    overflow-y: auto;
     font-size: 19px;
     line-height: 1.5;
     min-height: 0;
     cursor: pointer;
   }
-  .line { white-space: pre-wrap; word-break: break-word; margin-bottom: 7px; max-width: 96ch; }
+  .line { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; margin-bottom: 7px; max-width: 96ch; }
   .kind-player { color: var(--bright); }
   .kind-dm { color: var(--main); }
   .kind-system { color: var(--dim); }
@@ -633,25 +650,43 @@
     .screen { height: auto; min-height: 100vh; padding: 10px; }
     .screen.active { overflow: visible; }
     #screen-game { gap: 8px; }
-    #game-title { font-size: 9px; letter-spacing: 1px; }
+    #game-title { font-size: 9px; letter-spacing: 1px; line-height: 1.9; }
+    #floor-label { display: block; }
     #btn-chronicle, #btn-help, #btn-diag { font-size: 7px; padding: 4px 6px; margin-left: 4px; }
     .game-grid { display: flex; flex-direction: column; gap: 8px; }
     .game-grid > .col:nth-child(2) { order: 1; } /* хроника и ввод — первыми */
     .game-grid > .col:nth-child(1) { order: 2; }
-    #log-panel { min-height: 48vh; }
+    #log-panel { min-height: 40vh; }
     #portrait-panel { display: none; } /* аватарка и так в панели героя */
-    .panel { padding: 8px; }
+    .panel { padding: 8px; overflow-x: hidden; }
     #log { font-size: 18px; }
     .stat-row { font-size: 17px; }
     .stat-row > span:last-child { white-space: normal; }
-    #quests, #inv-panel { max-height: none; }
+    #quests, #inv-panel, #shop-panel { max-height: none; flex: 0 0 auto; }
+    .inv-row { flex-wrap: wrap; }
     .input-row {
       position: sticky; bottom: 0; z-index: 20;
       background: var(--bg); padding: 6px 0 10px; flex-wrap: wrap;
     }
-    #ability-btn { max-width: 100%; }
+    #ability-btn { max-width: 100%; word-break: break-word; }
     #input { font-size: 18px; }
     .avatar-grid { grid-template-columns: repeat(4, 1fr); }
+
+    /* настройки: одна колонка, поля во всю ширину */
+    #screen-setup { justify-content: flex-start; padding: 10px; align-items: stretch; }
+    .setup-box { width: 100%; max-height: none; padding: 14px; overflow-x: hidden; }
+    #logo { font-size: 5px !important; white-space: pre-wrap; word-break: break-word; }
+    #logo-sub { display: none; }
+    .setup-grid, .setup-netai { grid-template-columns: 1fr; gap: 12px; }
+    .field { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .field label { width: auto; }
+    .field input, .field select { width: 100%; flex: none; }
+    .hint { margin-left: 0; }
+    #class-list, #custom-class-list { grid-template-columns: 1fr; }
+    .cc-stats { grid-template-columns: repeat(3, 1fr); }
+    .death-box { width: 92vw; padding: 28px 18px; }
+    .death-box h2 { font-size: 18px; letter-spacing: 2px; }
+    .death-box .epi { font-size: 18px; }
   }
 </style>
 </head>
@@ -662,6 +697,7 @@
 <!-- ЭКРАН НАСТРОЕК -->
 <div class="screen active" id="screen-setup">
   <div class="setup-box">
+    <div class="setup-header">
     <pre id="logo">
 ██████╗ ███╗   ██╗██████╗
 ██╔══██╗████╗  ██║██╔══██╗
@@ -677,15 +713,24 @@
 ██████╔╝    ██║        ███████╗ ██╔╝ ██╗ ╚██████╗ ██║      ██║  ██║ ██║       ██║      ██║
 ╚═════╝     ╚═╝        ╚══════╝ ╚═╝  ╚═╝  ╚═════╝ ╚═╝      ╚═╝  ╚═╝ ╚═╝       ╚═╝      ╚═╝</pre>
     <div class="hint" style="margin-left:0; text-align:center">ASCII-рогалик с ИИ-данж-мастером. Троллем. Беспощадным.</div>
+    </div>
 
+    <div class="setup-grid">
+    <div class="setup-col">
     <h2>МИР</h2>
     <div class="field">
-      <label for="set-world-title">Название мира</label>
-      <input id="set-world-title" type="text" placeholder="напр. Дождь над Порт-Альгеном" value="Киберпанк-Токио 2099">
+      <label for="set-theme">Тема мира</label>
+      <select id="set-theme"></select>
     </div>
-    <div class="field">
-      <label for="set-world">Описание мира</label>
-      <input id="set-world" type="text" placeholder="неон, корпорации, ты — курьер-неудачник с чужим чипом" value="Неон, корпорации, чипы. Ты — курьер-неудачник с чужим чипом в голове.">
+    <div id="world-custom" style="display:none">
+      <div class="field">
+        <label for="set-world-title">Название мира</label>
+        <input id="set-world-title" type="text" maxlength="120">
+      </div>
+      <div class="field">
+        <label for="set-world">Описание мира</label>
+        <input id="set-world" type="text" maxlength="400">
+      </div>
     </div>
     <div class="field">
       <label for="set-mode">Режим</label>
@@ -714,23 +759,6 @@
       <label for="set-name">Имя героя</label>
       <input id="set-name" type="text" placeholder="Странник" maxlength="20">
     </div>
-    <h2>ПРЕДЫСТОРИЯ <button id="btn-backstory" style="font-size:8px; padding:5px 10px; margin-left:8px">сгенерировать</button></h2>
-    <textarea id="set-backstory" maxlength="2400" placeholder="Кто он, откуда, за что попал сюда… Здесь можно писать что угодно — ДМ будет опираться на этот текст как на канон."></textarea>
-    <div class="bs-meta">
-      <span class="hint">Правь руками сколько угодно — ДМ обязан соблюдать написанное.</span>
-      <span class="hint" id="backstory-count">0 / 2400</span>
-    </div>
-    <div class="field" style="align-items:flex-start">
-      <label>АВАТАР</label>
-      <div style="flex:1; min-width:0">
-        <div class="avatar-head">
-          <pre class="avatar" id="name-avatar"> </pre>
-          <span class="hint" id="avatar-note" style="margin-left:0">Выбери портрет. Если ничего не выбрано — рисуется из ника.</span>
-        </div>
-        <div id="avatar-grid" class="avatar-grid"></div>
-      </div>
-    </div>
-
     <div id="lobby-panel" style="display:none; border:1px dashed var(--dim); padding:12px; margin:10px 0">
       <div class="field" style="justify-content:center">
         <span class="stat-label">КОД КОМНАТЫ:</span>
@@ -747,8 +775,27 @@
         <button id="btn-diag" type="button" class="btn-small">скопировать отчёт о связи</button>
       </div>
       <div class="btn-row">
-        <button id="btn-launch" style="display:none">▶ НАЧАТЬ СПУСК</button>
+        <button id="btn-launch" style="display:none">▶ НАЧАТЬ ЗАБЕГ</button>
       </div>
+    </div>
+    <div class="field" style="align-items:flex-start">
+      <label>АВАТАР</label>
+      <div style="flex:1; min-width:0">
+        <div class="avatar-head">
+          <pre class="avatar" id="name-avatar"> </pre>
+          <span class="hint" id="avatar-note" style="margin-left:0">Выбери портрет. Если ничего не выбрано — рисуется из ника.</span>
+        </div>
+        <div id="avatar-grid" class="avatar-grid"></div>
+      </div>
+    </div>
+    </div>
+
+    <div class="setup-col">
+    <h2>ПРЕДЫСТОРИЯ <button id="btn-backstory" style="font-size:8px; padding:5px 10px; margin-left:8px">сгенерировать</button></h2>
+    <textarea id="set-backstory" maxlength="2400" placeholder="Кто он, откуда, за что попал сюда… Здесь можно писать что угодно — ДМ будет опираться на этот текст как на канон."></textarea>
+    <div class="bs-meta">
+      <span class="hint">Правь руками сколько угодно — ДМ обязан соблюдать написанное.</span>
+      <span class="hint" id="backstory-count">0 / 2400</span>
     </div>
 
     <h2>КЛАСС <button id="btn-classes" style="font-size:8px; padding:5px 10px; margin-left:8px">перегенерировать под мир</button></h2>
@@ -783,8 +830,8 @@
       <div class="field">
         <label for="cc-active">Что делает</label>
         <select id="cc-active">
-          <option value="smite">Кара — бьёт врага, +Сила урона</option>
-          <option value="heal">Лечение — восстанавливает Силу HP</option>
+          <option value="smite">Кара — удар, урон +Сила</option>
+          <option value="heal">Лечение — восстанавливает HP</option>
           <option value="stun">Оглушение — враг пропускает ход</option>
           <option value="dash">Рывок — 2 клетки, разрывает бой</option>
           <option value="">Без актива</option>
@@ -816,8 +863,10 @@
       </div>
     </div>
     <div id="custom-class-list"></div>
+    </div>
+    </div>
 
-
+    <div class="setup-full">
     <h2>ВИЗУАЛ И ЗВУК</h2>
     <div class="field">
       <label for="vis-theme">Тема</label>
@@ -843,9 +892,12 @@
     <div class="field">
       <label for="vis-vol">Громкость</label>
       <input id="vis-vol" type="range" min="0" max="100" value="60" style="flex:1">
-      <label style="width:auto; display:flex; align-items:center; gap:5px"><input id="vis-mute" type="checkbox"> mute</label>
+      <label style="width:auto; display:flex; align-items:center; gap:5px"><input id="vis-mute" type="checkbox"> БЕЗ ЗВУКА</label>
+    </div>
     </div>
 
+    <div class="setup-full setup-netai">
+    <div class="setup-net">
     <h2>СЕТЬ (кооп)</h2>
     <div class="field">
       <label for="net-turn">TURN-сервер</label>
@@ -856,13 +908,15 @@
     </div>
     <div class="field">
       <label for="net-relay">Релей</label>
-      <input id="net-relay" type="text" placeholder="https://dnd-relay.ты.workers.dev" autocomplete="off">
+      <input id="net-relay" type="text" placeholder="https://dnd-relay.твой-аккаунт.workers.dev" autocomplete="off">
     </div>
     <div class="bs-meta">
       <span class="hint" id="net-relay-note">Уже прописан свой релей — заполнять не нужно. Поле только для смены: если хотите свой брокер, впишите адрес (сервер: server/relay-worker.mjs).</span>
     </div>
 
-    <h2>ИИ-ДМАСТЕР (необязательно — без ключа играет заглушка)</h2>
+    </div>
+    <div class="setup-ai">
+    <h2>ИИ-ДМАСТЕР</h2>
     <div class="field">
       <label for="set-base">Base URL</label>
       <input id="set-base" type="text" placeholder="https://api.openai.com/v1">
@@ -875,9 +929,12 @@
       <label for="set-model">Модель</label>
       <input id="set-model" type="text" placeholder="gpt-4o-mini / deepseek-flash / llama3">
     </div>
-    <div class="hint" style="margin-left:140px">Любой OpenAI-совместимый: OpenAI, DeepSeek, OpenRouter, локальная Ollama. Ключ хранится только в твоём браузере.</div>
+    <div class="hint">Необязательно: без ключа играет заглушка. Любой OpenAI-совместимый — OpenAI, DeepSeek, OpenRouter, локальная Ollama. Ключ хранится только в твоём браузере.</div>
     <div id="setup-note"></div>
+    </div>
+    </div>
 
+    <div class="setup-full setup-bottom">
     <div id="continue-panel" style="display:none">
       <div class="cont-title">◆ НЕЗАКОНЧЕННЫЙ ЗАБЕГ</div>
       <div id="continue-info" class="hint">…</div>
@@ -893,6 +950,7 @@
 
     <h2>☠ ЗАЛ СЛАВЫ ПОГИБШИХ</h2>
     <div id="hof-list"></div>
+    </div>
   </div>
 </div>
 
@@ -900,7 +958,7 @@
 <div class="screen" id="screen-game">
   <header style="padding:0 0 2px">
     <div id="game-title">dnd by ZxcPap14 <span id="floor-label"></span>
-      <button id="btn-chronicle" title="Скачать хронику забега в файл">⤓ ХРОНИКА</button>
+      <button id="btn-chronicle" title="Скачать хронику забега в файл">ХРОНИКА</button>
       <button id="btn-help" title="Справка: что можно писать и как идёт ход">? СПРАВКА</button>
     </div>
     <div id="turn-banner"></div>
@@ -6393,6 +6451,10 @@ function escHtml(s) {
   return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+// те же подписи, что в конструкторе класса, — иначе STR рядом с СИЛ
+const STAT_ABBR = { str: 'СИЛ', dex: 'ЛОВ', int: 'ИНТ', con: 'ВЫН', cha: 'ХАР', luck: 'УДА' };
+const statChip = (k, v) => `<span class="stat-chip">${STAT_ABBR[k] || k.toUpperCase()}<b>${v}</b></span>`;
+
 /** Полоска HP из блоков. */
 function hpBar(player, width = 10) {
   const filled = Math.round((Math.max(0, player.hp) / player.maxHp) * width);
@@ -6411,11 +6473,11 @@ function renderStats(el, state) {
       <span class="stat-label">${escHtml(p.name)}</span><span>${escHtml(p.className)} · ур.${p.level}</span>
     </div>
     <div class="stat-row"><span class="stat-label">HP</span><span class="hp">${p.hp}/${p.maxHp} ${hpBar(p)}</span></div>
-    <div class="stat-row"><span class="stat-label">AC / XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
+    <div class="stat-row"><span class="stat-label">AC · XP</span><span>${playerAc(p)} · ${p.xp}/${p.level * 100} · золото ${p.gold}</span></div>
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(itemNameWithCurse(p.equipment.weapon) || 'кулаки')}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(itemNameWithCurse(p.equipment.armor) || 'нет')}</span></div>
     ${abilityRow}
-    <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => `<span class="stat-chip">${k.toUpperCase()}<b>${v}</b></span>`).join('')}</div>
+    <div class="stat-row stats-line">${Object.entries(p.stats).map(([k, v]) => statChip(k, v)).join('')}</div>
   `;
 }
 
@@ -6541,7 +6603,7 @@ function renderStatsSnap(el, snap) {
     <div class="stat-row"><span class="stat-label">Оружие</span><span>${escHtml(itemNameWithCurse(s.equipment.weapon) || 'кулаки')}</span></div>
     <div class="stat-row"><span class="stat-label">Броня</span><span>${escHtml(itemNameWithCurse(s.equipment.armor) || 'нет')} (AC ${s.ac})</span></div>
     ${s.ability ? `<div class="stat-row"><span class="stat-label">Способность</span><span>${escHtml(s.ability.name)}${s.ability.active ? (s.abilityCd > 0 ? ` · КД ${s.abilityCd}` : ' · <span style="color:var(--loot)">ГОТОВО</span>') : ''}</span></div>` : ''}
-    <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => `<span class="stat-chip">${k.toUpperCase()}<b>${v}</b></span>`).join('')}</div>
+    <div class="stat-row stats-line">${Object.entries(s.stats).map(([k, v]) => statChip(k, v)).join('')}</div>
     ${party}
   `;
 }
@@ -7182,6 +7244,8 @@ function applyHostClasses(world, classes) {
   const parts = String(world || '').split(': ');
   $('set-world-title').value = (parts.shift() || '').slice(0, 120);
   $('set-world').value = parts.join(': ').slice(0, 400);
+  applyTheme('custom', false);
+  $('set-theme').disabled = true;
   renderClassCards(classes.map(c => ({ ...c, host: true })));
   addSetupNote('Мир и классы пришли от хоста — он платит за ИИ и раздаёт роли. Свои классы в чужой комнате не нужны.');
 }
@@ -7202,6 +7266,32 @@ function readBackstory() {
   const text = offlineBackstory(w, n, cls.name);
   setBackstory(text);
   return text;
+}
+
+/** Темы мира: игрок выбирает жанр, название и описание подставляются готовые. */
+const WORLD_PRESETS = [
+  ['cyber', 'Киберпанк', 'Киберпанк-Токио 2099', 'Неон, корпорации, чипы. Ты — курьер-неудачник с чужим чипом в голове.'],
+  ['fantasy', 'Тёмное фэнтези', 'Пепельная Марка', 'Гниющие леса, культы, наёмники без имени. Мечи тупятся о кости.'],
+  ['space', 'Космос', 'Станция Криптон-7', 'Ржавая станция на краю системы, воздух по талонам, дроны следят за всеми.'],
+  ['horror', 'Хоррор', 'Дом на Гнилой набережной', 'Затопленный подвал, шёпот за стеной, соседи, которых никто не помнит.'],
+  ['postap', 'Постапокалипсис', 'Соляная Пустошь', 'Ржавчина, бензин, банды на трассах. Вода дороже золота.'],
+  ['noir', 'Нуар', 'Город под дождём, 1947', 'Долги, сигаретный дым, частный детектив, который знает слишком много.'],
+  ['slav', 'Славянская нечисть', 'Забытая волость', 'Туман, обряды, леший в соседнем лесу и староста, который врёт.'],
+  ['custom', 'Своя тема', '', '']
+];
+
+function applyTheme(id, save = true) {
+  const theme = WORLD_PRESETS.find(t => t[0] === id) || WORLD_PRESETS[0];
+  $('set-theme').value = theme[0];
+  $('world-custom').style.display = theme[0] === 'custom' ? '' : 'none';
+  if (theme[0] !== 'custom') {
+    $('set-world-title').value = theme[2];
+    $('set-world').value = theme[3];
+  }
+  if (save) {
+    try { localStorage.setItem('dnd_theme', theme[0]); } catch { /*ignore*/ }
+    renderClassList(false);
+  }
 }
 
 /** Мир = название + описание. Пустое поле не мешает: берём то, что есть. */
@@ -7301,7 +7391,7 @@ function refreshPanelsSolo() {
   refreshInventory();
   refreshShop();
   $('floor-label').textContent = state.floorName
-    + (state.story && !state.over ? ` · ⚜ ГЛАВА ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
+    + (state.story && !state.over ? ` · ГЛАВА ${state.story.act}/${state.story.acts}: ${state.story.villain || state.story.fallbackVillain?.villain || '???'}` : '');
 }
 
 /**
@@ -7762,7 +7852,7 @@ function applySnapshot(snap) {
   refreshShop();
   renderCombat($('combat-panel'), snap.combat || []);
   $('floor-label').textContent = `${snap.floorName} · комната ${roomCode || ''}`
-    + (snap.story && !snap.over ? ` · ⚜ ГЛАВА ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
+    + (snap.story && !snap.over ? ` · ГЛАВА ${snap.story.act}/${snap.story.acts}: ${snap.story.villain}` : '');
   const hero = snap.heroes[snap.you];
   if (!hero) return; // битый снапшот не должен ронять UI
   const myTurn = !snap.over && hero.alive && snap.turnOf === snap.you;
@@ -8022,6 +8112,11 @@ function wire() {
   const get = k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
   if (!$('set-world-title').value.trim()) $('set-world-title').value = get('dnd_world_title');
   if (!$('set-world').value.trim()) $('set-world').value = get('dnd_world');
+  const themeSel = $('set-theme');
+  themeSel.innerHTML = WORLD_PRESETS.map(t => `<option value="${t[0]}">${t[1]}</option>`).join('');
+  // сохранённая своя тема важнее дефолтной: иначе затрём мир, который игрок писал руками
+  applyTheme(get('dnd_theme') || (get('dnd_world') ? 'custom' : 'cyber'), false);
+  themeSel.addEventListener('change', () => applyTheme(themeSel.value));
   let reclassTimer = null;
   const reclass = () => {
     clearTimeout(reclassTimer);
