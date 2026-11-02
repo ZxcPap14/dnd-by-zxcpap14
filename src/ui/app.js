@@ -1,6 +1,6 @@
 // app.js — склейка всего: экраны, игровой цикл, ввод, кооп (хост/клиент), смерть, зал славы, экспорт.
 
-import { esc, loadHof, saveHofEntry, loadCustomClasses, saveCustomClasses, parseInvite } from './store.js';
+import { esc, loadHof, saveHofEntry, hofStats, loadCustomClasses, saveCustomClasses, parseInvite } from './store.js';
 import { paintPortrait, fitArt } from './portrait.js';
 import { dailySeed } from '../engine/rng.js';
 import { newGame, parseCommand, applyIntent, applyDmEffects, engagedEnemies, rollPowerCheck } from '../engine/game.js';
@@ -190,14 +190,15 @@ function saveCfg() {
 
 function renderHof() {
   const hof = loadHof();
+  const s = hofStats(hof);
   $('hof-list').innerHTML = hof.length
-    ? hof.slice(0, 10).map(h =>
-      `<div class="hof-row"><span class="hof-name">${esc(h.name)}</span> <span class="hof-meta">${esc(h.className)} · ${esc(h.world)} · этаж ${h.depth}</span><span class="hof-epitaph">「${esc(h.epitaph)}」</span></div>`
+    ? `<div class="hof-row hof-sum">Забегов: ${s.runs} · лучший этаж: ${s.best} · побед: ${s.wins}</div>`
+      + hof.slice(0, 10).map(h =>
+      `<div class="hof-row${h.won ? ' hof-won' : ''}"><span class="hof-name">${h.won ? '⚜ ' : ''}${esc(h.name)}</span> <span class="hof-meta">${esc(h.className)} · ур.${h.level || 1} · ${esc(h.world)} · этаж ${h.depth}</span><span class="hof-epitaph">「${esc(h.epitaph)}」</span></div>`
     ).join('')
     : '<div class="hof-row hof-empty">Зал пуст. Пока что.</div>';
   if (typeof refreshThemeOptions === 'function') refreshThemeOptions();
 }
-
 
 // ---------- сохранение / продолжение забега ----------
 
@@ -1062,6 +1063,8 @@ function showDeathSolo() {
     className: state.player.className,
     world: state.worldDesc,
     depth: state.depth,
+    level: state.player.level,
+    won,
     epitaph: won
       ? `⚜ победил ${state.story.villain} — и вышел живым. Почти.`
       : (state.epitaph || 'умер от жизни'),
@@ -1082,6 +1085,8 @@ function showDeathSnap(snap) {
     className: me.className,
     world: snap.worldDesc,
     depth: snap.depth,
+    level: me.level,
+    won,
     epitaph: won
       ? `⚜ партия победила ${snap.story?.villain || 'злодея'}`
       : (snap.epitaph || (me.alive ? 'пережил всех, но не подземелье' : 'погиб в подземелье')),

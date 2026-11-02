@@ -32,3 +32,13 @@ export function parseInvite(search) {
     return code && /^[a-z0-9]{4}$/i.test(code) ? code.toUpperCase() : null;
   } catch { return null; }
 }
+
+/** Сводка архива: сколько забегов, лучший этаж, сколько побед. */
+export function hofStats(list) {
+  const runs = Array.isArray(list) ? list.filter(h => h && typeof h === "object") : [];
+  return {
+    runs: runs.length,
+    best: runs.reduce((m, h) => Math.max(m, Number(h.depth) || 0), 0),
+    wins: runs.filter(h => h.won).length
+  };
+}
